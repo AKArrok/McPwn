@@ -1,0 +1,23 @@
+# Env
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Runs — 只保留 manual_ground_truth,其它 run 输出忽略
+runs/*
+!runs/manual_ground_truth/
+!runs/.gitkeep
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.idea/
+.vscode/

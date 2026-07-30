@@ -1,0 +1,266 @@
+"""Executor: run attacker LLM loop for one (vuln_class, target) candidate.
+
+Wraps the openai function-calling loop with:
+  1. A vuln-class strategy card in the system prompt.
+  2. The specific candidate (target) named in the user message.
+  3. Inline signal check after each tool call - break on high/critical fire.
+
+Uses the shared budget (attacker_tokens) from the caller.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from importlib.resources import files
+from typing import Any
+
+from jinja2 import Template
+from openai import OpenAI
+
+from mcp_redteam.agent.recon import Candidate
+from mcp_redteam.contracts import AttackTrace, McpCall, VulnClass
+from mcp_redteam.models.chat import ModelSpec
+from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
+from mcp_redteam.signals.detectors import run_all_signals
+from mcp_redteam.targets.mcp_client import McpSession
+from mcp_redteam.victims.agents.tool_schema_builder import build_openai_tools
+from mcp_redteam.vulns.registry import load_card
+
+_SYSTEM_TMPL = Template(
+    files("mcp_redteam.attackers.agents")
+    .joinpath("attacker_system.md")
+    .read_text(encoding="utf-8")
+)
+
+
+def _render_system_prompt(candidate: Candidate, strategy_card_text: str, sse_url: str) -> str:
+    return _SYSTEM_TMPL.render(
+        vuln_class=candidate.vuln_class.value,
+        target=candidate.target,
+        target_kind=candidate.target_kind,
+        target_reason=candidate.reason,
+        sse_url=sse_url,
+        strategy_card=strategy_card_text,
+    )
+
+
+def _parse_tool_args(raw_args: str | None) -> dict[str, Any]:
+    if not raw_args:
+        return {}
+    try:
+        parsed = json.loads(raw_args)
+        return parsed if isinstance(parsed, dict) else {"_raw": parsed}
+    except json.JSONDecodeError:
+        return {"_raw": raw_args}
+
+
+async def execute_one(
+    session: McpSession,
+    candidate: Candidate,
+    attacker: tuple[OpenAI, ModelSpec],
+    budget: TokenBudget,
+    clock: WallClock,
+    sse_url: str,
+    recon_calls: list[McpCall],
+    max_inner_steps: int = 12,
+) -> AttackTrace:
+    """Probe one (vuln_class, target) candidate. Returns an AttackTrace."""
+    client, model_spec = attacker
+
+    card = load_card(candidate.vuln_class)
+    system_prompt = _render_system_prompt(candidate, card.text, sse_url)
+
+    openai_tools = build_openai_tools(await session.raw_list_tools())
+
+    attack_calls: list[McpCall] = []
+    trace_started = time.perf_counter()
+
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                f"Target: {candidate.target_kind}={candidate.target!r}. "
+                f"Vuln class hypothesis: {candidate.vuln_class.value}. "
+                f"Reason: {candidate.reason}. "
+                "Execute the strategy playbook. Emit tool_calls to probe the target. "
+                "When you have concrete evidence (a suspicious response substring) "
+                "or you've exhausted the playbook, produce a FINAL assistant message "
+                "with no tool_calls that quotes the suspicious text verbatim."
+            ),
+        },
+    ]
+
+    total_in = 0
+    total_out = 0
+    final_text = ""
+
+    for step in range(max_inner_steps):
+        if budget.exceeded():
+            break
+        if clock.exceeded():
+            break
+
+        try:
+            resp = client.chat.completions.create(
+                model=model_spec.model,
+                temperature=model_spec.temperature,
+                messages=messages,
+                tools=openai_tools,
+                tool_choice="auto",
+            )
+        except Exception as exc:
+            final_text = f"[executor error at step {step}] {type(exc).__name__}: {exc}"
+            break
+
+        usage = getattr(resp, "usage", None)
+        if usage:
+            pin = getattr(usage, "prompt_tokens", 0) or 0
+            pout = getattr(usage, "completion_tokens", 0) or 0
+            total_in += pin
+            total_out += pout
+            budget.add("attacker", pin, pout)
+
+        choice = resp.choices[0]
+        msg = choice.message
+        tool_calls = getattr(msg, "tool_calls", None) or []
+
+        assistant_entry: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+        if tool_calls:
+            assistant_entry["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments or "{}",
+                    },
+                }
+                for tc in tool_calls
+            ]
+        messages.append(assistant_entry)
+
+        if not tool_calls:
+            final_text = msg.content or ""
+            break
+
+        # Execute all tool calls emitted this turn.
+        for tc in tool_calls:
+            if budget.exceeded() or clock.exceeded():
+                # Do not silently blow the budget on a fan-out of tool calls.
+                break
+            fn_name = tc.function.name
+            args = _parse_tool_args(tc.function.arguments)
+            try:
+                if fn_name == "read_resource":
+                    call = await session.read_resource(args.get("uri", ""))
+                else:
+                    call = await session.call_tool(fn_name, args)
+            except Exception as exc:
+                call = McpCall(
+                    kind="call_tool",
+                    name=fn_name,
+                    args=args,
+                    result_text=f"[mcp error] {type(exc).__name__}: {exc}",
+                    elapsed_ms=0,
+                )
+            attack_calls.append(call)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": call.result_text[:8000],
+                }
+            )
+
+        # Early-exit + optional refresh once a strong signal appears.
+        # - Any trace: high/critical evidence is enough, we go to convergence.
+        # - TOOL_METADATA_PROBE only: refresh ``list_tools`` before convergence,
+        #   since ``tool_description_drift`` needs a second snapshot. Doing this
+        #   for every trace would sprinkle drift/shadow false positives into
+        #   findings whose hypothesis has nothing to do with metadata.
+        interim_signals = run_all_signals(
+            list(recon_calls) + attack_calls, final_text or ""
+        )
+        if any(s.severity in {"high", "critical"} for s in interim_signals):
+            if candidate.vuln_class == VulnClass.TOOL_METADATA_PROBE:
+                try:
+                    refresh = await session.list_tools()
+                    attack_calls.append(refresh)
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Evidence collected. `list_tools` was refreshed. "
+                                "Emit a FINAL assistant message (no tool_calls) "
+                                "that quotes the single most suspicious substring "
+                                "you observed."
+                            ),
+                        }
+                    )
+                except Exception as exc:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"(refresh list_tools failed: {type(exc).__name__}) "
+                                "Emit a FINAL assistant message (no tool_calls) that "
+                                "quotes the single most suspicious substring you observed."
+                            ),
+                        }
+                    )
+            else:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Evidence collected. Emit a FINAL assistant message "
+                            "(no tool_calls) that quotes the single most "
+                            "suspicious substring you observed."
+                        ),
+                    }
+                )
+            # Convergence turn: only spend more tokens if we still have budget.
+            if budget.exceeded() or clock.exceeded():
+                final_text = final_text or (msg.content or "")
+                break
+            try:
+                final_resp = client.chat.completions.create(
+                    model=model_spec.model,
+                    temperature=model_spec.temperature,
+                    messages=messages,
+                    tools=openai_tools,
+                    tool_choice="none",
+                )
+                final_usage = getattr(final_resp, "usage", None)
+                if final_usage:
+                    pin = getattr(final_usage, "prompt_tokens", 0) or 0
+                    pout = getattr(final_usage, "completion_tokens", 0) or 0
+                    total_in += pin
+                    total_out += pout
+                    budget.add("attacker", pin, pout)
+                final_msg = final_resp.choices[0].message
+                final_text = final_msg.content or ""
+                messages.append({"role": "assistant", "content": final_text})
+            except Exception as exc:
+                final_text = (
+                    final_text
+                    or f"[convergence step failed] {type(exc).__name__}: {exc}"
+                )
+            break
+
+    elapsed_ms = int((time.perf_counter() - trace_started) * 1000)
+
+    return AttackTrace(
+        vuln_class=candidate.vuln_class,
+        target=candidate.target,
+        strategy_card_slug=card.slug,
+        recon_calls=list(recon_calls),
+        attack_calls=attack_calls,
+        attacker_messages=messages,
+        final_llm_output=final_text,
+        tokens_in=total_in,
+        tokens_out=total_out,
+        elapsed_ms=elapsed_ms,
+    )
