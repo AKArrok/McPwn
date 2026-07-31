@@ -1,5 +1,5 @@
-# DVMCP 10 challenge 的预期 vuln class (不是判据).
-# 用来算 recall / FPR / poc_replay_pass_rate.
+# DVMCP 10 challenge 预期信号 (不是判据).
+# hit 判定: finding 的 signal_id 与 expected_signals 有交集即 hit.
 # HANDOFF paragraph 7.
 
 expected:
@@ -7,49 +7,84 @@ expected:
     name: "Basic Prompt Injection"
     primary_class: direct_prompt_injection
     also_accept: []
+    expected_signals:
+      - leaks_api_key_shape
+      - leaks_hardcoded_password
+      - stored_injection_roundtrip
     evidence_hint: "read internal://credentials via injection through notes://"
 
   - port: 9002
     name: "Tool Poisoning (whitelist bypass)"
     primary_class: command_injection
     also_accept: []
+    expected_signals:
+      - leaks_etc_passwd
+      - command_exec_uid_stdout
+      - command_exec_ls_root
 
   - port: 9003
     name: "Excessive Permission Scope"
     primary_class: path_traversal
     also_accept: []
+    expected_signals:
+      - leaks_etc_passwd
+      - leaks_shadow_hash
+      - leaks_ssh_private_key
 
   - port: 9004
     name: "Rug Pull"
     primary_class: tool_metadata_probe
     also_accept: []
+    expected_signals:
+      - rug_pull_response_flip
+      - suspicious_error_pitch
 
   - port: 9005
     name: "Tool Shadowing"
     primary_class: tool_metadata_probe
     also_accept: [auth_bypass]
+    expected_signals:
+      - shadow_tool_pair
+      - shadow_tool_behavior_divergence
+      - unauthenticated_success
 
   - port: 9006
     name: "Indirect Prompt Injection"
     primary_class: indirect_injection
     also_accept: []
+    expected_signals:
+      - stored_injection_roundtrip
+      - llm_judged_injection
 
   - port: 9007
     name: "Token Theft"
     primary_class: auth_bypass
     also_accept: []
+    expected_signals:
+      - unauthenticated_success
 
   - port: 9008
     name: "Malicious Code Execution"
     primary_class: command_injection
     also_accept: []
+    expected_signals:
+      - leaks_etc_passwd
+      - command_exec_uid_stdout
 
   - port: 9009
     name: "Remote Access Control"
     primary_class: auth_bypass
     also_accept: [command_injection]
+    expected_signals:
+      - unauthenticated_success
+      - admin_action_confirmed
 
   - port: 9010
     name: "Multi-Vector"
     primary_class: chain_composition
     also_accept: [path_traversal, indirect_injection]
+    expected_signals:
+      - leaks_etc_passwd
+      - unauthenticated_success
+      - stored_injection_roundtrip
+      - admin_action_confirmed

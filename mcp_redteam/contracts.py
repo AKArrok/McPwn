@@ -129,6 +129,11 @@ class Finding(BaseModel):
     finding_id: str
     vuln_class: VulnClass
     target: str
+    # What the recon classifier guessed; kept for backward compat.
+    hypothesis_class: VulnClass | None = None
+    # Inferred from the signals that fired + the call that produced them.
+    # This is what the evidence actually shows, not what we guessed.
+    evidence_class: VulnClass | None = None
     severity: FindingSeverity
     confidence: float = Field(ge=FINDING_CONFIDENCE_THRESHOLD, le=1.0)
     title: str

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -297,6 +298,58 @@ def _maybe_add_l2_signal(
     ]
 
 
+
+
+_SIGNAL_TO_CLASS: dict[str, VulnClass] = {
+    "unauthenticated_success": VulnClass.AUTH_BYPASS,
+    "admin_action_confirmed": VulnClass.AUTH_BYPASS,
+    "command_exec_uid_stdout": VulnClass.COMMAND_INJECTION,
+    "command_exec_ls_root": VulnClass.COMMAND_INJECTION,
+    "tool_description_drift": VulnClass.TOOL_METADATA_PROBE,
+    "shadow_tool_pair": VulnClass.TOOL_METADATA_PROBE,
+    "shadow_tool_behavior_divergence": VulnClass.TOOL_METADATA_PROBE,
+    "rug_pull_response_flip": VulnClass.TOOL_METADATA_PROBE,
+    "suspicious_error_pitch": VulnClass.TOOL_METADATA_PROBE,
+    "stored_injection_roundtrip": VulnClass.INDIRECT_INJECTION,
+    "llm_judged_injection": VulnClass.INDIRECT_INJECTION,
+}
+
+_FILE_TOOL_RE = re.compile(r"file|read|download|config|manager", re.IGNORECASE)
+_SHELL_TOOL_RE = re.compile(r"exec|command|shell|run|eval|evaluate", re.IGNORECASE)
+
+
+def _infer_evidence_class(
+    signals: list[EvidenceSignal], trace: AttackTrace
+) -> VulnClass:
+    """Infer the vuln class from the signals that fired, not the hypothesis.
+
+    Leak signals (leaks_etc_passwd etc.) are context-dependent: the same
+    signal can indicate path_traversal (via a file tool) or command_injection
+    (via a shell tool). We look at the call that produced the leak to decide.
+    """
+    classes: set[VulnClass] = set()
+    all_calls = list(trace.recon_calls) + list(trace.attack_calls)
+
+    for sig in signals:
+        if sig.signal_id in _SIGNAL_TO_CLASS:
+            classes.add(_SIGNAL_TO_CLASS[sig.signal_id])
+        elif sig.signal_id.startswith("leaks_") and sig.source_call_index is not None and sig.source_call_index < len(all_calls):
+                call = all_calls[sig.source_call_index]
+                if call.kind == "read_resource":
+                    classes.add(VulnClass.DIRECT_PROMPT_INJECTION)
+                elif call.name and _FILE_TOOL_RE.search(call.name):
+                    classes.add(VulnClass.PATH_TRAVERSAL)
+                elif call.name and _SHELL_TOOL_RE.search(call.name):
+                    classes.add(VulnClass.COMMAND_INJECTION)
+
+    if not classes:
+        return trace.vuln_class
+    if len(classes) == 1:
+        return next(iter(classes))
+    # Multiple distinct classes fired -> chain composition
+    return VulnClass.CHAIN_COMPOSITION
+
+
 def build_findings(
     traces: list[AttackTrace],
     trace_dir: Path | None = None,
@@ -341,9 +394,12 @@ def build_findings(
             )
             trace_ref = str(trace_dir / fname)
 
+        evidence_class = _infer_evidence_class(signals, trace)
         finding = Finding(
             finding_id=Finding.compute_id(trace.vuln_class, trace.target, top.signal_id),
             vuln_class=trace.vuln_class,
+            hypothesis_class=trace.vuln_class,
+            evidence_class=evidence_class,
             target=trace.target,
             severity=severity,
             confidence=confidence,
