@@ -32,7 +32,7 @@ _TOOL_PATTERNS: list[tuple[re.Pattern[str], VulnClass, str, float]] = [
     (re.compile(r"\b(file|read|open|download|config)\b", re.IGNORECASE),
         VulnClass.PATH_TRAVERSAL, "tool name/desc suggests file read", 0.8),
     (re.compile(r"\b(admin|manage|token|auth|verify|remote_access)\b", re.IGNORECASE),
-        VulnClass.AUTH_BYPASS, "tool name/desc suggests auth-gated action", 0.75),
+        VulnClass.AUTH_BYPASS, "tool name/desc suggests auth-gated action", 0.95),
     (re.compile(r"\b(process|analyze|summarize|document|email|note)\b", re.IGNORECASE),
         VulnClass.INDIRECT_INJECTION, "tool processes user-supplied text", 0.6),
 ]

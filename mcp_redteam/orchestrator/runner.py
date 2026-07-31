@@ -106,7 +106,6 @@ async def scan(
         started_at=started_at,
         wall_seconds=wall_elapsed,
         attacker_tokens=budget.attacker_tokens,
-        victim_tokens=budget.victim_tokens,
         judge_tokens=budget.judge_tokens,
         tools_seen=tools_seen,
         resources_seen=resources_seen,

@@ -1,8 +1,8 @@
 """Convert MCP tools + resources into OpenAI-compatible ``tools`` schema.
 
-HANDOFF §5: victim(and agentic attacker) exposes native MCP tools plus a generic
+HANDOFF §5: agent exposes native MCP tools plus a generic
 `read_resource(uri)` tool. Tool descriptions are passed through **verbatim** — no
-sanitization (HANDOFF §4/victims/AGENTS.md).
+sanitization (HANDOFF §4).
 """
 
 from __future__ import annotations

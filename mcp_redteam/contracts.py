@@ -163,7 +163,7 @@ class ScanResult(BaseModel):
     """Top-level output of one ``mcpwn scan <url>`` run.
 
     Token accounting is split three ways per HANDOFF §6 / §9:
-    attacker + victim tokens share the ``max_tokens_total`` budget;
+    attacker tokens share the ``max_tokens_total`` budget;
     ``judge_tokens`` is counted independently and MUST NOT be lumped into
     the budget. ``total_tokens`` is a derived read-only sum for reporting.
 
@@ -178,7 +178,6 @@ class ScanResult(BaseModel):
     started_at: str
     wall_seconds: float
     attacker_tokens: int = 0
-    victim_tokens: int = 0
     judge_tokens: int = 0
     tools_seen: list[str] = Field(default_factory=list)
     resources_seen: list[str] = Field(default_factory=list)
@@ -189,4 +188,4 @@ class ScanResult(BaseModel):
     @computed_field  # type: ignore[misc]
     @property
     def total_tokens(self) -> int:
-        return self.attacker_tokens + self.victim_tokens + self.judge_tokens
+        return self.attacker_tokens + self.judge_tokens

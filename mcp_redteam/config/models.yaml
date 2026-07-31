@@ -8,19 +8,11 @@ attacker:
   timeout: 60
   key_env: ARK_API_KEY
 
-victim:
+judge:
   provider: deepseek
   base_url: https://api.deepseek.com/v1
+  # doubao-seed-2.0-lite 在 ARK 上 404，改用 deepseek-v4-flash 做 judge。
   model: deepseek-v4-flash
-  temperature: 0.3
-  timeout: 60
-  key_env: DEEPSEEK_API_KEY
-
-judge:
-  provider: ark
-  base_url: https://ark.cn-beijing.volces.com/api/v3
-  # Lite judge: 便宜、快、够用于二审。attacker/victim 用大模型时 judge 单独走 lite。
-  model: doubao-seed-2.0-lite
   temperature: 0.0
   timeout: 60
-  key_env: ARK_API_KEY
+  key_env: DEEPSEEK_API_KEY

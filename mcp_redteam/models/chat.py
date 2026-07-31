@@ -14,7 +14,7 @@ from typing import Literal
 import yaml
 from openai import OpenAI
 
-Role = Literal["attacker", "victim", "judge"]
+Role = Literal["attacker", "judge"]
 
 
 @dataclass(frozen=True, slots=True)

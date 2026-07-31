@@ -1,1 +1,1 @@
-"""Attacker runners: PAIR (attacker->victim NL) and AGENTIC (attacker direct MCP)."""
+"""Attacker runners: AGENTIC (attacker direct MCP, agent-first)."""

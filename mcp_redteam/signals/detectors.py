@@ -250,6 +250,8 @@ _AUTH_SUCCESS_PHRASES: tuple[re.Pattern[str], ...] = tuple(
         r"welcome[, ]+\s*(?:admin|root|user)",
         r"admin\s+access\s+(?:granted|enabled)",
         r"authentication\s+successful",
+        r"appears?\s+to\s+be\s+valid",
+        r"token\s+is\s+valid",
     )
 )
 
@@ -289,6 +291,43 @@ def detect_unauthenticated_success(
                     "unauthenticated_success",
                     "high",
                     f"{present_key}={call.args.get(present_key)!r} => {m.group()}",
+                    source_call_index=i,
+                )
+    # Second pass: auth-gated tool names that succeed when no prior
+    # authenticate call returned success. Catches forged non-empty tokens
+    # (e.g. fabricated 32-hex strings) and tools that omit optional auth params.
+    _AUTH_GATED_NAMES = re.compile(
+        r"^(remote_access|admin|manage|verify_token|authenticate|grant_role)$",
+        re.IGNORECASE,
+    )
+    _AUTH_GATED_PHRASES = _AUTH_SUCCESS_PHRASES + tuple(
+        re.compile(p, re.IGNORECASE)
+        for p in (
+            r"command\s+executed",
+            r"executed\s+on",
+        )
+    )
+    prior_auth_ok = any(
+        c.kind == "call_tool"
+        and c.name
+        and c.name.lower() == "authenticate"
+        and any(p.search(c.result_text) for p in _AUTH_SUCCESS_PHRASES)
+        for c in mcp_calls
+    )
+    for i, call in enumerate(mcp_calls):
+        if call.kind != "call_tool":
+            continue
+        if not call.name or not _AUTH_GATED_NAMES.match(call.name):
+            continue
+        if prior_auth_ok:
+            continue
+        for phrase in _AUTH_GATED_PHRASES:
+            m = phrase.search(call.result_text)
+            if m:
+                return _signal(
+                    "unauthenticated_success",
+                    "high",
+                    f"{call.name} succeeded without prior auth: " + m.group(),
                     source_call_index=i,
                 )
     return None
@@ -615,7 +654,7 @@ def detect_llm_judged_injection(
 # ── E. injection-surface roundtrip ───────────────────────────────────────────
 #
 # Prompt injection at L0/L1 (see PROMPT_INJECTION_GAP.md): agent-first has no
-# resident victim LLM, so we do not observe an LLM being steered. Instead we
+# resident victim LLM in agent-first, so we do not observe an LLM being steered. Instead we
 # prove the *surface* exists at the server IO layer by canary roundtrip: the
 # attacker writes an INJECTION_MARKER via one tool call, and if any later
 # call_tool / read_resource result contains the same marker verbatim, the

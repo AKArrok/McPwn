@@ -18,7 +18,7 @@ class PromptTarget(Protocol):
     """A model or system that consumes a prompt and returns a reply.
 
     In agent-first McPwn this is realized by the attacker's function-calling loop
-    against the MCP server (no victim).
+    against the MCP server (agent-first, no resident victim LLM).
     """
 
     async def send(self, prompt: str, **kwargs: Any) -> str: ...
