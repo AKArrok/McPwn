@@ -193,6 +193,19 @@ class ScanResult(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     stop_reason: ScanStopReason
 
+    # Reproducibility metadata (point-in-time reproducible scans).
+    # git_sha + config_snapshot + attacker_model + attacker_temperature +
+    # attack_messages_sha1 answer "which code, which config, which model
+    # behaviour produced this finding?" for a months-old artifact without a
+    # re-run. config_snapshot is the parsed models.yaml dict;
+    # attack_messages_sha1 collapses attacker_messages across all traces so
+    # a behavioural drift between runs surfaces as a hash mismatch.
+    git_sha: str = ""
+    config_snapshot: dict[str, Any] = Field(default_factory=dict)
+    attacker_model: str = ""
+    attacker_temperature: float = 0.0
+    attack_messages_sha1: str = ""
+
     @computed_field  # type: ignore[misc]
     @property
     def total_tokens(self) -> int:

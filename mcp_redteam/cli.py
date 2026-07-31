@@ -42,6 +42,12 @@ def scan_cmd(
     wall_seconds: int = typer.Option(240, help="Wall-clock budget in seconds."),
     max_candidates: int = typer.Option(20, help="Max (vuln_class, target) candidates to probe."),
     max_inner_steps: int = typer.Option(12, help="Max attacker tool-call rounds per candidate."),
+    attacker_temperature: float | None = typer.Option(
+        None,
+        "--attacker-temperature",
+        help="Override attacker LLM temperature (default from models.yaml). "
+        "Use 0 for reproducible scan runs.",
+    ),
 ) -> None:
     """Scan one MCP server. Produces findings.md + poc scripts + traces."""
     from mcp_redteam.orchestrator.runner import scan
@@ -54,6 +60,7 @@ def scan_cmd(
         wall_seconds=wall_seconds,
         max_candidates=max_candidates,
         max_inner_steps=max_inner_steps,
+        attacker_temperature=attacker_temperature,
     ))
     md_path = write_findings(result, out)
 
