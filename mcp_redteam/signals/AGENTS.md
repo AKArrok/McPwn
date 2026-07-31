@@ -11,10 +11,21 @@
   是唯一元数据源(id → severity),`DETECTORS` 是唯一注册表。
   `test_signal_meta_matches_detectors.py` 锁定两者与实际 fire severity 三者一致。
 - **边界**:
-  - 只做启发式匹配,不做因果判断;LLM 二审 (``llm_judged_injection``) 未接线
-    前不注册进 ``DETECTORS``。
+  - 只做启发式匹配,不做因果判断。``llm_judged_injection`` 不注册进 ``DETECTORS``
+    (detector 保持纯函数);它由 **verifier 的 L2 judge twin** 合成
+    (``verifier.make_judge_fn`` + ``_maybe_add_l2_signal``),只在
+    ``indirect_injection`` / ``chain_composition`` 两个 trace 上跑。
   - Leak 类 detector 只扫 `call_tool` / `read_resource` 的返回体;
     ``list_tools`` / ``list_resources`` 的 description 里出现示例串不算命中。
+  - **Grounding 不变式**: leak/行为类证据只来自真实 ``McpCall.result_text``;
+    attacker LLM 的 ``final_output`` 永不作证据来源 (``_scan_calls`` 不再兜底扫
+    final_output)。模型在收敛文本里"引用"了一段实际未被任何 call 返回的敏感串
+    属于幻觉,不得产出 Finding。``source_call_index=None`` 仅保留给 L2 judge 信号
+    (``llm_judged_injection``, 由 verifier 合成)。
+  - **L2 须 L1 锚定**: ``llm_judged_injection`` 是 medium (0.5), 单条
+    ``1-(1-0.5)=0.5`` 不过 0.6 阈值;必须与确定性 L1 (``stored_injection_roundtrip``
+    / ``tool_description_drift``) 同 trace 共现才进 findings。judge 顶多抬置信度,
+    无单独定罪权,把 judge 幻觉爆炸半径封顶。
   - Prompt-injection 类判据以 **L0/L1 攻击面存在性** 为标准 (见
     ``PROMPT_INJECTION_GAP.md``): ``stored_injection_roundtrip`` 通过
     canary marker (`INJECTION_MARKER_*`) 的写-读往返或同 call 反射判定
@@ -25,9 +36,11 @@
   - 判据阈值以 HANDOFF §6 为准(例如 `shadow_tool_pair`: lev<=2 AND jaccard>0.7);
     偏离要先改 HANDOFF,禁止在代码里悄悄放宽。
 
-HANDOFF paragraph 6 定义了 M0-M2 必须实现的 12 条信号,``llm_judged_injection``
-作为 M2/M3 落地的占位。v2 在 M2 扩展下加入了 ``stored_injection_roundtrip``
+HANDOFF paragraph 6 定义了 M0-M2 必须实现的 12 条信号。``llm_judged_injection``
+作为 L2 信号,不注册进 ``DETECTORS`` (保持 detector 纯函数),由 verifier 的
+judge twin (``make_judge_fn``) 在 indirect/chain trace 上合成;L2 单独不过
+0.6 阈值,须 L1 锚定才成 finding。v2 在 M2 扩展下加入了 ``stored_injection_roundtrip``
 (medium),用于 prompt-injection 类 L0/L1 判据。当前 ``DETECTORS`` 挂
 ``11 (base) + 2 (M2 扩展: shadow_tool_behavior_divergence,
 rug_pull_response_flip) + 1 (stored_injection_roundtrip)`` = 14 条;
-``llm_judged_injection`` 仍作为占位不注册。
+``llm_judged_injection`` 不在 ``DETECTORS`` 中 (verifier 合成)。

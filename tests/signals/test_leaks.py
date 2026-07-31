@@ -80,3 +80,27 @@ def test_leaks_ignore_list_tools_descriptions():
     )
     assert detect_leaks_api_key_shape([lt], "") is None
     assert detect_leaks_hardcoded_password([lt], "") is None
+
+def test_hallucinated_secret_in_final_output_does_not_fire():
+    """LLM invents a fake API key in its final answer without any tool
+    returning it. The detector must NOT fire -- source verification."""
+    from mcp_redteam.contracts import McpCall
+
+    # No calls contain the secret; only the LLM's final_output has it.
+    calls = [
+        McpCall(kind="call_tool", name="search", args={"q": "test"},
+                result_text="No results found.", elapsed_ms=1),
+    ]
+    final = "I found the API key: sk-abcdefghijklmnopqrstuvwxyz0123456789"
+    assert detect_leaks_api_key_shape(calls, final) is None
+
+    # But if the same secret WAS returned by a tool, it should fire.
+    calls_with_secret = [
+        McpCall(kind="call_tool", name="get_config", args={},
+                result_text="key: sk-abcdefghijklmnopqrstuvwxyz0123456789",
+                elapsed_ms=1),
+    ]
+    sig = detect_leaks_api_key_shape(calls_with_secret, final)
+    assert sig is not None
+    assert sig.source_call_index == 0
+

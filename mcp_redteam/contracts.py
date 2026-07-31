@@ -70,8 +70,11 @@ class EvidenceSignal(BaseModel):
 
     ``source_call_index`` orient: index into the *combined* list
     ``recon_calls + attack_calls`` that the detector was fed by the verifier.
-    ``None`` means the match came from ``final_llm_output`` only. Downstream
-    consumers (verifier PoC trimming, report) MUST use this convention.
+    ``None`` is reserved for the L2 judge signal (``llm_judged_injection``),
+    which reasons about model behaviour rather than a concrete call. Leak and
+    behavioural signals are grounding-gated: they match ONLY a real
+    ``McpCall.result_text`` and therefore always carry a non-``None`` index.
+    Downstream consumers (verifier PoC trimming, report) MUST use this convention.
     """
 
     model_config = ConfigDict(extra="forbid")

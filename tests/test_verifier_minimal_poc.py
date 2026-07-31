@@ -43,8 +43,11 @@ def test_minimal_poc_trims_noise_after_first_hit():
     assert poc[0].args == {"path": "/etc/passwd"}
 
 
-def test_minimal_poc_falls_back_when_only_final_output_matches():
-    """If a signal only matches on final_llm_output, we keep the full attack chain."""
+def test_final_output_only_match_is_not_a_finding():
+    """Grounding gate: a secret that appears ONLY in the attacker's
+    final_llm_output (never in any real call_tool result) is hallucination
+    and must NOT produce a finding. Regression for the 'fabricated token' bug.
+    """
     attack = [
         _mkcall("recon result 1"),
         _mkcall("recon result 2"),
@@ -58,6 +61,19 @@ def test_minimal_poc_falls_back_when_only_final_output_matches():
         final_llm_output="sk-abcdefghijklmnopqrstuvwxyz12345",
     )
     findings, _ = build_findings([trace], trace_dir=None)
-    assert findings
-    # final_output signal has source_call_index=None; PoC keeps all attack_calls.
-    assert findings[0].poc_call_sequence == attack
+    assert not findings, "hallucinated final_output must not become a finding"
+
+
+def test_etc_passwd_only_in_final_output_is_not_a_finding():
+    """Grounding gate, critical-severity variant: the /etc/passwd header quoted
+    by the model but absent from real results must not fire a leak signal."""
+    trace = AttackTrace(
+        vuln_class=VulnClass.PATH_TRAVERSAL,
+        target="read_file",
+        strategy_card_slug="path_traversal",
+        recon_calls=[],
+        attack_calls=[_mkcall("permission denied")],
+        final_llm_output="root:x:0:0:root:/root:/bin/bash",
+    )
+    findings, _ = build_findings([trace], trace_dir=None)
+    assert not findings

@@ -5,8 +5,10 @@ Contract:
 
 Each detector that can point to a specific call MUST set
 ``source_call_index``; that lets ``verifier._minimal_poc`` trim the reported
-PoC to the tail of noise-free calls. Detectors that only match against
-the aggregate final LLM output may leave ``source_call_index=None``.
+PoC to the tail of noise-free calls. Grounding invariant: leak/behavioural
+signals match ONLY a real ``McpCall.result_text`` - the model's ``final_output``
+is never an evidence source; ``source_call_index=None`` is reserved for the L2
+judge signal, which the verifier synthesises rather than matching here.
 
 ``source_call_index`` orient (contracts.py): index into the combined list
 ``recon_calls + attack_calls`` passed by the verifier. Detectors here MUST
@@ -101,22 +103,28 @@ def _scan_calls(
     *,
     kinds: frozenset[str] | None = None,
 ) -> tuple[re.Match[str] | None, int | None]:
-    """Scan matching-kind calls (in order) then ``final_output``.
+    """Scan matching-kind calls (in order) for a real match.
 
-    Returns ``(first_match, source_call_index)``. ``source_call_index=None``
-    means the match came from ``final_output`` only. ``kinds`` restricts the
-    scan to specific ``McpCall.kind`` values; leak detectors pass
-    ``_CONTENT_KINDS`` so tool/resource descriptions never trip them.
+    Grounding invariant: evidence may ONLY come from a real
+    ``McpCall.result_text``; the attacker LLM's ``final_output`` is never an
+    evidence source (a "quoted" secret no real call returned is hallucination).
+    ``final_output`` is kept in the signature for detector-contract parity only.
+    ``kinds`` restricts the scan to specific ``McpCall.kind`` values; leak
+    detectors pass ``_CONTENT_KINDS`` so tool/resource descriptions never trip
+    them. Returns ``(None, None)`` when no real call matches.
     """
+    # Only scan McpCall.result_text, NEVER final_output.
+    # If a secret appears in the LLM's final answer, it must also appear in
+    # some call.result_text (the LLM learned it from a tool/resource return).
+    # Scanning final_output would let a hallucinated secret produce a false
+    # positive -- the LLM can invent 'sk-xxxx' in its answer without ever
+    # receiving it from the server.
     for i, call in enumerate(mcp_calls):
         if kinds is not None and call.kind not in kinds:
             continue
         m = pattern.search(call.result_text)
         if m:
             return m, i
-    m = pattern.search(final_output)
-    if m:
-        return m, None
     return None, None
 # ── A. sensitive-data leaks ──────────────────────────────────────────────────
 
@@ -178,9 +186,6 @@ def detect_leaks_hardcoded_password(
         m = _HARDCODED_PW_RE.search(call.result_text)
         if m and not m.group(1).startswith("$"):
             return _signal("leaks_hardcoded_password", "high", m.group(), i)
-    m = _HARDCODED_PW_RE.search(final_output)
-    if m and not m.group(1).startswith("$"):
-        return _signal("leaks_hardcoded_password", "high", m.group(), None)
     return None
 
 

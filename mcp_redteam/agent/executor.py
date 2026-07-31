@@ -108,7 +108,7 @@ async def execute_one(
                 "Execute the strategy playbook. Emit tool_calls to probe the target. "
                 "When you have concrete evidence (a suspicious response substring) "
                 "or you've exhausted the playbook, produce a FINAL assistant message "
-                "with no tool_calls that quotes the suspicious text verbatim."
+                "with no tool_calls: one line on what you probed and which call held the evidence (no verbatim secret quoting - the signal library reads real tool results)."
             ),
         },
     ]
@@ -120,8 +120,8 @@ async def execute_one(
                     "The scanner has already run deterministic metadata probes "
                     "for you. Findings so far:\n" + probe_note +
                     "\nBuild on these; do not repeat identical probes. Emit a "
-                    "FINAL assistant message (no tool_calls) once you can quote "
-                    "the divergent or drifted output verbatim."
+                    "FINAL assistant message (no tool_calls): one line on what you "
+                    "probed and which call diverged or drifted (no verbatim quoting)."
                 ),
             }
         )
@@ -228,8 +228,8 @@ async def execute_one(
                             "content": (
                                 "Evidence collected. `list_tools` was refreshed. "
                                 "Emit a FINAL assistant message (no tool_calls) "
-                                "that quotes the single most suspicious substring "
-                                "you observed."
+                                "with ONE line: what you probed and which call held "
+                                "the evidence. Do NOT quote secrets verbatim."
                             ),
                         }
                     )
@@ -239,8 +239,8 @@ async def execute_one(
                             "role": "user",
                             "content": (
                                 f"(refresh list_tools failed: {type(exc).__name__}) "
-                                "Emit a FINAL assistant message (no tool_calls) that "
-                                "quotes the single most suspicious substring you observed."
+                                "Emit a FINAL assistant message (no tool_calls) with ONE "
+                                "line: what you probed and which call held the evidence. Do NOT quote secrets verbatim."
                             ),
                         }
                     )
@@ -250,8 +250,8 @@ async def execute_one(
                         "role": "user",
                         "content": (
                             "Evidence collected. Emit a FINAL assistant message "
-                            "(no tool_calls) that quotes the single most "
-                            "suspicious substring you observed."
+                            "(no tool_calls): ONE line on what you probed and which "
+                            "call held the evidence. Do NOT quote secrets verbatim."
                         ),
                     }
                 )

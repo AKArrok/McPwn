@@ -14,7 +14,7 @@ from pathlib import Path
 from mcp_redteam.agent.executor import execute_one
 from mcp_redteam.agent.planner import plan
 from mcp_redteam.agent.recon import recon
-from mcp_redteam.agent.verifier import build_findings
+from mcp_redteam.agent.verifier import build_findings, make_judge_fn
 from mcp_redteam.contracts import AttackTrace, ScanResult, ScanStopReason
 from mcp_redteam.models.chat import make_client
 from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
@@ -33,6 +33,18 @@ def _new_run_id() -> str:
 
 def _iso_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _make_judge_fn_or_none():
+    """Best-effort L2 judge twin. None if the judge role is unconfigured so the
+    scan proceeds without L2 coverage instead of crashing (HANDOFF Q8: judge is
+    out-of-band and optional).
+    """
+    try:
+        jclient, jspec = make_client("judge")
+    except Exception:  # judge optional - missing API key / role
+        return None
+    return make_judge_fn(jclient, jspec)
 
 
 def _stop_reason(budget: TokenBudget, clock: WallClock, error: str | None) -> ScanStopReason:
@@ -69,6 +81,7 @@ async def scan(
     budget = TokenBudget(max_tokens_total=max_tokens)
     clock = WallClock(wall_seconds=wall_seconds)
     attacker = make_client("attacker")
+    judge_fn = _make_judge_fn_or_none()
 
     traces: list[AttackTrace] = []
     tools_seen: list[str] = []
@@ -97,7 +110,9 @@ async def scan(
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
 
-    findings, _ = build_findings(traces, trace_dir=trace_dir)
+    findings, _ = build_findings(
+        traces, trace_dir=trace_dir, budget=budget, judge_fn=judge_fn
+    )
     wall_elapsed = time.perf_counter() - wall_start
 
     result = ScanResult(
