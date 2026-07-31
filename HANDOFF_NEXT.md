@@ -3,7 +3,7 @@
 > 读这个文件 + `HANDOFF.md` 就能接上。`PROGRESS.md` 是状态快照（数字 + commit 链），
 > `HANDOFF.md` 是项目设计文档，这个文件是"你下一 session 开工前要知道的"。
 
-最后更新: 2026-07-31 (commit 83b5146)
+最后更新: 2026-07-31 (commits 83b5146, 8f6bd67, 315df37)
 
 ---
 
@@ -56,6 +56,9 @@ judge 输入 = `attack_calls.result_text` (截断) + `final_llm_output` + 任务
 `budget.add("judge", ...)`, 独立计数不挤 attacker。
 
 `detect_llm_judged_injection` 保持纯函数占位, 不进 `DETECTORS`。
+
+### 8. retry-with-backoff at chat layer (chat.py)
+`chat_create_with_retry` 包装 `client.chat.completions.create`. 重试 5 次 (RateLimitError / APITimeoutError / APIConnectionError / InternalServerError), 退避 1/2/4/8/16s。4xx (BadRequestError 等代码 bug) 不重试。动机: M2 v3 重跑 (`runs/m2_dvmcp_full_v3/`) 命中 ARK `glm-5-2` set inference limit 触顶, executor 在 step 0 拿到 429 立刻 break, 整 trace 0 attack_calls → 0 findings → port miss (recall 8/10 → 6/10, 9008/9009)。retry 让短暂限流在同一 trace 内清掉, 不再把 port 拖到 0 finding。Wall-time budget 不在 retry helper 内查, 由 executor 每轮的 clock check 兜底; token budget 不受影响 (失败 attempt 不计费)。
 
 ### 4. metadata probing 主动探测 (executor)
 
@@ -135,6 +138,8 @@ M3 的 LLM planner 应该比这更聪明。
 897df81  feat: hallucination suppression (grounding gate + L2 judge) + M2 verified
 342aef4  docs: add PROGRESS.md to prevent context drift across sessions
 83b5146  feat: signal-based eval + evidence_class (honest vulnerability discovery)
+8f6bd67  fix: replace DVMCP-shaped _AUTH_GATED_NAMES with description+name heuristic
+315df37  fix: retry-with-backoff for LLM transient errors
 ```
 
 工作树干净 (`git status` 无改动)。

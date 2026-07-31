@@ -1,7 +1,7 @@
 # McPwn 进度记录
 
 > 每次开工前读这个文件 + HANDOFF.md。如果代码和这里说的不一致，以代码为准。
-> 最后更新: 2026-07-31 (commit 897df81)
+> 最后更新: 2026-07-31 (commit 315df37, 补 2 个 fix: auth-gated + retry)
 
 ## 当前里程碑
 
@@ -26,6 +26,8 @@ M2 数据产物: `runs/m2_dvmcp_full_v2/eval_report.md` + 每港 `scan_result.js
 7cf39bc  feat: poc_replay_pass_rate + eval findings.md + ruff clean
 6f7be23  fix: auth_bypass detection for 9007/9009 -> M2 recall 8/10
 897df81  feat: hallucination suppression (grounding gate + L2 judge) + M2 verified
+8f6bd67  fix: replace DVMCP-shaped _AUTH_GATED_NAMES with description+name heuristic
+315df37  fix: retry-with-backoff for LLM transient errors
 ```
 
 工作树干净 (`git status` 无未提交改动)。
@@ -75,6 +77,9 @@ verifier 对 `INDIRECT_INJECTION` 和 `CHAIN_COMPOSITION` trace 调 judge LLM (r
 ### 7. 收敛轮提示词改写 (executor.py + attacker_system.md)
 收敛轮不再要求 LLM "逐字引用可疑串" (诱导幻觉), 改为"一句话总结探了什么、证据落在哪条 call"。
 
+### 8. LLM 调用 retry-with-backoff (chat.py + executor.py)
+`chat_create_with_retry` 包装 `client.chat.completions.create`, 重试 5 次 (RateLimitError / APITimeoutError / APIConnectionError / InternalServerError), 退避 1/2/4/8/16s。BadRequestError 等 4xx 代码 bug 不重试。背景: M2 v3 重跑 (runs/m2_dvmcp_full_v3/) 发现 9008/9009 在 step 0 拿到 429 (ARK glm-5-2 触发 set inference limit) 后 executor 立刻 break, 整 trace 0 attack_calls → 0 findings → port miss。retry 让短暂限流在同一 trace 内清掉, 而不是把 port 拖到 0 finding。Wall-time budget 不在 retry helper 内查, 由 executor 每轮的 clock check 兜底; token budget 不受影响 (失败 attempt 不计费)。
+
 ## 信号库 (15 条, 14 条注册 + 1 条占位)
 
 | signal_id | severity | 类别 | 说明 |
@@ -99,6 +104,12 @@ verifier 对 `INDIRECT_INJECTION` 和 `CHAIN_COMPOSITION` trace 调 judge LLM (r
 confidence 公式: `1 - prod(1 - w_i)` (去重后), critical=0.95, high=0.75, medium=0.5。阈值 >= 0.6 才进 findings.md。
 
 ## 未完成 / 下一步
+
+### M2 v4 验证 (阻塞中)
+M2 v3 (`runs/m2_dvmcp_full_v3/`, 6/10) 的 2 个 miss (9008 / 9009) 是 ARK `glm-5-2` set inference limit 触顶导致, 不是 auth-gated fix (`8f6bd67`) 的回归。retry 机制 (`315df37`) 加了, 但限流没清之前重跑仍会 hit。等平台配额恢复 / 换 quota 后跑 `runs/m2_dvmcp_full_v4/` 验证 8/10 是否仍成立。
+
+### #4 cross-server FPR baseline (进行中)
+DVMCP 内 FPR=0 只测了"agent 不把 A 类漏洞说成 B 类"。要测"agent 在干净 MCP server 上不报警" 需要新 fixture。`eval/clean_baseline/` 下建 3 个 FastMCP server (`noop` / `summarize` / `file_list`), 跑 agent 统计 0-finding 率。
 
 ### M3 (LLM 决策版 planner)
 把 `agent/planner.py` 的 `plan()` 从硬编 score 排序改成 LLM 决策。输入 recon 结果 (tool 列表 + resource 列表 + 描述), 输出 next-action (vuln_class, target)。和硬编版 M2 对比 recall / FPR / avg_findings_per_port。不改 recon -> executor -> verifier -> report 闭环。
