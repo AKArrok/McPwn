@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Callable
+from collections.abc import Callable
 
 from mcp_redteam.contracts import (
     SEVERITY_ORDER,
@@ -329,7 +329,7 @@ def detect_tool_description_drift(
 
     # Compare each snapshot against its predecessor so that a description that
     # changes and then reverts (base == last but middle differs) still fires.
-    prev_idx, prev = snapshots[0]
+    _, prev = snapshots[0]
     for later_idx, later in snapshots[1:]:
         for name, desc in prev.items():
             if name in later and later[name] != desc:
@@ -337,7 +337,7 @@ def detect_tool_description_drift(
                 return _signal(
                     "tool_description_drift", "medium", matched, later_idx
                 )
-        prev_idx, prev = later_idx, later
+        _, prev = later_idx, later
     return None
 
 
@@ -546,7 +546,7 @@ def detect_rug_pull_response_flip(
         if len(group) < 2:
             continue
         # Take fingerprint of the FIRST call and compare each subsequent one.
-        first_idx, first = group[0]
+        _, first = group[0]
         first_norm = _normalize_response(first.result_text)
         for later_idx, later in group[1:]:
             if _normalize_response(later.result_text) != first_norm:
@@ -797,6 +797,5 @@ def compute_finding_severity(signals: list[EvidenceSignal]) -> Severity:
             idx = SEVERITY_ORDER.index(s.severity)
         except ValueError:
             continue
-        if idx > max_idx:
-            max_idx = idx
+        max_idx = max(max_idx, idx)
     return SEVERITY_ORDER[max_idx]  # type: ignore[return-value]

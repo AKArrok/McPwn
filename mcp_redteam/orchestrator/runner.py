@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from mcp_redteam.agent.executor import execute_one
@@ -32,7 +32,7 @@ def _new_run_id() -> str:
 
 
 def _iso_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _stop_reason(budget: TokenBudget, clock: WallClock, error: str | None) -> ScanStopReason:

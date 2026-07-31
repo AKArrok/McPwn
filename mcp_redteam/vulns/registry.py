@@ -15,7 +15,6 @@ The registry does the following:
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from importlib.resources import files
 

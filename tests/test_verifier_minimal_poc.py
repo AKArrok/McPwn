@@ -4,7 +4,7 @@ call, so `findings.md`/`poc/*.py` stay noise-free.
 
 from __future__ import annotations
 
-from mcp_redteam.agent.verifier import _minimal_poc, build_findings
+from mcp_redteam.agent.verifier import build_findings
 from mcp_redteam.contracts import AttackTrace, McpCall, VulnClass
 
 

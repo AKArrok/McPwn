@@ -62,7 +62,7 @@ class McpSession:
         self._stack: list[Any] = []
         self._session: ClientSession | None = None
 
-    async def __aenter__(self) -> "McpSession":
+    async def __aenter__(self) -> McpSession:
         # sse_client and ClientSession are both async context managers; we enter them
         # manually so the session survives beyond a single `async with`.
         self._sse_ctx = sse_client(self.sse_url)

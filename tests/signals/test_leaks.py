@@ -7,8 +7,8 @@ from mcp_redteam.signals.detectors import (
     detect_leaks_api_key_shape,
     detect_leaks_etc_passwd,
     detect_leaks_hardcoded_password,
-    detect_leaks_ssh_private_key,
     detect_leaks_shadow_hash,
+    detect_leaks_ssh_private_key,
 )
 
 

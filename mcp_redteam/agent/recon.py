@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
 
 from mcp_redteam.contracts import McpCall, VulnClass
 from mcp_redteam.targets.mcp_client import McpSession
@@ -28,13 +27,13 @@ class Candidate:
 # ── classifier heuristics ────────────────────────────────────────────────────
 
 _TOOL_PATTERNS: list[tuple[re.Pattern[str], VulnClass, str, float]] = [
-    (re.compile(r"\b(exec|execute|shell|run|command|eval|evaluate)\b", re.I),
+    (re.compile(r"\b(exec|execute|shell|run|command|eval|evaluate)\b", re.IGNORECASE),
         VulnClass.COMMAND_INJECTION, "tool name/desc suggests shell/eval", 0.9),
-    (re.compile(r"\b(file|read|open|download|config)\b", re.I),
+    (re.compile(r"\b(file|read|open|download|config)\b", re.IGNORECASE),
         VulnClass.PATH_TRAVERSAL, "tool name/desc suggests file read", 0.8),
-    (re.compile(r"\b(admin|manage|token|auth|verify|remote_access)\b", re.I),
+    (re.compile(r"\b(admin|manage|token|auth|verify|remote_access)\b", re.IGNORECASE),
         VulnClass.AUTH_BYPASS, "tool name/desc suggests auth-gated action", 0.75),
-    (re.compile(r"\b(process|analyze|summarize|document|email|note)\b", re.I),
+    (re.compile(r"\b(process|analyze|summarize|document|email|note)\b", re.IGNORECASE),
         VulnClass.INDIRECT_INJECTION, "tool processes user-supplied text", 0.6),
 ]
 
@@ -42,7 +41,7 @@ _TOOL_PATTERNS: list[tuple[re.Pattern[str], VulnClass, str, float]] = [
 _RESOURCE_PATTERNS: list[tuple[re.Pattern[str], VulnClass, str, float]] = [
     (re.compile(r"\{[^}]+\}"),
         VulnClass.DIRECT_PROMPT_INJECTION, "resource URI has template parameter", 0.85),
-    (re.compile(r"^(internal|admin|config|secret)://", re.I),
+    (re.compile(r"^(internal|admin|config|secret)://", re.IGNORECASE),
         VulnClass.DIRECT_PROMPT_INJECTION, "sensitive-namespace resource", 0.7),
 ]
 

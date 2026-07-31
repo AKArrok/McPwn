@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from mcp_redteam.contracts import McpCall
 from mcp_redteam.signals.detectors import (
+    compute_confidence,
     detect_admin_action_confirmed,
     detect_command_exec_ls_root,
     detect_command_exec_uid_stdout,
     detect_shadow_tool_pair,
     detect_tool_description_drift,
     detect_unauthenticated_success,
-    compute_confidence,
 )
 
 

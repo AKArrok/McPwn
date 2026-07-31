@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from mcp_redteam.contracts import AttackTrace, EvidenceSignal, Finding, ScanResult
+from mcp_redteam.contracts import AttackTrace, EvidenceSignal, ScanResult
 
 
 @runtime_checkable

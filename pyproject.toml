@@ -51,3 +51,12 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+
+[tool.ruff.lint.per-file-ignores]
+"mcp_redteam/agent/executor.py" = ["BLE001"]
+"mcp_redteam/cli.py" = ["BLE001", "B008"]
+"mcp_redteam/orchestrator/runner.py" = ["BLE001"]
+"mcp_redteam/orchestrator/reset_hook.py" = ["PLW1510"]
+"mcp_redteam/targets/mcp_client.py" = ["PYI034"]
+"mcp_redteam/models/chat.py" = ["TRY004"]
+"eval/dvmcp/runner.py" = ["BLE001"]

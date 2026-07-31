@@ -99,7 +99,7 @@ class AttackTrace(BaseModel):
     elapsed_ms: int = 0
 
     @model_validator(mode="after")
-    def _slug_matches_vuln_class(self) -> "AttackTrace":
+    def _slug_matches_vuln_class(self) -> AttackTrace:
         # Today each VulnClass has exactly one strategy card (slug == value).
         # If that assumption ever breaks, relax this to `slug.startswith(value)`
         # or introduce an explicit mapping in vulns/registry.py.
