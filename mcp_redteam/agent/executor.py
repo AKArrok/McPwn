@@ -20,7 +20,7 @@ from openai import OpenAI
 
 from mcp_redteam.agent.recon import Candidate
 from mcp_redteam.contracts import AttackTrace, McpCall, VulnClass
-from mcp_redteam.models.chat import ModelSpec
+from mcp_redteam.models.chat import ModelSpec, chat_create_with_retry
 from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
 from mcp_redteam.signals.detectors import (
     _RUG_PULL_MARKER,
@@ -137,7 +137,8 @@ async def execute_one(
             break
 
         try:
-            resp = client.chat.completions.create(
+            resp = chat_create_with_retry(
+                client,
                 model=model_spec.model,
                 temperature=model_spec.temperature,
                 messages=messages,
@@ -260,7 +261,8 @@ async def execute_one(
                 final_text = final_text or (msg.content or "")
                 break
             try:
-                final_resp = client.chat.completions.create(
+                final_resp = chat_create_with_retry(
+                    client,
                     model=model_spec.model,
                     temperature=model_spec.temperature,
                     messages=messages,
