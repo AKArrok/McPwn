@@ -19,9 +19,8 @@ victim:
 judge:
   provider: ark
   base_url: https://ark.cn-beijing.volces.com/api/v3
-  # 暂用同 attacker 模型(账号只开通了 glm-5-2-260617);
-  # 后续开通 lite 后切到 doubao-1-5-lite 或类似便宜模型即可。
-  model: glm-5-2-260617
+  # Lite judge: 便宜、快、够用于二审。attacker/victim 用大模型时 judge 单独走 lite。
+  model: doubao-seed-2.0-lite
   temperature: 0.0
   timeout: 60
   key_env: ARK_API_KEY

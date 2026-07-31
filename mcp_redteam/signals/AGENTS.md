@@ -15,10 +15,19 @@
     前不注册进 ``DETECTORS``。
   - Leak 类 detector 只扫 `call_tool` / `read_resource` 的返回体;
     ``list_tools`` / ``list_resources`` 的 description 里出现示例串不算命中。
+  - Prompt-injection 类判据以 **L0/L1 攻击面存在性** 为标准 (见
+    ``PROMPT_INJECTION_GAP.md``): ``stored_injection_roundtrip`` 通过
+    canary marker (`INJECTION_MARKER_*`) 的写-读往返或同 call 反射判定
+    server 存在污染载体, **不需要观察下游 LLM 行为**。L2 (LLM 真被带偏)
+    留给 ``llm_judged_injection`` 占位。
   - 严重级 `critical` / `high` 的 `matched_text` 在 detector 层做指纹化,
     避免原文敏感串外流到 `findings.md` 或 PoC 脚本。
   - 判据阈值以 HANDOFF §6 为准(例如 `shadow_tool_pair`: lev<=2 AND jaccard>0.7);
     偏离要先改 HANDOFF,禁止在代码里悄悄放宽。
 
-HANDOFF paragraph 6 定义了 M0-M2 必须实现的 12 条信号,其中 ``llm_judged_injection``
-作为 M2/M3 落地的占位,当前 ``DETECTORS`` 只挂 11 条。
+HANDOFF paragraph 6 定义了 M0-M2 必须实现的 12 条信号,``llm_judged_injection``
+作为 M2/M3 落地的占位。v2 在 M2 扩展下加入了 ``stored_injection_roundtrip``
+(medium),用于 prompt-injection 类 L0/L1 判据。当前 ``DETECTORS`` 挂
+``11 (base) + 2 (M2 扩展: shadow_tool_behavior_divergence,
+rug_pull_response_flip) + 1 (stored_injection_roundtrip)`` = 14 条;
+``llm_judged_injection`` 仍作为占位不注册。

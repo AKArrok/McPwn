@@ -158,15 +158,26 @@ async def recon(
                 reason=reason,
             ))
 
-    # ALWAYS add tool_metadata_probe once (one candidate, target='n/a')
-    # if there are >= 2 tools (needed for shadow_tool_pair signal).
-    if len(tool_pairs) >= 2:
+    # ALWAYS add a tool_metadata_probe candidate whenever the server exposes
+    # at least one tool. Two behavioural signals cover this class:
+    #   - shadow_tool_pair / shadow_tool_behavior_divergence need >= 2 tools;
+    #     the executor only fires the compare-probe when it finds a pair.
+    #   - tool_description_drift / rug_pull_response_flip only need one tool
+    #     (executor invokes it N times then refreshes list_tools).
+    # A stricter >=2 gate hid DVMCP challenge 4 (single-tool rug pull) from
+    # the pipeline entirely.
+    if len(tool_pairs) >= 1:
+        reason = (
+            "multiple tools; probe shadow/drift/rug pull"
+            if len(tool_pairs) >= 2
+            else "single tool; probe drift/rug pull"
+        )
         candidates.append(Candidate(
             vuln_class=VulnClass.TOOL_METADATA_PROBE,
             target="n/a",
             target_kind="meta",
             score=0.4,
-            reason="multiple tools present; check drift/shadow",
+            reason=reason,
         ))
 
     tools_seen = [name for name, _ in tool_pairs]

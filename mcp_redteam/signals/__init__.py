@@ -3,6 +3,10 @@
 from mcp_redteam.signals.detectors import (
     DETECTORS,
     SIGNAL_META,
+    _RUG_PULL_MARKER,
+    _SHADOW_PAIR_ARG_KEY,
+    _find_shadow_pair,
+    _parse_list_tools_lookup,
     compute_confidence,
     compute_finding_severity,
     run_all_signals,
@@ -11,6 +15,10 @@ from mcp_redteam.signals.detectors import (
 __all__ = [
     "DETECTORS",
     "SIGNAL_META",
+    "_RUG_PULL_MARKER",
+    "_SHADOW_PAIR_ARG_KEY",
+    "_find_shadow_pair",
+    "_parse_list_tools_lookup",
     "compute_confidence",
     "compute_finding_severity",
     "run_all_signals",

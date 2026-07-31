@@ -301,6 +301,14 @@ class ScanResult(BaseModel):
 |---|---|---|
 | `llm_judged_injection` | medium | verifier LLM 判定 final_output 中的行为偏离了原任务且能追溯到 tool 返回值中的注入指令 |
 
+### E. 注入攻击面往返(L0/L1 判据,agent-first 下 prompt injection 主证据)
+
+| signal_id | severity | 触发条件 |
+|---|---|---|
+| `stored_injection_roundtrip` | medium | 一次 `call_tool` 参数含 canary 串 `INJECTION_MARKER_*`;同一或后续 `call_tool` / `read_resource` 返回体内包含同一串 |
+
+详见 `PROMPT_INJECTION_GAP.md`。这条信号让 prompt-injection 类不再依赖尚未接线的 `llm_judged_injection`。
+
 **M0-M2 完成时**,`signals/registry.yaml` 必须覆盖这 12 条 + `detectors.py` 每条一个函数 + `tests/signals/test_<signal_id>.py` 每条一个测试。
 
 **信号打分权重**(用于 `Finding.confidence`):

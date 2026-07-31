@@ -14,12 +14,17 @@ McPwn 是一个**通用 MCP 红队 agent**:给一个陌生 MCP server 的 SSE �
 ## 快速开始
 
 ```bash
-cp .env.example .env             # 填入 ARK_API_KEY / DEEPSEEK_API_KEY
+cp .env.example .env             # 填入 ARK_API_KEY
 pip install -e ".[dev]"
-mcpwn ping-models                # 自测已配置的 attacker / victim / judge 端点
+mcpwn ping-models                # 自测已配置的 attacker 端点 (agent-first, 无常驻 victim LLM)
 mcpwn lint-cards                 # 启动前校验策略卡格式与禁词
 mcpwn scan http://127.0.0.1:9001/sse --out runs/m0_smoke
 ```
+
+> 当前 agent-first 架构下扫描只使用 `attacker` LLM(火山 Ark, `ARK_API_KEY`)。
+> `victim`(DeepSeek)与 `judge` 配置在 `config/models.yaml` 中保留,但
+> `mcpwn scan` 不会请求它们。`victim_tokens` 字段恒为 0;prompt injection
+> 类的 L2 验证(观察 LLM 真被带偏)是 bonus,见 `PROMPT_INJECTION_GAP.md`。
 
 `scan` 直接把 `findings.md` / `poc/*.py` / `traces/*.json` / `scan_result.json`
 写到 `--out` 目录,无需额外 `report` 步骤。

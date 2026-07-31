@@ -22,7 +22,13 @@ from mcp_redteam.agent.recon import Candidate
 from mcp_redteam.contracts import AttackTrace, McpCall, VulnClass
 from mcp_redteam.models.chat import ModelSpec
 from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
-from mcp_redteam.signals.detectors import run_all_signals
+from mcp_redteam.signals.detectors import (
+    _RUG_PULL_MARKER,
+    _SHADOW_PAIR_ARG_KEY,
+    _find_shadow_pair,
+    _parse_list_tools_lookup,
+    run_all_signals,
+)
 from mcp_redteam.targets.mcp_client import McpSession
 from mcp_redteam.victims.agents.tool_schema_builder import build_openai_tools
 from mcp_redteam.vulns.registry import load_card
@@ -76,6 +82,21 @@ async def execute_one(
     attack_calls: list[McpCall] = []
     trace_started = time.perf_counter()
 
+    # Metadata-probe candidates only: seed deterministic behavioural probes
+    # BEFORE any LLM cost so that shadow_tool_behavior_divergence and
+    # rug_pull_response_flip have something to compare. The LLM can still add
+    # more attack_calls on top; convergence turn will summarize.
+    probe_note = ""
+    if candidate.vuln_class == VulnClass.TOOL_METADATA_PROBE:
+        probe_note = await _seed_metadata_probes(
+            session=session,
+            recon_calls=recon_calls,
+            attack_calls=attack_calls,
+            budget=budget,
+            clock=clock,
+            raw_tools=await session.raw_list_tools(),
+        )
+
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
         {
@@ -91,6 +112,19 @@ async def execute_one(
             ),
         },
     ]
+    if probe_note:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "The scanner has already run deterministic metadata probes "
+                    "for you. Findings so far:\n" + probe_note +
+                    "\nBuild on these; do not repeat identical probes. Emit a "
+                    "FINAL assistant message (no tool_calls) once you can quote "
+                    "the divergent or drifted output verbatim."
+                ),
+            }
+        )
 
     total_in = 0
     total_out = 0
@@ -264,3 +298,124 @@ async def execute_one(
         tokens_out=total_out,
         elapsed_ms=elapsed_ms,
     )
+
+
+async def _seed_metadata_probes(
+    session: McpSession,
+    recon_calls: list[McpCall],
+    attack_calls: list[McpCall],
+    budget: TokenBudget,
+    clock: WallClock,
+    raw_tools: list[Any],
+) -> str:
+    """Run deterministic probes for metadata-anomaly detection.
+
+    Two strategies:
+      1. Shadow tool probe: if list_tools reveals a pair of similarly-named
+         tools, call both with the same args and tag them with
+         ``_SHADOW_PAIR_ARG_KEY`` so ``shadow_tool_behavior_divergence`` can
+         pair them up.
+      2. Rug-pull / drift probe: pick the first tool and call it 4 times with
+         the same args (tagged with ``_RUG_PULL_MARKER``) so
+         ``rug_pull_response_flip`` can detect behaviour changes.
+
+    Returns a human-readable note to pass to the LLM.
+    """
+    schemas: dict[str, dict[str, Any]] = {}
+    for t in raw_tools:
+        name = getattr(t, "name", None)
+        schema = getattr(t, "inputSchema", None) or getattr(t, "input_schema", None)
+        if isinstance(name, str) and isinstance(schema, dict):
+            schemas[name] = schema
+
+    def _pick_probe_args(tool_name: str, marker_key: str, marker_val: str) -> dict[str, Any]:
+        """Best-effort minimal args for a probe based on the tool's schema."""
+        args: dict[str, Any] = {}
+        schema = schemas.get(tool_name) or {}
+        props = schema.get("properties") or {}
+        required = schema.get("required") or list(props.keys())
+        for key in required:
+            spec = props.get(key) or {}
+            typ = spec.get("type", "string")
+            if typ in ("integer", "number"):
+                args[key] = 1
+            elif typ == "boolean":
+                args[key] = False
+            elif typ == "array":
+                args[key] = []
+            elif typ == "object":
+                args[key] = {}
+            else:
+                args[key] = "test"
+        args[marker_key] = marker_val
+        return args
+
+    lines: list[str] = []
+
+    # ── 1. Shadow tool probe ────────────────────────────────────────────────
+    # Collect the last list_tools snapshot.
+    lookup: dict[str, str] = {}
+    for call in reversed(recon_calls):
+        if call.kind == "list_tools":
+            lookup = _parse_list_tools_lookup(call.result_text)
+            break
+    for call in reversed(attack_calls):
+        if call.kind == "list_tools":
+            lookup = _parse_list_tools_lookup(call.result_text)
+            break
+
+    pair = _find_shadow_pair(lookup) if len(lookup) >= 2 else None
+    if pair is not None:
+        a, b = pair
+        probe_args_a = _pick_probe_args(a, _SHADOW_PAIR_ARG_KEY, "pair")
+        probe_args_b = _pick_probe_args(b, _SHADOW_PAIR_ARG_KEY, "pair")
+        if not budget.exceeded() and not clock.exceeded():
+            try:
+                call_a = await session.call_tool(a, probe_args_a)
+                attack_calls.append(call_a)
+            except Exception as e:
+                lines.append(f" -> shadow probe {a} failed: {e}")
+        if not budget.exceeded() and not clock.exceeded():
+            try:
+                call_b = await session.call_tool(b, probe_args_b)
+                attack_calls.append(call_b)
+            except Exception as e:
+                lines.append(f" -> shadow probe {b} failed: {e}")
+        if len(attack_calls) >= 2:
+            lines.append(f"Probed shadow pair {a!r} vs {b!r} with same args.")
+
+    # ── 2. Rug-pull / drift probe ────────────────────────────────────────────
+    tool_names = list(lookup.keys())
+    if tool_names:
+        target_tool = tool_names[0]
+        rug_args = _pick_probe_args(target_tool, _RUG_PULL_MARKER, "rug")
+        for idx in range(4):
+            if budget.exceeded() or clock.exceeded():
+                break
+            try:
+                call = await session.call_tool(target_tool, rug_args)
+                attack_calls.append(call)
+            except Exception as e:
+                lines.append(f" -> rug probe #{idx + 1} {target_tool} failed: {e}")
+                break
+        if len(lines) > 0 or any(
+            c.kind == "call_tool" and c.name == target_tool and c.args
+            and c.args.get(_RUG_PULL_MARKER) == "rug"
+            for c in attack_calls
+        ):
+            lines.append(
+                f"Probed {target_tool!r} 4 times with same args to detect "
+                f"behaviour flip."
+            )
+
+    # Refresh list_tools once so ``tool_description_drift`` has a second
+    # snapshot to compare against the initial recon.
+    if not budget.exceeded() and not clock.exceeded():
+        try:
+            refresh = await session.list_tools()
+            attack_calls.append(refresh)
+            lines.append("Refreshed list_tools for drift comparison.")
+        except Exception as e:
+            lines.append(f" -> refresh list_tools failed: {e}")
+
+    return "\n".join(lines)

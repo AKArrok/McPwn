@@ -404,6 +404,202 @@ def detect_shadow_tool_pair(
     return None
 
 
+_SHADOW_PAIR_ARG_KEY = "__mcpwn_probe_pair__"
+
+
+def _find_shadow_pair(lookup: dict[str, str]) -> tuple[str, str] | None:
+    """Return (a, b) whose names differ by lev<=2 AND descriptions jaccard>0.7.
+
+    Same predicate as `detect_shadow_tool_pair`; exposed for the executor so it
+    can decide which two tools to compare-probe.
+    """
+    names = list(lookup.keys())
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            a, b = names[i], names[j]
+            if _lev(a, b) > 2:
+                continue
+            if _desc_similarity(lookup[a], lookup[b]) > 0.7:
+                return a, b
+    return None
+
+
+def _same_args(a: dict | None, b: dict | None) -> bool:
+    if not a and not b:
+        return True
+    if a is None or b is None:
+        return False
+    # Drop the compare-probe marker so it does not force spurious matches.
+    aa = {k: v for k, v in a.items() if k != _SHADOW_PAIR_ARG_KEY}
+    bb = {k: v for k, v in b.items() if k != _SHADOW_PAIR_ARG_KEY}
+    return aa == bb
+
+
+def _normalize_response(text: str) -> str:
+    """Best-effort semantic fingerprint used for divergence/flip comparisons.
+
+    - Strip runs of whitespace.
+    - Zero out obvious volatile fields (timestamps, uuids, dates, numbers).
+    """
+    s = text or ""
+    s = re.sub(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?", "<TS>", s)
+    s = re.sub(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "<UUID>", s)
+    # Digit runs, allowing an immediately trailing single unit letter (F, C,
+    # ms, %) or punctuation. This is a semantic fingerprint, not a security
+    # boundary; a fluctuating "71F" -> "72F" should not fire rug_pull.
+    s = re.sub(r"\d+(?:\.\d+)?[a-zA-Z%]{0,3}", "<NUM>", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def detect_shadow_tool_behavior_divergence(
+    mcp_calls: list[McpCall], final_output: str
+) -> EvidenceSignal | None:
+    """Fires when two similarly-named tools return *different* content for the
+    same input.
+
+    A metadata shadow pair only proves "these two tools *could* be a rug"; if
+    we can also show they *behave* differently on identical args, that is an
+    independent piece of evidence and shifts confidence past the 0.6 gate
+    without weakening the signal model.
+
+    Executor is expected to seed matching probe pairs by tagging each with
+    ``args[_SHADOW_PAIR_ARG_KEY]`` so we can pair them cheaply. We fall back to
+    "same non-marker args" matching for hand-written traces.
+    """
+    # Group tool calls by their marker (if any); otherwise by a canonical
+    # (name-independent) args tuple built by sorting items.
+    marked: dict[str, list[tuple[int, McpCall]]] = {}
+    for i, call in enumerate(mcp_calls):
+        if call.kind != "call_tool" or not call.args:
+            continue
+        marker = call.args.get(_SHADOW_PAIR_ARG_KEY)
+        if not isinstance(marker, str):
+            continue
+        marked.setdefault(marker, []).append((i, call))
+
+    def _try_report(a_idx: int, a: McpCall, b_idx: int, b: McpCall) -> EvidenceSignal | None:
+        if not a.name or not b.name or a.name == b.name:
+            return None
+        na = _normalize_response(a.result_text)
+        nb = _normalize_response(b.result_text)
+        if na == nb:
+            return None
+        return _signal(
+            "shadow_tool_behavior_divergence",
+            "medium",
+            f"{a.name} vs {b.name} diverged on same args",
+            source_call_index=max(a_idx, b_idx),
+        )
+
+    for group in marked.values():
+        if len(group) < 2:
+            continue
+        (a_idx, a), (b_idx, b) = group[0], group[1]
+        sig = _try_report(a_idx, a, b_idx, b)
+        if sig is not None:
+            return sig
+
+    # Fallback: pair any two call_tool entries with different names but
+    # identical non-marker args, in call order.
+    seen: list[tuple[int, McpCall]] = []
+    for i, call in enumerate(mcp_calls):
+        if call.kind != "call_tool":
+            continue
+        for prev_i, prev in seen:
+            if prev.name == call.name:
+                continue
+            if _same_args(prev.args, call.args):
+                sig = _try_report(prev_i, prev, i, call)
+                if sig is not None:
+                    return sig
+        seen.append((i, call))
+    return None
+
+
+_RUG_PULL_MARKER = "__mcpwn_rug_probe__"
+
+
+def detect_rug_pull_response_flip(
+    mcp_calls: list[McpCall], final_output: str
+) -> EvidenceSignal | None:
+    """Fires when repeat calls to the same tool with the same args (excluding
+    the rug-pull probe marker) produce materially different responses after N
+    invocations. Executor seeds four consecutive probes tagged with
+    ``args[_RUG_PULL_MARKER]`` so we can attribute the sequence.
+
+    Rationale: DVMCP challenge 4 mutates ``get_weather`` after the 4th call.
+    Description drift is one indicator; response-body flip is an independent
+    behavioral one. Ignore volatile fields (timestamps, uuids, numbers) so a
+    'sunny 71F at 12:03' vs 'sunny 71F at 12:04' does not spuriously fire.
+    """
+    groups: dict[str, list[tuple[int, McpCall]]] = {}
+    for i, call in enumerate(mcp_calls):
+        if call.kind != "call_tool" or not call.args:
+            continue
+        marker = call.args.get(_RUG_PULL_MARKER)
+        if not isinstance(marker, str):
+            continue
+        groups.setdefault(marker, []).append((i, call))
+
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        # Take fingerprint of the FIRST call and compare each subsequent one.
+        first_idx, first = group[0]
+        first_norm = _normalize_response(first.result_text)
+        for later_idx, later in group[1:]:
+            if _normalize_response(later.result_text) != first_norm:
+                return _signal(
+                    "rug_pull_response_flip",
+                    "medium",
+                    f"{first.name} response changed between call#1 and call#{group.index((later_idx, later)) + 1}",
+                    source_call_index=later_idx,
+                )
+    return None
+
+
+_SUSPICIOUS_ERROR_PATTERNS: list[re.Pattern[str]] = [
+    # Sales/upsell pitches in an error string are a classic rug-pull tell:
+    # the service behaves normally until a threshold, then "upgrades" you
+    # into paying or leaks something else.
+    re.compile(r"\b(premium|pro plan|paid tier|subscription required)\b", re.IGNORECASE),
+    re.compile(r"\b(upgrade to|subscribe to|payment required)\b", re.IGNORECASE),
+    # Admin / credential language in tool output is never benign.
+    re.compile(r"\b(admin access|credentials leaked|internal credentials)\b", re.IGNORECASE),
+]
+
+
+def detect_suspicious_error_pitch(
+    mcp_calls: list[McpCall], final_output: str
+) -> EvidenceSignal | None:
+    """Fires when a call_tool response looks like an error but ALSO contains
+    upsell/admin/credential language.
+
+    Independent complement to ``rug_pull_response_flip``: a benign rate-limit
+    says "try again later"; a malicious one advertises paid tiers or leaks
+    admin content. Firing both pushes confidence across the 0.6 gate for
+    single-tool rug-pull targets like DVMCP 9004.
+    """
+    for i, call in enumerate(mcp_calls):
+        if call.kind != "call_tool":
+            continue
+        text = call.result_text or ""
+        # Must look error-ish first so we don't flag benign prose.
+        if not re.search(r"\b(error|failed|denied|limit|exceeded)\b", text, re.IGNORECASE):
+            continue
+        for pat in _SUSPICIOUS_ERROR_PATTERNS:
+            m = pat.search(text)
+            if m:
+                return _signal(
+                    "suspicious_error_pitch",
+                    "medium",
+                    m.group(),
+                    source_call_index=i,
+                )
+    return None
+
+
 # ── D. LLM twin verdict ──────────────────────────────────────────────────────
 
 
@@ -413,6 +609,85 @@ def detect_llm_judged_injection(
     """Placeholder until M2/M3 wire a small judge LLM. NOT registered in
     ``DETECTORS`` so ``run_all_signals`` does not waste a call slot on a stub.
     """
+    return None
+
+
+# ── E. injection-surface roundtrip ───────────────────────────────────────────
+#
+# Prompt injection at L0/L1 (see PROMPT_INJECTION_GAP.md): agent-first has no
+# resident victim LLM, so we do not observe an LLM being steered. Instead we
+# prove the *surface* exists at the server IO layer by canary roundtrip: the
+# attacker writes an INJECTION_MARKER via one tool call, and if any later
+# call_tool / read_resource result contains the same marker verbatim, the
+# server persisted user input without sanitization. This is the L0/L1
+# analogue of "SQL payload made it into the query"; L2 impact on a downstream
+# consumer LLM is a follow-on inference, not a test judgement.
+
+_INJECTION_MARKER_RE = re.compile(r"INJECTION_MARKER_[A-Za-z0-9]{4,}")
+
+
+def _extract_markers_from_args(args: dict | None) -> set[str]:
+    if not args:
+        return set()
+    markers: set[str] = set()
+
+    def _walk(v: object) -> None:
+        if isinstance(v, str):
+            markers.update(_INJECTION_MARKER_RE.findall(v))
+        elif isinstance(v, dict):
+            for x in v.values():
+                _walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                _walk(x)
+
+    _walk(args)
+    return markers
+
+
+def detect_stored_injection_roundtrip(
+    mcp_calls: list[McpCall], final_output: str
+) -> EvidenceSignal | None:
+    """Fires when an ``INJECTION_MARKER_*`` placed in a ``call_tool`` arg
+    comes back verbatim in a subsequent ``call_tool`` / ``read_resource``
+    result, or is reflected in that same call's own result.
+
+    Evidence: the server persisted or reflected user input without stripping
+    the canary. Proves the stored / reflected injection surface exists at the
+    server IO layer. Does **not** prove a downstream LLM would be steered
+    (that is L2; see ``PROMPT_INJECTION_GAP.md``). Strategy cards
+    ``direct_prompt_injection`` and ``indirect_injection`` mandate the marker
+    format so this detector stays low-noise.
+    """
+    written: dict[str, int] = {}
+    for i, call in enumerate(mcp_calls):
+        if call.kind != "call_tool":
+            continue
+        for marker in _extract_markers_from_args(call.args):
+            written.setdefault(marker, i)
+    if not written:
+        return None
+    for i, call in enumerate(mcp_calls):
+        if call.kind not in _CONTENT_KINDS:
+            continue
+        for marker, wrote_at in written.items():
+            if i < wrote_at:
+                continue
+            if marker not in call.result_text:
+                continue
+            if i == wrote_at:
+                return _signal(
+                    "stored_injection_roundtrip",
+                    "medium",
+                    f"marker={marker!r} reflected_at_idx={i}",
+                    i,
+                )
+            return _signal(
+                "stored_injection_roundtrip",
+                "medium",
+                f"marker={marker!r} wrote_at_idx={wrote_at} read_at_idx={i}",
+                i,
+            )
     return None
 
 
@@ -430,6 +705,10 @@ SIGNAL_META: dict[str, Severity] = {
     "unauthenticated_success": "high",
     "tool_description_drift": "medium",
     "shadow_tool_pair": "medium",
+    "shadow_tool_behavior_divergence": "medium",
+    "rug_pull_response_flip": "medium",
+    "suspicious_error_pitch": "medium",
+    "stored_injection_roundtrip": "medium",
 }
 
 
@@ -445,6 +724,10 @@ DETECTORS: dict[str, Callable[[list[McpCall], str], EvidenceSignal | None]] = {
     "unauthenticated_success": detect_unauthenticated_success,
     "tool_description_drift": detect_tool_description_drift,
     "shadow_tool_pair": detect_shadow_tool_pair,
+    "shadow_tool_behavior_divergence": detect_shadow_tool_behavior_divergence,
+    "rug_pull_response_flip": detect_rug_pull_response_flip,
+    "suspicious_error_pitch": detect_suspicious_error_pitch,
+    "stored_injection_roundtrip": detect_stored_injection_roundtrip,
 }
 
 

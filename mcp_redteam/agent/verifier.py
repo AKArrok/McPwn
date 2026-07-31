@@ -15,6 +15,7 @@ from mcp_redteam.contracts import (
     Finding,
     FindingSeverity,
     McpCall,
+    VulnClass,
 )
 from mcp_redteam.signals import (
     compute_confidence,
@@ -25,6 +26,19 @@ from mcp_redteam.signals import (
 # Re-export the threshold under the historical name so external code / tests
 # that imported ``verifier.CONFIDENCE_THRESHOLD`` still work.
 CONFIDENCE_THRESHOLD = FINDING_CONFIDENCE_THRESHOLD
+
+# Signals that constitute valid evidence for a tool_metadata_probe finding.
+# Leak/behavioral signals are excluded: a tool_metadata_probe trace that calls
+# a vulnerable tool will trip leak detectors, but that evidence belongs to the
+# tool's own vuln_class (e.g. path_traversal), not to metadata probing.
+_METADATA_ONLY_SIGNALS = frozenset({
+    "tool_description_drift",
+    "shadow_tool_pair",
+    "shadow_tool_behavior_divergence",
+    "rug_pull_response_flip",
+    "suspicious_error_pitch",
+    "stored_injection_roundtrip",
+})
 
 
 def verify_trace(trace: AttackTrace) -> tuple[list[EvidenceSignal], float]:
@@ -39,6 +53,12 @@ def verify_trace(trace: AttackTrace) -> tuple[list[EvidenceSignal], float]:
     """
     all_calls = list(trace.recon_calls) + list(trace.attack_calls)
     signals = run_all_signals(all_calls, trace.final_llm_output)
+    # tool_metadata_probe traces must only produce metadata-class evidence;
+    # leak/behavioral signals that fired because the probed tool happens to be
+    # vulnerable (e.g. DVMCP-9001 get_user_info leaks credentials) would
+    # produce a spurious finding under the wrong vuln_class.
+    if trace.vuln_class == VulnClass.TOOL_METADATA_PROBE:
+        signals = [s for s in signals if s.signal_id in _METADATA_ONLY_SIGNALS]
     confidence = compute_confidence(signals)
     return signals, confidence
 
