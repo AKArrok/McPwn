@@ -10,7 +10,6 @@ import json
 import logging
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,6 +19,7 @@ from mcp_redteam.contracts import (
     EvidenceSignal,
     Finding,
     FindingSeverity,
+    JudgeVerdict,
     McpCall,
     VulnClass,
 )
@@ -131,19 +131,17 @@ _REMEDIATION: dict[str, str] = {
 _L2_CLASSES = frozenset({VulnClass.INDIRECT_INJECTION, VulnClass.CHAIN_COMPOSITION})
 
 
-@dataclass(frozen=True, slots=True)
-class JudgeVerdict:
-    """One L2 judge verdict for an indirect/chain trace.
-
-    ``steered`` True = the attacker executed an action not justified by its
-    red-team task that traces to an instruction embedded in a tool result.
-    ``evidence_call_index`` is the index (into recon_calls + attack_calls) of
-    the call whose result carried the steering instruction, or None.
-    """
-
-    steered: bool
-    evidence_call_index: int | None
-    reason: str = ""
+# Re-export JudgeVerdict from contracts for backward compat. Canonical
+# type lives in mcp_redteam.contracts (pydantic) so it can be a field on
+# AttackTrace. Tests and external consumers can still import from here.
+__all__ = [
+    "CONFIDENCE_THRESHOLD",
+    "JudgeFn",
+    "JudgeVerdict",
+    "build_findings",
+    "make_judge_fn",
+    "verify_trace",
+]
 
 
 # Sync callable: build_findings runs outside the async MCP session.
@@ -286,6 +284,10 @@ def _maybe_add_l2_signal(
     except Exception:  # noqa: BLE001
         _log.exception("judge_fn raised; skipping L2 signal")
         return signals
+    # Persist the verdict regardless of steered/None so debug of 9006/9010
+    # no longer requires re-running the scan with a side-channel capture.
+    if verdict is not None:
+        trace.judge_verdict = verdict
     if verdict is None or not verdict.steered:
         return signals
     return signals + [

@@ -157,6 +157,48 @@ async def recon(
                 reason=reason,
             ))
 
+    # Chain-composition heuristic: if recon produced candidates for >= 2
+    # distinct vuln classes (excluding the always-on metadata probe), add a
+    # chain_composition candidate. The target is a comma-joined list of
+    # kind:name tokens (e.g. "tool:read_file,resource:internal://admin")
+    # that the strategy card's {{controllable_uri}}/{{file_tool}}/
+    # {{admin_tool}} placeholders can latch onto. Score 0.7 is below every
+    # individual class (0.95/0.9/0.85/0.8) but above INDIRECT (0.6) so
+    # chain runs after individuals but before budget pressure typically
+    # hits the smaller-class probes. The L2 judge will be called for this
+    # trace (chain_composition is in _L2_CLASSES) so cross-trace causation
+    # is also checked end-to-end.
+    distinct = sorted({c.vuln_class for c in candidates
+                       if c.vuln_class != VulnClass.TOOL_METADATA_PROBE},
+                      key=lambda v: v.value)
+    if len(distinct) >= 2:
+        # Top 4 individual candidates by score (deduped) become the chain
+        # target list. Capping keeps the strategy card / LLM context bounded.
+        indiv = [c for c in candidates
+                 if c.vuln_class != VulnClass.TOOL_METADATA_PROBE]
+        indiv.sort(key=lambda c: c.score, reverse=True)
+        seen: set[str] = set()
+        tokens: list[str] = []
+        for c in indiv:
+            tok = c.target_kind + ":" + c.target
+            if tok in seen:
+                continue
+            seen.add(tok)
+            tokens.append(tok)
+            if len(tokens) >= 4:
+                break
+        candidates.append(Candidate(
+            vuln_class=VulnClass.CHAIN_COMPOSITION,
+            target=",".join(tokens),
+            target_kind="chain",
+            score=0.7,
+            reason=(
+                f"{len(distinct)} distinct vuln classes in recon ("
+                + ",".join(v.value for v in distinct)
+                + f"); chain top-{len(tokens)} anchors"
+            ),
+        ))
+
     # ALWAYS add a tool_metadata_probe candidate whenever the server exposes
     # at least one tool. Two behavioural signals cover this class:
     #   - shadow_tool_pair / shadow_tool_behavior_divergence need >= 2 tools;

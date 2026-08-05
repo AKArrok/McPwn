@@ -100,3 +100,58 @@ if __name__ == "__main__":
             fn()
             print("PASS", name)
     print("all L2 judge tests PASS")
+
+
+def test_f_verdict_persisted_when_steered():
+    """L2 judge verdict must be written back to trace.judge_verdict so a
+    later debug pass (or a second scan reading the saved trace) sees what the
+    judge actually said, not just the L2 signal we ended up emitting."""
+    verdict = JudgeVerdict(steered=True, evidence_call_index=1, reason="narrative test reason")
+    j = FakeJudge(verdict)
+    trace = _indirect(_L1_CALLS)
+    f, _ = build_findings([trace], trace_dir=None, judge_fn=j)
+    assert trace.judge_verdict is not None, "verdict must be persisted on trace"
+    assert trace.judge_verdict.steered is True
+    assert trace.judge_verdict.evidence_call_index == 1
+    assert trace.judge_verdict.reason == "narrative test reason"
+    assert f, "L1+L2 should produce a finding"
+
+
+def test_g_verdict_persisted_when_not_steered():
+    """A non-steering verdict (steered=False) must ALSO be persisted. Otherwise
+    the only debug signal for a 9006/9010 miss is "the signal didn't fire",
+    which doesn't tell us what the judge thought."""
+    verdict = JudgeVerdict(steered=False, evidence_call_index=None, reason="no steering here")
+    j = FakeJudge(verdict)
+    trace = _indirect(_BENIGN_CALLS)
+    f, _ = build_findings([trace], trace_dir=None, judge_fn=j)
+    assert trace.judge_verdict is not None
+    assert trace.judge_verdict.steered is False
+    assert trace.judge_verdict.reason == "no steering here"
+    assert not f, "no L1 + L2 not-steered = no finding"
+
+
+def test_h_verdict_persisted_when_judge_unparseable():
+    """When the judge returns None (LLM error / JSON unparseable), we must
+    not pretend we have a verdict. trace.judge_verdict should stay None so
+    downstream consumers can distinguish "judge said no" from "judge silent"."""
+    j = FakeJudge(None)
+    trace = _indirect(_BENIGN_CALLS)
+    build_findings([trace], trace_dir=None, judge_fn=j)
+    assert trace.judge_verdict is None
+
+
+def test_i_judge_verdict_serialized_in_trace_json():
+    """A trace saved to disk must carry judge_verdict in its JSON. This is
+    the whole point of the M2.5 fix: debugging 9006/9010 must not require
+    re-running with a side-channel capture."""
+    import json
+    verdict = JudgeVerdict(steered=False, evidence_call_index=2, reason="r")
+    j = FakeJudge(verdict)
+    trace = _indirect(_BENIGN_CALLS)
+    build_findings([trace], trace_dir=None, judge_fn=j)
+    blob = json.loads(trace.model_dump_json())
+    assert "judge_verdict" in blob
+    assert blob["judge_verdict"] is not None
+    assert blob["judge_verdict"]["steered"] is False
+    assert blob["judge_verdict"]["evidence_call_index"] == 2
