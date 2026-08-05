@@ -1,0 +1,16 @@
+{
+  "name": "DVMCP 9001 - Basic Prompt Injection",
+  "sse_url": "http://127.0.0.1:9001/sse",
+  "description": "Hand-curated baseline derived from runs/m0_smoke/scan_result.json (real run on 2026-07-31). Asserts that the offline regression test, which uses FakeMcpSession + FakeChatCompletions to replay the M0 sequence, produces findings that match the M0 hand-verified outcome within tolerance.",
+  "expected_vuln_classes": [
+    "direct_prompt_injection"
+  ],
+  "expected_signals": [
+    "leaks_api_key_shape",
+    "leaks_hardcoded_password",
+    "stored_injection_roundtrip"
+  ],
+  "min_confidence": 0.9,
+  "min_findings_count": 1,
+  "max_candidates_explored": 2
+}

@@ -6,17 +6,21 @@ shared TokenBudget + WallClock, and writes trace/finding artefacts to disk.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import subprocess
 import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from mcp_redteam.agent.executor import execute_one
 from mcp_redteam.agent.planner import plan
 from mcp_redteam.agent.recon import recon
 from mcp_redteam.agent.verifier import build_findings, make_judge_fn
 from mcp_redteam.contracts import AttackTrace, ScanResult, ScanStopReason
-from mcp_redteam.models.chat import make_client
+from mcp_redteam.models.chat import load_registry, make_client
 from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
 from mcp_redteam.targets.mcp_client import McpSession
 from mcp_redteam.vulns.registry import lint_all_cards
@@ -47,6 +51,45 @@ def _make_judge_fn_or_none():
     return make_judge_fn(jclient, jspec)
 
 
+def _safe_git_sha() -> str:
+    """Best-effort current HEAD; empty string outside a git repo or on error.
+
+    Used as a reproducibility anchor in ``ScanResult.git_sha`` so a months-old
+    ``scan_result.json`` can be tied back to the code that produced it.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        return out.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _config_snapshot() -> dict[str, Any]:
+    """Snapshot of the parsed models.yaml registry. Empty dict on any error."""
+    try:
+        return load_registry()
+    except Exception:
+        return {}
+
+
+def _messages_sha1(traces: list[AttackTrace]) -> str:
+    """SHA-1 of every attacker_message across traces, ordered and serialised.
+
+    Behavioural-drift detection: if the same scan against the same target
+    produces a different ``attack_messages_sha1`` between runs, the attacker
+    LLM took a different decision path even if the findings look identical.
+    """
+    h = hashlib.sha1()
+    for trace in traces:
+        for msg in trace.attacker_messages:
+            h.update(json.dumps(msg, sort_keys=True, default=str).encode("utf-8"))
+            h.update(b"\n")
+    return h.hexdigest()
+
+
 def _stop_reason(budget: TokenBudget, clock: WallClock, error: str | None) -> ScanStopReason:
     if error:
         return "error"
@@ -64,6 +107,7 @@ async def scan(
     wall_seconds: int = DEFAULT_WALL_SECONDS,
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
     max_inner_steps: int = DEFAULT_MAX_INNER_STEPS,
+    attacker_temperature: float | None = None,
 ) -> ScanResult:
     """Scan one MCP SSE endpoint. Write traces/findings under `out_dir`."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -80,7 +124,7 @@ async def scan(
 
     budget = TokenBudget(max_tokens_total=max_tokens)
     clock = WallClock(wall_seconds=wall_seconds)
-    attacker = make_client("attacker")
+    attacker = make_client("attacker", temperature=attacker_temperature)
     judge_fn = _make_judge_fn_or_none()
 
     traces: list[AttackTrace] = []
@@ -127,6 +171,11 @@ async def scan(
         traces=traces,
         findings=findings,
         stop_reason=_stop_reason(budget, clock, error),
+        git_sha=_safe_git_sha(),
+        config_snapshot=_config_snapshot(),
+        attacker_model=attacker[1].model,
+        attacker_temperature=attacker[1].temperature,
+        attack_messages_sha1=_messages_sha1(traces),
     )
 
     (out_dir / "scan_result.json").write_text(

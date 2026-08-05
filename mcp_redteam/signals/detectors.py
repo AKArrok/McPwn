@@ -275,6 +275,79 @@ def _looks_like_fake_auth(value: object) -> bool:
     return stripped.lower() in {"fake", "test", "dummy", "guest", "none", "null"}
 
 
+# Description pattern: tool is auth-gated if its description contains
+# any of these phrases. Replaces the v0 exact-name hardcode
+# ``(remote_access|admin|manage|verify_token|authenticate|grant_role)``
+# which was DVMCP-shaped and missed real-world auth tools with different
+# names (check_permission, require_auth, is_authorized, etc.).
+_AUTH_DESC_RE = re.compile(
+    r"\b(?:"
+    r"auth(?:entication|entication|enticate|oriz\w+|enticated)"
+    r"|credential[s]?"
+    r"|permission[s]?"
+    r"|privilege[s]?"
+    r"|admin(?:istrator)?"
+    r"|root\s+access"
+    r"|login\s+requir\w*|sign[\s-]?in\s+requir\w*"
+    r"|verify\s+(?:token|key|credential)"
+    r"|validate\s+(?:token|key|credential)"
+    r"|requir\w*\s+(?:auth|token|credential|permission|key|admin|login|sign[\s-]?in)"
+    r"|access\s+control"
+    r"|grant\s+(?:role|admin|permission|privilege|access)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Loose name fallback for tools with terse or missing descriptions.
+# Substring match against common auth / permission / role stems. Catches
+# DVMCP tool names (authenticate, verify_token, manage_permissions) AND
+# generic names (check_permission, require_auth). Combined with the
+# second-pass requirements (no prior auth + success phrase in response),
+# false positives on benign names like ``tokenize`` are bounded.
+_AUTH_NAME_RE = re.compile(
+    r"(?:auth\w*|verify_?token|credential\w*|permission\w*|grant_?role|admin\w*)",
+    re.IGNORECASE,
+)
+
+
+def _lookup_tool_description(
+    tool_name: str | None, calls: list[McpCall]
+) -> str | None:
+    """Return the description of tool_name from the latest list_tools call
+    in ``calls``, or None if not found / no description / no list_tools.
+
+    We scan in reverse so that if a tool description drifted mid-trace
+    (rug pull), we use the most recent snapshot, which is what the LLM
+    saw at the time of the call.
+    """
+    if not tool_name:
+        return None
+    for i in range(len(calls) - 1, -1, -1):
+        if calls[i].kind != "list_tools":
+            continue
+        lookup = _parse_list_tools_lookup(calls[i].result_text)
+        if tool_name in lookup:
+            return lookup[tool_name]
+    return None
+
+
+def _is_auth_gated_tool(call: McpCall, prior_calls: list[McpCall]) -> bool:
+    """Return True if the call's tool is auth-gated.
+
+    Judgment is by tool description (primary) or tool name stem
+    (fallback for terse descriptions). Replaces v0 hardcoded exact-name
+    list. The two-tier check is deliberate: descriptions carry semantic
+    intent ("Verifies a token", "Requires admin permission"); names carry
+    the author's lexical convention. If a server gives only a terse name
+    (no description), the name fallback still fires on common stems.
+    """
+    name = call.name or ""
+    if _AUTH_NAME_RE.search(name):
+        return True
+    desc = _lookup_tool_description(name, prior_calls)
+    return bool(desc and _AUTH_DESC_RE.search(desc))
+
+
 def detect_unauthenticated_success(
     mcp_calls: list[McpCall], final_output: str
 ) -> EvidenceSignal | None:
@@ -298,13 +371,18 @@ def detect_unauthenticated_success(
                     f"{present_key}={call.args.get(present_key)!r} => {m.group()}",
                     source_call_index=i,
                 )
-    # Second pass: auth-gated tool names that succeed when no prior
-    # authenticate call returned success. Catches forged non-empty tokens
-    # (e.g. fabricated 32-hex strings) and tools that omit optional auth params.
-    _AUTH_GATED_NAMES = re.compile(
-        r"^(remote_access|admin|manage|verify_token|authenticate|grant_role)$",
-        re.IGNORECASE,
-    )
+    # Second pass: auth-gated tools (by description or name stem) that
+    # succeed when no prior session-level authenticate call returned
+    # success. Catches forged non-empty tokens (e.g. fabricated 32-hex
+    # strings) and tools that omit optional auth params. Was DVMCP-shaped
+    # (exact match against hardcoded tool names); now uses description
+    # (primary) + name stem (fallback) so non-DVMCP servers with
+    # differently-named auth tools also fire. prior_auth_ok is kept
+    # specific to the ``authenticate`` tool because that is a session
+    # concept: a successful ``verify_token`` with a forged token is a
+    # vulnerability in itself (caught by the first pass), but it does
+    # not constitute a session and must not suppress reporting of
+    # subsequent auth-gated tool calls.
     _AUTH_GATED_PHRASES = _AUTH_SUCCESS_PHRASES + tuple(
         re.compile(p, re.IGNORECASE)
         for p in (
@@ -322,7 +400,7 @@ def detect_unauthenticated_success(
     for i, call in enumerate(mcp_calls):
         if call.kind != "call_tool":
             continue
-        if not call.name or not _AUTH_GATED_NAMES.match(call.name):
+        if not _is_auth_gated_tool(call, mcp_calls[:i]):
             continue
         if prior_auth_ok:
             continue

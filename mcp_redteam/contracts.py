@@ -129,6 +129,11 @@ class Finding(BaseModel):
     finding_id: str
     vuln_class: VulnClass
     target: str
+    # What the recon classifier guessed; kept for backward compat.
+    hypothesis_class: VulnClass | None = None
+    # Inferred from the signals that fired + the call that produced them.
+    # This is what the evidence actually shows, not what we guessed.
+    evidence_class: VulnClass | None = None
     severity: FindingSeverity
     confidence: float = Field(ge=FINDING_CONFIDENCE_THRESHOLD, le=1.0)
     title: str
@@ -187,6 +192,19 @@ class ScanResult(BaseModel):
     traces: list[AttackTrace] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
     stop_reason: ScanStopReason
+
+    # Reproducibility metadata (point-in-time reproducible scans).
+    # git_sha + config_snapshot + attacker_model + attacker_temperature +
+    # attack_messages_sha1 answer "which code, which config, which model
+    # behaviour produced this finding?" for a months-old artifact without a
+    # re-run. config_snapshot is the parsed models.yaml dict;
+    # attack_messages_sha1 collapses attacker_messages across all traces so
+    # a behavioural drift between runs surfaces as a hash mismatch.
+    git_sha: str = ""
+    config_snapshot: dict[str, Any] = Field(default_factory=dict)
+    attacker_model: str = ""
+    attacker_temperature: float = 0.0
+    attack_messages_sha1: str = ""
 
     @computed_field  # type: ignore[misc]
     @property

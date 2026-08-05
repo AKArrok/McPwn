@@ -22,10 +22,9 @@ def _load_expected() -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def _acceptable_classes(entry: dict) -> set[str]:
-    classes = {entry["primary_class"]}
-    classes.update(entry.get("also_accept", []))
-    return classes
+def _expected_signals(entry: dict) -> set[str]:
+    """Return the set of signal_ids that count as a hit for this port."""
+    return set(entry.get("expected_signals", []))
 
 
 async def _replay_poc(sse_url: str, finding: Finding) -> bool:
@@ -85,6 +84,10 @@ async def run_all(
         results[port] = result
 
     # ── compute metrics ──────────────────────────────────────────────────
+    # Signal-based hit: a finding hits if ANY of its signal_ids appears in
+    # the port's expected_signals. This measures "did the agent produce real
+    # evidence of the expected vulnerability type" rather than "did the recon
+    # classifier guess the right label".
     hit_count = 0
     total_findings = 0
     false_positives = 0
@@ -92,11 +95,12 @@ async def run_all(
         expected = expected_by_port.get(port)
         if not expected:
             continue
-        acceptable = _acceptable_classes(expected)
+        expected_sigs = _expected_signals(expected)
         port_hit = False
         for f in result.findings:
             total_findings += 1
-            if f.vuln_class.value in acceptable:
+            finding_sig_ids = {s.signal_id for s in f.signals}
+            if expected_sigs and (finding_sig_ids & expected_sigs):
                 port_hit = True
             else:
                 false_positives += 1
@@ -142,9 +146,10 @@ async def run_all(
         expected = expected_by_port.get(port)
         if not expected:
             continue
-        acceptable = _acceptable_classes(expected)
+        expected_sigs = _expected_signals(expected)
         port_hit = any(
-            f.vuln_class.value in acceptable for f in result.findings
+            expected_sigs and ({s.signal_id for s in f.signals} & expected_sigs)
+            for f in result.findings
         )
         lines.append(
             f"| {port} | {expected['name']} | {expected['primary_class']} | "

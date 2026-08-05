@@ -1,7 +1,7 @@
 # McPwn 进度记录
 
 > 每次开工前读这个文件 + HANDOFF.md。如果代码和这里说的不一致，以代码为准。
-> 最后更新: 2026-07-31 (commit 897df81)
+> 最后更新: 2026-08-05 (commit 8f6bd67 + 315df37 + 41704e1 + 97887db + 9d2b5cd + 77f5447 + 本次文档漂移修复; M2 v4 验证 8/10 PASS, pytest 72 passed)
 
 ## 当前里程碑
 
@@ -12,8 +12,8 @@
 | recall | 0.80 (8/10) | >= 0.7 |
 | FPR | 0.00 | < 0.3 |
 | poc_replay_pass_rate | 1.00 (5/5) | 有就行 |
-| pytest | 50 passed | |
-| ruff | 0 errors | |
+| pytest | 72 passed (11.75s) | |
+| ruff | 0 errors (mcp_redteam+eval; tests 6 pre-existing, out of scope per HANDOFF_NEXT) | |
 | lint-cards | 7/7 ok | |
 
 M2 数据产物: `runs/m2_dvmcp_full_v2/eval_report.md` + 每港 `scan_result.json` + `findings.md` + `poc/*.py`。
@@ -26,6 +26,8 @@ M2 数据产物: `runs/m2_dvmcp_full_v2/eval_report.md` + 每港 `scan_result.js
 7cf39bc  feat: poc_replay_pass_rate + eval findings.md + ruff clean
 6f7be23  fix: auth_bypass detection for 9007/9009 -> M2 recall 8/10
 897df81  feat: hallucination suppression (grounding gate + L2 judge) + M2 verified
+8f6bd67  fix: replace DVMCP-shaped _AUTH_GATED_NAMES with description+name heuristic
+315df37  fix: retry-with-backoff for LLM transient errors
 ```
 
 工作树干净 (`git status` 无未提交改动)。
@@ -75,7 +77,12 @@ verifier 对 `INDIRECT_INJECTION` 和 `CHAIN_COMPOSITION` trace 调 judge LLM (r
 ### 7. 收敛轮提示词改写 (executor.py + attacker_system.md)
 收敛轮不再要求 LLM "逐字引用可疑串" (诱导幻觉), 改为"一句话总结探了什么、证据落在哪条 call"。
 
+### 8. LLM 调用 retry-with-backoff (chat.py + executor.py)
+`chat_create_with_retry` 包装 `client.chat.completions.create`, 重试 5 次 (RateLimitError / APITimeoutError / APIConnectionError / InternalServerError), 退避 1/2/4/8/16s。BadRequestError 等 4xx 代码 bug 不重试。背景: M2 v3 重跑 (runs/m2_dvmcp_full_v3/) 发现 9008/9009 在 step 0 拿到 429 (ARK glm-5-2 触发 set inference limit) 后 executor 立刻 break, 整 trace 0 attack_calls → 0 findings → port miss。retry 让短暂限流在同一 trace 内清掉, 而不是把 port 拖到 0 finding。Wall-time budget 不在 retry helper 内查, 由 executor 每轮的 clock check 兜底; token budget 不受影响 (失败 attempt 不计费)。
+
 ## 信号库 (15 条, 14 条注册 + 1 条占位)
+
+> HANDOFF §6 标 M0-M2 必须 12 条; M2 之后补 3 条 (shadow_tool_behavior_divergence / rug_pull_response_flip / suspicious_error_pitch), 见下表 3 行。
 
 | signal_id | severity | 类别 | 说明 |
 |---|---|---|---|
@@ -99,6 +106,22 @@ verifier 对 `INDIRECT_INJECTION` 和 `CHAIN_COMPOSITION` trace 调 judge LLM (r
 confidence 公式: `1 - prod(1 - w_i)` (去重后), critical=0.95, high=0.75, medium=0.5。阈值 >= 0.6 才进 findings.md。
 
 ## 未完成 / 下一步
+
+### M2 v4 验证 (PASS)
+M2 v4 (`runs/m2_dvmcp_full_v4/`, 8/10) 验证完成。attacker 临时从 paused 的 `glm-5-2-260617` 切到 `deepseek-v4-pro-260425` (账号下唯一 active 非-paused LLM; 1s/次)。加 chat-layer rate limit (2s/call, env `MCPWN_LLM_MIN_INTERVAL_SEC` 可调) 防再撞墙。跑完 10 分 1 秒 (合计 601s; 9001-9005/9008 < 50s, 9006/9007/9009/9010 因 LLM 续轮 / judge 调起 / budget 拉长 80-94s)。
+
+**结论: auth-gated fix (8f6bd67) 是 model-agnostic**, 在 glm-5-2 跟 deepseek-v4-pro 两个不同 model 上保持 8/10 recall / 0.00 FPR / 1.00 poc_replay。9006 (indirect) 跟 9010 (chain) 仍 miss, 是 HANDOFF 标的 bonus, 没拆。
+
+### #4 cross-server FPR baseline (v2 PARTIAL)
+`runs/clean_baseline_v2/` 跑了, 总 FPR=0.00 但有 1 个 variant server 挂 (summarize), 实际是 1 PASS + 1 INCONCLUSIVE + 1 PROBABLE PASS。
+
+| variant | attack_calls | stop_reason | 评估 |
+|---|---|---|---|
+| 9101 noop | 17 | completed | PASS (description-regex 不被空 desc 骗) |
+| 9102 summarize | 11 | error (peer closed) | INCONCLUSIVE (server 中途断) |
+| 9103 file_list | 32 | budget_tokens | PROBABLE PASS (32 次都没触发 path-traversal) |
+
+9102 那个 RemoteProtocolError 是 server 端 bug: FastMCP 2.0 `MCPServer.run_sse_async` 在 SSE 客户端异常断时没正确清理, 子进程挂了。要 strong cross-server FPR 数字, 修 server 的 graceful shutdown, 然后 `clean_baseline_v3` 重跑。
 
 ### M3 (LLM 决策版 planner)
 把 `agent/planner.py` 的 `plan()` 从硬编 score 排序改成 LLM 决策。输入 recon 结果 (tool 列表 + resource 列表 + 描述), 输出 next-action (vuln_class, target)。和硬编版 M2 对比 recall / FPR / avg_findings_per_port。不改 recon -> executor -> verifier -> report 闭环。

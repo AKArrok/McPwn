@@ -3,7 +3,7 @@ attacker:
   provider: ark
   base_url: https://ark.cn-beijing.volces.com/api/v3
   # 可选:kimi-k2-250905 / kimi-k2-thinking-251104 也可
-  model: glm-5-2-260617
+  model: deepseek-v4-pro-260425  # 临时切: glm-5-2-260617 被 ARK paused (set inference limit)
   temperature: 0.7
   timeout: 60
   key_env: ARK_API_KEY
