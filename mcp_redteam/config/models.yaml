@@ -8,10 +8,10 @@ attacker:
   key_env: DEEPSEEK_API_KEY
 
 judge:
-  provider: deepseek
-  base_url: https://api.deepseek.com/v1
-  # doubao-seed-2.0-lite 在 ARK 上 404，改用 deepseek-v4-flash 做 judge。
-  model: deepseek-v4-flash
+  provider: ark-plan
+  base_url: https://ark.cn-beijing.volces.com/api/coding/v3
+  # Ark Plan 的豆包模型，需使用 Coding/Agent Plan API Key。
+  model: doubao-seed-2.0-lite
   temperature: 0.0
   timeout: 60
-  key_env: DEEPSEEK_API_KEY
+  key_env: ARK_API_KEY
