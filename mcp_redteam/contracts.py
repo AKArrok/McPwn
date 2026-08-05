@@ -246,3 +246,29 @@ class ScanResult(BaseModel):
     @property
     def total_tokens(self) -> int:
         return self.attacker_tokens + self.judge_tokens
+
+class M3JudgeReport(BaseModel):
+    """M3 acceptance judge output (HANDOFF_JUDGE + grill decisions).
+
+    verdict is aggregated conservatively: any criterion "fail" -> "fail";
+    otherwise any "inconclusive" -> "inconclusive"; otherwise "pass".
+    criteria uses the locked keys: recall_llm_ge_hardcoded /
+    fpr_llm_le_hardcoded / chain_9010_real / avg_findings_llm_ge_hardcoded /
+    planner_non_fallback_ge_0_8.
+    metrics holds the code-computed numbers (recall/fpr/avg_findings
+    both sides, planner non-fallback rate, hallucination rate,
+    n_ports_compared) so a pass/fail is independently re-verifiable
+    without trusting LLM arithmetic (judge does no number inference).
+    judge_model / judge_tokens record which model produced the verdict
+    and the out-of-band token cost (never attacker budget).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    verdict: Literal["pass", "fail", "inconclusive"]
+    criteria: dict[str, Literal["pass", "fail", "inconclusive"]]
+    metrics: dict[str, float | int | None]
+    planner_fallback_rate: float | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    reason: str = ""
+    judge_model: str = ""
+    judge_tokens: int = 0
