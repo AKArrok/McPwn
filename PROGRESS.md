@@ -1,7 +1,7 @@
 # McPwn 进度记录
 
 > 每次开工前读这个文件 + HANDOFF.md。如果代码和这里说的不一致，以代码为准。
-> 最后更新: 2026-08-05 (commit 8f6bd67 + 315df37 + e5bf87d + 新 rate limit + 模型切 deepseek-v4-pro; M2 v4 验证 8/10 PASS)
+> 最后更新: 2026-08-05 (commit 8f6bd67 + 315df37 + 41704e1 + 97887db + 9d2b5cd + 77f5447 + 本次文档漂移修复; M2 v4 验证 8/10 PASS, pytest 72 passed)
 
 ## 当前里程碑
 
@@ -12,8 +12,8 @@
 | recall | 0.80 (8/10) | >= 0.7 |
 | FPR | 0.00 | < 0.3 |
 | poc_replay_pass_rate | 1.00 (5/5) | 有就行 |
-| pytest | 50 passed | |
-| ruff | 0 errors | |
+| pytest | 72 passed (11.75s) | |
+| ruff | 0 errors (mcp_redteam+eval; tests 6 pre-existing, out of scope per HANDOFF_NEXT) | |
 | lint-cards | 7/7 ok | |
 
 M2 数据产物: `runs/m2_dvmcp_full_v2/eval_report.md` + 每港 `scan_result.json` + `findings.md` + `poc/*.py`。
@@ -82,6 +82,8 @@ verifier 对 `INDIRECT_INJECTION` 和 `CHAIN_COMPOSITION` trace 调 judge LLM (r
 
 ## 信号库 (15 条, 14 条注册 + 1 条占位)
 
+> HANDOFF §6 标 M0-M2 必须 12 条; M2 之后补 3 条 (shadow_tool_behavior_divergence / rug_pull_response_flip / suspicious_error_pitch), 见下表 3 行。
+
 | signal_id | severity | 类别 | 说明 |
 |---|---|---|---|
 | leaks_etc_passwd | critical | A-leak | `/etc/passwd` 起始行 |
@@ -106,7 +108,7 @@ confidence 公式: `1 - prod(1 - w_i)` (去重后), critical=0.95, high=0.75, me
 ## 未完成 / 下一步
 
 ### M2 v4 验证 (PASS)
-M2 v4 (`runs/m2_dvmcp_full_v4/`, 8/10) 验证完成。attacker 临时从 paused 的 `glm-5-2-260617` 切到 `deepseek-v4-pro-260425` (账号下唯一 active 非-paused LLM; 1s/次)。加 chat-layer rate limit (2s/call, env `MCPWN_LLM_MIN_INTERVAL_SEC` 可调) 防再撞墙。跑完 10 分 7 秒。
+M2 v4 (`runs/m2_dvmcp_full_v4/`, 8/10) 验证完成。attacker 临时从 paused 的 `glm-5-2-260617` 切到 `deepseek-v4-pro-260425` (账号下唯一 active 非-paused LLM; 1s/次)。加 chat-layer rate limit (2s/call, env `MCPWN_LLM_MIN_INTERVAL_SEC` 可调) 防再撞墙。跑完 10 分 1 秒 (合计 601s; 9001-9005/9008 < 50s, 9006/9007/9009/9010 因 LLM 续轮 / judge 调起 / budget 拉长 80-94s)。
 
 **结论: auth-gated fix (8f6bd67) 是 model-agnostic**, 在 glm-5-2 跟 deepseek-v4-pro 两个不同 model 上保持 8/10 recall / 0.00 FPR / 1.00 poc_replay。9006 (indirect) 跟 9010 (chain) 仍 miss, 是 HANDOFF 标的 bonus, 没拆。
 
