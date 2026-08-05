@@ -233,3 +233,20 @@ eval/realworld/
 targets/realworld/
   deploy.ps1           靶机容器管理 (dry-run/--yes, 127.0.0.1 绑定)
 ```
+## Judge 扩展 (M3 acceptance, 2026-08-05)
+
+- **L2 prompt 外置** (commit 721ee9a): `_JUDGE_SYSTEM` / `_build_judge_user_message` 从
+  `agent/verifier.py` 迁到 `mcp_redteam/judge/agents/{judge_system,judge_user}.md` (jinja2),
+  `_parse_judge_json` → `mcp_redteam/judge/parse.py::parse_judge_json`; 行为不变,
+  `tests/test_l2_judge.py` 9 条 + 新增 `tests/test_judge_prompt_external.py` 全绿。
+- **M3 验收 judge**: `mcpwn eval dvmcp judge-m3 --baseline <dir> --llm <dir> --out <dir> [--judge-model]`。
+  代码算五条判据 (recall / fpr / avg_findings / planner 非 fallback 率 / 9010 chain 闸门),
+  LLM judge (role=judge, temp 0.0) 只裁 `chain_9010_real` + reason; 保守聚合 (任一 fail→fail,
+  否则任一 inconclusive→inconclusive, 否则 pass)。`planner_decisions.json` 契约
+  (完整有序候选序列 + source llm|fallback + planned/executed/skip_reason) 驱动判据 5 与
+  9010 意图 vs 执行分离 (计划里无 chain→fail, 计划了没轮到→inconclusive)。
+  judge 失败 → 报告 `inconclusive` 不 crash; 报告含 metrics 数值可独立复核。
+- 真实验收前提: LLM planner 版 eval 跑出 `runs/m3_llm_decision/{hardcoded,llm}` + `planner_decisions.json`;
+  否则判据 5 / 9010 为 inconclusive (预期行为, 不是 bug)。
+- 验证: pytest 153 passed, ruff 0, lint-cards 7/7; 真实 runs 目录冒烟 `judge-m3`
+  (m2_dvmcp_full_v4 vs m2_5_v1) 输出整体 inconclusive + LLM 对 9010 的真实裁决, 见 `runs/m3_judge_smoke/`。
