@@ -1,0 +1,52 @@
+name: Create GitHub Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.yml'
+      - 'src/**'
+      - 'package.json'
+
+jobs:
+  version_check:
+    runs-on: ubuntu-latest
+    outputs:
+      # https://github.community/t/sharing-a-variable-between-jobs/16967/14
+      changed: ${{steps.check.outputs.changed}}
+      version: ${{steps.check.outputs.version}}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      - name: Check if version changed in package.json
+        id: check
+        uses: EndBug/version-check@v2 # https://github.com/marketplace/actions/version-check
+        with:
+          diff-search: true
+          file-name: ./package.json
+
+  create_release:
+    needs: version_check
+    if: ${{needs.version_check.outputs.changed == 'true'}}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Create Release
+        # https://github.com/actions/create-release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          # Must use personal access token and not secrets.GITHUB_TOKEN to trigger on.release.created event, which publish.yml watches for
+          # https://github.community/t/github-action-trigger-on-release-not-working-if-releases-was-created-by-automation/16559
+          GITHUB_TOKEN: ${{secrets.PERSONAL_GITHUB_TOKEN}}
+        with:
+          tag_name: v${{needs.version_check.outputs.version}}
+          release_name: Release ${{needs.version_check.outputs.version}}
+          body: |
+            mcp-server-sqlite-npx
+          draft: false
+          prerelease: false
