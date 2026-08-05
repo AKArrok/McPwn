@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import socket
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -116,10 +115,10 @@ async def _run_one(variant: dict, out_dir: Path) -> dict:
     finally:
         proc.terminate()
         try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        except TimeoutError:
             proc.kill()
-            proc.wait(timeout=5)
+            await asyncio.wait_for(proc.wait(), timeout=5)
 
 
 def _write_report(results: list[dict], out_dir: Path) -> Path:

@@ -115,7 +115,14 @@ def test_exhausts_retries_then_raises(monkeypatch):
 
 
 def test_backoff_sequence_is_exponential(monkeypatch):
-    """Sleep durations follow 1, 2, 4, 8, 16 sequence."""
+    """Backoff sleeps follow 1, 2, 4, 8, 16 sequence.
+
+    Disables _rate_limit_wait (sets _MIN_INTERVAL_SEC to 0) so only the
+    retry-backoff component is exercised. The rate-limit component is
+    covered by test_rate_limit_enforces_min_interval below.
+    """
+    from mcp_redteam.models import chat as chat_mod
+    monkeypatch.setattr(chat_mod, "_MIN_INTERVAL_SEC", 0.0)
     sleeps: list[float] = []
     monkeypatch.setattr("mcp_redteam.models.chat.time.sleep", lambda s: sleeps.append(s))
     client = _client_that_raises(_make_rate_limit(), _MAX_RETRIES + 5)
@@ -124,3 +131,30 @@ def test_backoff_sequence_is_exponential(monkeypatch):
     # _MAX_RETRIES=5 retries means _MAX_RETRIES sleeps (not after the final
     # failed attempt). Sequence: 1, 2, 4, 8, 16.
     assert sleeps == [1.0, 2.0, 4.0, 8.0, 16.0]
+
+
+def test_rate_limit_enforces_min_interval(monkeypatch):
+    """_rate_limit_wait blocks until at least _MIN_INTERVAL_SEC has passed.
+
+    We mock time.monotonic to return a controlled sequence and time.sleep
+    to capture the wait durations. Two consecutive calls (with no
+    intervening real time) must result in a sleep of _MIN_INTERVAL_SEC
+    on the second call (the first sees elapsed=infinity since the
+    module-level _last_call_monotonic starts at 0).
+    """
+    from mcp_redteam.models import chat as chat_mod
+    # Reset the rate limit state so the test is hermetic.
+    monkeypatch.setattr(chat_mod, "_last_call_monotonic", 0.0)
+    times = [100.0, 100.0, 100.5, 100.5, 101.5, 101.5, 102.5, 102.5]
+    monkeypatch.setattr(chat_mod.time, "monotonic", lambda: times.pop(0))
+    sleeps: list[float] = []
+    monkeypatch.setattr(chat_mod.time, "sleep", lambda s: sleeps.append(s))
+    # First call: elapsed = 100.0 - 0.0 = 100.0 >= 2.0, no sleep.
+    chat_mod._rate_limit_wait()
+    assert sleeps == []
+    # Second call (0.5s later): elapsed = 0.5 < 2.0, sleep 1.5s.
+    chat_mod._rate_limit_wait()
+    assert sleeps == [1.5]
+    # Third call (1.0s after second): elapsed = 1.0 < 2.0, sleep 1.0s.
+    chat_mod._rate_limit_wait()
+    assert sleeps == [1.5, 1.0]

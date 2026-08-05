@@ -129,6 +129,23 @@ _MAX_RETRIES = 5
 _BASE_BACKOFF = 1.0  # seconds; sequence is 1, 2, 4, 8, 16 (total ~31s)
 
 
+import threading
+
+_MIN_INTERVAL_SEC = float(os.environ.get("MCPWN_LLM_MIN_INTERVAL_SEC", "2.0"))
+_rate_limit_lock = threading.Lock()
+_last_call_monotonic: float = 0.0
+
+
+def _rate_limit_wait() -> None:
+    global _last_call_monotonic
+    with _rate_limit_lock:
+        now = time.monotonic()
+        elapsed = now - _last_call_monotonic
+        if elapsed < _MIN_INTERVAL_SEC:
+            time.sleep(_MIN_INTERVAL_SEC - elapsed)
+        _last_call_monotonic = time.monotonic()
+
+
 def chat_create_with_retry(client: OpenAI, **kwargs):
     """Call ``client.chat.completions.create(**kwargs)`` with exponential backoff.
 
@@ -145,6 +162,7 @@ def chat_create_with_retry(client: OpenAI, **kwargs):
     charged by the upstream API.
     """
     for attempt in range(_MAX_RETRIES + 1):
+        _rate_limit_wait()
         try:
             return client.chat.completions.create(**kwargs)
         except _RETRY_EXCEPTIONS as exc:
