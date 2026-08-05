@@ -23,8 +23,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
+import traceback
 from collections.abc import Callable
 
+import anyio
 from mcp.server.mcpserver import MCPServer
 
 # ── variant builders ─────────────────────────────────────────────────────────
@@ -89,7 +92,38 @@ _BUILDERS: dict[str, Callable[[MCPServer], None]] = {
 async def _serve(variant: str, port: int) -> None:
     server = MCPServer(name=f"clean-{variant}")
     _BUILDERS[variant](server)
-    await server.run_sse_async(host="127.0.0.1", port=port)
+    try:
+        await server.run_sse_async(host="127.0.0.1", port=port)
+    except* anyio.BrokenResourceError as excs:
+        # Client (scan) closed the SSE stream mid-flight. Normal in our eval
+        # pattern: runner.py tears the server down after scan() returns, and
+        # uvicorn propagates BrokenResourceError out of server.serve(). anyio
+        # >= 4 may wrap in ExceptionGroup; except* catches both forms.
+        # Without this handler the subprocess exits non-zero and the runner
+        # records stop_reason=error (the 9102 PARTIAL root cause, see
+        # PROGRESS M2.5 section / HANDOFF_NEXT 9102 server graceful
+        # shutdown bug).
+        for exc in excs:
+            print(
+                f"clean_baseline server {variant}: SSE client disconnected "
+                f"({type(exc).__name__}: {exc})",
+                file=sys.stderr,
+            )
+    except* Exception as excs:  # noqa: BLE001 - diagnostic catch until v5 narrows 9103
+        # Diagnostic catch: any exception uvicorn propagates out of
+        # server.serve() lands here with type + traceback in stderr instead
+        # of a bare non-zero subprocess exit. The v3 run showed 9103 also
+        # fails mid-scan (RemoteProtocolError on the client side), so we
+        # keep this broad until v4 identifies the actual server-side type.
+        for exc in excs:
+            print(
+                f"clean_baseline server {variant}: UNEXPECTED "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            traceback.print_exception(
+                type(exc), exc, exc.__traceback__, file=sys.stderr
+            )
 
 
 def main() -> None:

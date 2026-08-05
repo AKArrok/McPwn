@@ -100,6 +100,12 @@ class AttackTrace(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     elapsed_ms: int = 0
+    # L2 judge verdict for indirect/chain traces; None for traces that did
+    # not run the judge (off-L2-class) or where the judge returned nothing
+    # usable (LLM call failed / JSON unparseable). Persisted to disk so
+    # debugging 9006/9010 no longer requires re-running with a side-channel
+    # verdict capture.
+    judge_verdict: JudgeVerdict | None = None
 
     @model_validator(mode="after")
     def _slug_matches_vuln_class(self) -> AttackTrace:
@@ -156,6 +162,33 @@ class Finding(BaseModel):
         h.update(b"|")
         h.update(top_signal_id.encode())
         return f"F-{h.hexdigest()[:10]}"
+
+
+class JudgeVerdict(BaseModel):
+    """One L2 judge verdict for an indirect/chain trace.
+
+    Promoted from ``verifier.py`` dataclass to contracts so the data is
+    serialisable on ``AttackTrace`` (pydantic-only contracts, HANDOFF §5).
+    Contract:
+      - ``steered`` True = the attacker executed an action NOT justified
+        by its red-team task that traces to an instruction embedded in a
+        tool/resource result (indirect prompt injection that steered the
+        attacker off task).
+      - ``evidence_call_index`` is the index (into recon_calls + attack_calls)
+        of the call whose result carried the steering instruction, or None
+        when the judge could not localise it.
+      - ``reason`` is a short free-text explanation from the judge LLM,
+        truncated to 200 chars at parse time.
+
+    ``None`` (the AttackTrace default) means judge did not run or returned
+    nothing usable. L2 never auto-creates a finding: it must corroborate
+    an L1 signal on the same trace, see ``verifier._maybe_add_l2_signal``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    steered: bool
+    evidence_call_index: int | None = None
+    reason: str = ""
 
 
 ScanStopReason = Literal[

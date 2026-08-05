@@ -69,16 +69,28 @@ async def _run_one(variant: dict, out_dir: Path) -> dict:
     port_dir = out_dir / f"port_{variant['kind']}_{port}"
     port_dir.mkdir(parents=True, exist_ok=True)
 
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", SERVER_MODULE,
-        "--kind", variant["kind"], "--port", str(port),
-        cwd=str(REPO),
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    stderr_log = port_dir / "server.stderr.log"
+    # Server stderr is redirected to a file (not a pipe). Without this,
+    # uvicorn/anyio exceptions raised by SSE-client disconnects are lost:
+    # runner only read the pipe in the startup-failure branch and never
+    # drained it during normal teardown. Persisting it makes a later
+    # clean_baseline_vN replay/debug possible without re-running.
+    stderr_fh = stderr_log.open("wb")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", SERVER_MODULE,
+            "--kind", variant["kind"], "--port", str(port),
+            cwd=str(REPO),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=stderr_fh,
+        )
+    except Exception:
+        stderr_fh.close()
+        raise
+
     try:
         if not _port_listening(port):
-            stderr = proc.stderr.read(500) if proc.stderr else b""
+            stderr = stderr_log.read_bytes()[:500] if stderr_log.exists() else b""
             raise RuntimeError(
                 f"server {variant['kind']} did not listen on :{port} within 10s; stderr={stderr!r}"
             )
@@ -119,6 +131,7 @@ async def _run_one(variant: dict, out_dir: Path) -> dict:
         except TimeoutError:
             proc.kill()
             await asyncio.wait_for(proc.wait(), timeout=5)
+        stderr_fh.close()
 
 
 def _write_report(results: list[dict], out_dir: Path) -> Path:
