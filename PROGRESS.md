@@ -1,7 +1,7 @@
 # McPwn 进度记录
 
 > 每次开工前读这个文件 + HANDOFF.md。如果代码和这里说的不一致，以代码为准。
-> 最后更新: 2026-08-05 (commit 8f6bd67 + 315df37 + 41704e1 + 97887db + 9d2b5cd + 77f5447 + 本次文档漂移修复; M2 v4 验证 8/10 PASS, pytest 72 passed)
+> 最后更新: 2026-08-05 (commit 8f6bd67 + 315df37 + 41704e1 + 97887db + 9d2b5cd + 77f5447 + 58fbbc6 + 26f57db; M2 v4 验证 8/10 PASS, M2.5 落盘 (verdict + chain 启发), pytest 80 passed)
 
 ## 当前里程碑
 
@@ -12,7 +12,7 @@
 | recall | 0.80 (8/10) | >= 0.7 |
 | FPR | 0.00 | < 0.3 |
 | poc_replay_pass_rate | 1.00 (5/5) | 有就行 |
-| pytest | 72 passed (11.75s) | |
+| pytest | 80 passed (11.40s, +8 from M2.5) | |
 | ruff | 0 errors (mcp_redteam+eval; tests 6 pre-existing, out of scope per HANDOFF_NEXT) | |
 | lint-cards | 7/7 ok | |
 
@@ -111,6 +111,26 @@ confidence 公式: `1 - prod(1 - w_i)` (去重后), critical=0.95, high=0.75, me
 M2 v4 (`runs/m2_dvmcp_full_v4/`, 8/10) 验证完成。attacker 临时从 paused 的 `glm-5-2-260617` 切到 `deepseek-v4-pro-260425` (账号下唯一 active 非-paused LLM; 1s/次)。加 chat-layer rate limit (2s/call, env `MCPWN_LLM_MIN_INTERVAL_SEC` 可调) 防再撞墙。跑完 10 分 1 秒 (合计 601s; 9001-9005/9008 < 50s, 9006/9007/9009/9010 因 LLM 续轮 / judge 调起 / budget 拉长 80-94s)。
 
 **结论: auth-gated fix (8f6bd67) 是 model-agnostic**, 在 glm-5-2 跟 deepseek-v4-pro 两个不同 model 上保持 8/10 recall / 0.00 FPR / 1.00 poc_replay。9006 (indirect) 跟 9010 (chain) 仍 miss, 是 HANDOFF 标的 bonus, 没拆。
+
+### M2.5 (commit 26f57db, 落盘)
+
+新增两项, 直接打 9006/9010 的 debug + 启发面:
+
+1. **judge verdict 落盘** - contracts.JudgeVerdict (pydantic) 替代 verifier 里的本地 dataclass; AttackTrace.judge_verdict 字段新增, _maybe_add_l2_signal 在 steered-or-not 之前把 verdict 写到 trace。9006 trace JSON 现在直接带 verdict: steered=False, reason='no tool result contained an instruction that redirected the attacker off-task'。
+
+2. **chain_composition candidate 启发** - recon 在 distinct vuln class >= 2 时 append chain candidate (target = top-4 kind:name tokens, score=0.7)。4 个新 unit test。9010 live scan 实际生成 chain candidate, 但 trace 没执行 (30000 token 被 individual 烧光, 跟 v4 同; 不是 M2.5 回归)。
+
+**真发现 (commit message 之外)**: 9006 L1 stored_injection_roundtrip 命中 (marker INJECTION_MARKER_8x7k2 被 process_document 回显), 但 L2 judge 说 attacker 没被 steer。**L1 假阳** - 只检测 marker 回显, 不检测 attacker 是否 act on it。两个修法, 留 M3 决策:
+  (a) 把 stored_injection_roundtrip severity 从 medium (0.5) 降到 low (0.3) - 单条 < 0.6 阈值, 必须靠 L2 同意才能成 finding
+  (b) signal 加 '被实际 steer' corroboration, 例 attacker_message 里出现 marker 触发的工具参数变形 (新 detector, 工作量更大)
+建议先 (a) - 30 秒改完, 立刻能看出 9006 是'真没 vuln' 还是'漏了真 vuln'。
+
+**9010 chain 跑不到根因**: 30000 token budget 在 individual candidates 上烧光, chain (score=0.7) 排不到。两条修法 (M2.5 没动):
+  (a) max_tokens_total 30k -> 45k (M2 v4 10 港总计 210k, 平均 21k, 30k 给 9k buffer; 但 9002/9006/9007/9009/9010 都 budget_tokens 砍, 提到 45k 应该能 cover 9010 chain)
+  (b) chain 独立 budget (e.g. 5k) 保证至少跑一轮
+M3 (c.2) cross-trace memory 也会自然解 (chain 看到 prior hit 直接短路)。
+
+**PROGRESS 状态数字保持**: 10 港 8/10 recall / 0 FPR / 5/5 replay 不变 (M2.5 只改 debug + 加启发, 没改 verifier 阈值)。9010 仍 miss, 但诊断数据全在 trace JSON。
 
 ### #4 cross-server FPR baseline (v2 PARTIAL)
 `runs/clean_baseline_v2/` 跑了, 总 FPR=0.00 但有 1 个 variant server 挂 (summarize), 实际是 1 PASS + 1 INCONCLUSIVE + 1 PROBABLE PASS。
