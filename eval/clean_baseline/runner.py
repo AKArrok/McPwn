@@ -123,6 +123,7 @@ async def _run_one(variant: dict, out_dir: Path) -> dict:
             "traces_count": len(result.traces),
             "stop_reason": result.stop_reason,
             "wall_seconds": result.wall_seconds,
+            "attacker_tokens": result.attacker_tokens,
         }
     finally:
         proc.terminate()
@@ -138,7 +139,18 @@ def _write_report(results: list[dict], out_dir: Path) -> Path:
     total_findings = sum(r["findings_count"] for r in results)
     n = len(results)
     fpr = total_findings / n if n else 0.0
-    verdict = "PASS" if total_findings == 0 else "FAIL"
+    # FPR=0 is only meaningful when the attacker LLM actually ran on every
+    # variant. v4 produced all-zero findings with attacker_tokens=0 because
+    # ARK paused deepseek-v4-pro; that is NOT a PASS, it is invalid evidence.
+    llm_active = all(
+        r.get("attacker_tokens", 0) > 0 for r in results if r["findings_count"] >= 0
+    )
+    no_errors = all(r["stop_reason"] != "error" for r in results)
+    verdict = (
+        "PASS"
+        if total_findings == 0 and llm_active and no_errors
+        else ("FAIL" if total_findings > 0 else "INVALID")
+    )
 
     lines: list[str] = []
     lines.append("# Clean Baseline FPR Report")
@@ -147,14 +159,19 @@ def _write_report(results: list[dict], out_dir: Path) -> Path:
     lines.append(f"- **total_findings**: {total_findings}")
     lines.append(f"- **cross_server_fpr**: {fpr:.2f}")
     lines.append(f"- **verdict**: {verdict}  (expected 0 findings on all variants)")
+    if verdict == "INVALID":
+        lines.append("- **validity**: INVALID because at least one variant did not run "
+                     "attacker LLM calls (attacker_tokens=0) or failed with error; "
+                     "re-run with an active model before trusting FPR.")
     lines.append("")
     lines.append("## Per-variant summary")
     lines.append("")
-    lines.append("| kind | port | findings | tools_seen | stop_reason | wall_s |")
-    lines.append("|---|---|---|---|---|---|")
+    lines.append("| kind | port | findings | attacker_tokens | tools_seen | stop_reason | wall_s |")
+    lines.append("|---|---|---|---|---|---|---|")
     for r in results:
         lines.append(
             f"| {r['kind']} | {r['port']} | {r['findings_count']} | "
+            f"{r.get('attacker_tokens', 0)} | "
             f"{', '.join(r['tools_seen']) or '(none)'} | {r['stop_reason']} | "
             f"{r['wall_seconds']:.1f} |"
         )
@@ -229,6 +246,7 @@ async def run_all(out_dir: Path) -> Path:
                 "traces_count": 0,
                 "stop_reason": f"error: {type(exc).__name__}",
                 "wall_seconds": 0.0,
+                "attacker_tokens": 0,
             }
         results.append(r)
     return _write_report(results, out_dir)

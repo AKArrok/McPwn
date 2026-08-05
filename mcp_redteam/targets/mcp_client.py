@@ -17,7 +17,7 @@ import time
 from types import TracebackType
 from typing import Any
 
-from mcp import ClientSession
+from mcp import ClientSession, MCPError
 from mcp.client.sse import sse_client
 
 from mcp_redteam.contracts import McpCall
@@ -56,16 +56,26 @@ class McpSession:
             call = await s.read_resource("internal://credentials")
     """
 
-    def __init__(self, sse_url: str, connect_timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        sse_url: str,
+        connect_timeout: float = 15.0,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.sse_url = sse_url
         self.connect_timeout = connect_timeout
+        self.headers = headers
         self._stack: list[Any] = []
         self._session: ClientSession | None = None
 
     async def __aenter__(self) -> McpSession:
         # sse_client and ClientSession are both async context managers; we enter them
         # manually so the session survives beyond a single `async with`.
-        self._sse_ctx = sse_client(self.sse_url)
+        self._sse_ctx = sse_client(
+            self.sse_url,
+            headers=self.headers,
+            timeout=self.connect_timeout,
+        )
         streams = await self._sse_ctx.__aenter__()
         read_stream, write_stream = streams
         self._sess_ctx = ClientSession(read_stream, write_stream)
@@ -120,15 +130,36 @@ class McpSession:
         return list(result.tools)
 
     async def raw_list_resources(self) -> list[Any]:
-        """Return the SDK ``Resource`` objects directly."""
+        """Return the SDK ``Resource`` objects directly.
+
+        Some real-world MCP servers (e.g. acuvity/mcp-server-filesystem)
+        do not implement ``resources/list`` and return MCPError -32601.
+        Treat that as "no resources" rather than crashing recon.
+        """
         s = self._ensure()
-        result = await s.list_resources()
+        try:
+            result = await s.list_resources()
+        except MCPError as exc:
+            if exc.code == -32601 or "method not found" in (exc.message or "").lower():
+                return []
+            raise
         return list(result.resources)
 
     async def list_resources(self) -> McpCall:
         s = self._ensure()
         t0 = time.perf_counter()
-        result = await s.list_resources()
+        try:
+            result = await s.list_resources()
+        except MCPError as exc:
+            if exc.code == -32601 or "method not found" in (exc.message or "").lower():
+                return McpCall(
+                    kind="list_resources",
+                    name=None,
+                    args=None,
+                    result_text="",
+                    elapsed_ms=int((time.perf_counter() - t0) * 1000),
+                )
+            raise
         elapsed = int((time.perf_counter() - t0) * 1000)
         rendered = "\n".join(
             f"- {res.uri} ({getattr(res, 'name', '')}): {getattr(res, 'description', '') or ''}"

@@ -1,7 +1,7 @@
 # McPwn 进度记录
 
 > 每次开工前读这个文件 + HANDOFF.md。如果代码和这里说的不一致，以代码为准。
-> 最后更新: 2026-08-05 (commit 8f6bd67 + 315df37 + 41704e1 + 97887db + 9d2b5cd + 77f5447 + 58fbbc6 + 26f57db; M2 v4 验证 8/10 PASS, M2.5 落盘 (verdict + chain 启发), pytest 80 passed)
+> 最后更新: 2026-08-05 (commit 8f6bd67 ... 77f5447 + 58fbbc6 + 26f57db + b40ab0d; M2 v4 验证 8/10 PASS, M2.5 落盘 (verdict + chain 启发), clean_baseline_v5 3/3 PASS, attacker=deepseek-v4-flash, pytest 80 passed)
 
 ## 当前里程碑
 
@@ -132,7 +132,21 @@ M3 (c.2) cross-trace memory 也会自然解 (chain 看到 prior hit 直接短路
 
 **PROGRESS 状态数字保持**: 10 港 8/10 recall / 0 FPR / 5/5 replay 不变 (M2.5 只改 debug + 加启发, 没改 verifier 阈值)。9010 仍 miss, 但诊断数据全在 trace JSON。
 
-### #4 cross-server FPR baseline (v2 PARTIAL)
+### #4 cross-server FPR baseline (v5 PASS)
+`runs/clean_baseline_v5/` 用 deepseek-v4-flash 重跑 (v4 因 deepseek-v4-pro 429 attacker_tokens=0, 判定为 INVALID 不是 PASS)。三港都有真实 LLM 攻击探测 (attacker_tokens: 9101=9951, 9102=12852, 9103=30333), 0 findings, FPR=0.00, 无 error。9102 (原 v2 INCONCLUSIVE) 和 9103 (v3 error) 都正常跑完。
+
+| variant | attacker_tokens | stop_reason | 评估 |
+|---|---|---|---|
+| 9101 noop | 9951 | completed | PASS |
+| 9102 summarize | 12852 | completed | PASS |
+| 9103 file_list | 30333 | budget_tokens | PASS (有 32 次以上探测, 0 findings) |
+
+支撑修复:
+- `eval/clean_baseline/servers/__init__.py` `_serve` 捕获 `anyio.BrokenResourceError` (正常 client disconnect) + `except* Exception` 带 traceback 诊断 (临时 broad, noqa BLE001)。
+- `eval/clean_baseline/runner.py` server stderr 落盘 `<port_dir>/server.stderr.log`, 启动失败也读文件。
+- `eval/clean_baseline/runner.py` report 加 `attacker_tokens` 列 + verdict 有效性判定: 任一 variant attacker_tokens=0 或 stop_reason=error 时 verdict=INVALID (v4 假 PASS 的回归闸)。
+
+### #4a historical: v2 PARTIAL
 `runs/clean_baseline_v2/` 跑了, 总 FPR=0.00 但有 1 个 variant server 挂 (summarize), 实际是 1 PASS + 1 INCONCLUSIVE + 1 PROBABLE PASS。
 
 | variant | attack_calls | stop_reason | 评估 |
@@ -157,8 +171,8 @@ L1 `stored_injection_roundtrip` 已命中 (marker `INJECTION_MARKER_8x7k2` 被 `
 
 ### 其他待清理项
 - `eval dvmcp run` 不支持 `--max-candidates` / `--max-inner-steps` 透传 (CODE_REVIEW 未提但实际跑时默认 20/12 够用)
-- judge verdict 不落盘到 trace (debug 时看不到 judge 说了什么)
-- `connect_timeout` 参数在 `McpSession` 里定义了但没用上 (CODE_REVIEW P3)
+- ~~judge verdict 不落盘到 trace~~ done in M2.5: AttackTrace.judge_verdict + verifier persistence
+- ~~`connect_timeout` 参数在 `McpSession` 里定义了但没用上~~ done with SSE headers support: timeout+headers now passed to sse_client
 
 ## 目录结构 (v1, agent-first)
 
