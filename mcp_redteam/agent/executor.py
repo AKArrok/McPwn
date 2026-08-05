@@ -40,7 +40,12 @@ _SYSTEM_TMPL = Template(
 )
 
 
-def _render_system_prompt(candidate: Candidate, strategy_card_text: str, sse_url: str) -> str:
+def _render_system_prompt(
+    candidate: Candidate,
+    strategy_card_text: str,
+    sse_url: str,
+    sandbox_root: str | None = None,
+) -> str:
     return _SYSTEM_TMPL.render(
         vuln_class=candidate.vuln_class.value,
         target=candidate.target,
@@ -48,6 +53,7 @@ def _render_system_prompt(candidate: Candidate, strategy_card_text: str, sse_url
         target_reason=candidate.reason,
         sse_url=sse_url,
         strategy_card=strategy_card_text,
+        sandbox_root=sandbox_root or "未知",
     )
 
 
@@ -70,12 +76,13 @@ async def execute_one(
     sse_url: str,
     recon_calls: list[McpCall],
     max_inner_steps: int = 12,
+    sandbox_root: str | None = None,
 ) -> AttackTrace:
     """Probe one (vuln_class, target) candidate. Returns an AttackTrace."""
     client, model_spec = attacker
 
     card = load_card(candidate.vuln_class)
-    system_prompt = _render_system_prompt(candidate, card.text, sse_url)
+    system_prompt = _render_system_prompt(candidate, card.text, sse_url, sandbox_root)
 
     openai_tools = build_openai_tools(await session.raw_list_tools())
 

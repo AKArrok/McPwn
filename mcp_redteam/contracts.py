@@ -238,6 +238,9 @@ class ScanResult(BaseModel):
     attacker_model: str = ""
     attacker_temperature: float = 0.0
     attack_messages_sha1: str = ""
+    # Declared sandbox root (deployment metadata, e.g. EXCEL_FILES_PATH).
+    # Reproducibility anchor: which root the sandbox-escape verdict used.
+    sandbox_root: str | None = None
 
     @computed_field  # type: ignore[misc]
     @property

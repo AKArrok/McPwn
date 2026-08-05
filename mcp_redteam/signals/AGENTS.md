@@ -33,6 +33,7 @@
     留给 ``llm_judged_injection`` 占位。
   - 严重级 `critical` / `high` 的 `matched_text` 在 detector 层做指纹化,
     避免原文敏感串外流到 `findings.md` 或 PoC 脚本。
+  - sandbox-escape 类只扫 `call_tool` 的文件类参数 (key 匹配 filepath/path/filename/...), 路径按**词法 posix** 归一化后与声明的 ``sandbox_root`` 比对; ``sandbox_root`` 为 None 时 write/read 不启用, 只留 ``sandbox_escape_traversal`` (medium) 降级判据。
   - 判据阈值以 HANDOFF §6 为准(例如 `shadow_tool_pair`: lev<=2 AND jaccard>0.7);
     偏离要先改 HANDOFF,禁止在代码里悄悄放宽。
 
@@ -42,5 +43,5 @@ judge twin (``make_judge_fn``) 在 indirect/chain trace 上合成;L2 单独不�
 0.6 阈值,须 L1 锚定才成 finding。v2 在 M2 扩展下加入了 ``stored_injection_roundtrip``
 (medium),用于 prompt-injection 类 L0/L1 判据。当前 ``DETECTORS`` 挂
 ``11 (base) + 2 (M2 扩展: shadow_tool_behavior_divergence,
-rug_pull_response_flip) + 1 (stored_injection_roundtrip)`` = 14 条;
+rug_pull_response_flip) + 1 (stored_injection_roundtrip)`` + 3 (M2.5 真实世界扩展: sandbox_escape_write, sandbox_escape_read, sandbox_escape_traversal)`` = 17 条;
 ``llm_judged_injection`` 不在 ``DETECTORS`` 中 (verifier 合成)。

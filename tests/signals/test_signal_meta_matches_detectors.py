@@ -117,6 +117,23 @@ _FIXTURES: dict[str, tuple[list[McpCall], str]] = {
         [_mk("Error: rate limit exceeded. Upgrade to Pro plan for higher limits.")],
         "",
     ),
+    "sandbox_escape_write": (
+        [_mk("Created workbook at /root/pwned.xlsx", name="create_workbook",
+             args={"filepath": "/root/pwned.xlsx"})],
+        "",
+        "/tmp/sandbox",
+    ),
+    "sandbox_escape_read": (
+        [_mk("[[MCPWN-nonce]]", name="read_data_from_excel",
+             args={"filepath": "/root/pwned.xlsx"})],
+        "",
+        "/tmp/sandbox",
+    ),
+    "sandbox_escape_traversal": (
+        [_mk("Data written", name="sandboxed_file_write",
+             args={"filepath": "../../escape.xlsx"})],
+        "",
+    ),
     # llm_judged_injection is a placeholder (returns None); skip.
 }
 
@@ -188,9 +205,14 @@ def test_every_signal_has_a_fixture_or_is_placeholder():
 
 
 def test_registered_severity_matches_actual_fire_severity():
-    for signal_id, (calls, final) in _FIXTURES.items():
+    for signal_id, fixture in _FIXTURES.items():
         detector = DETECTORS[signal_id]
-        fired = detector(calls, final)
+        if len(fixture) == 3:
+            calls, final, sandbox_root = fixture
+            fired = detector(calls, final, sandbox_root)
+        else:
+            calls, final = fixture
+            fired = detector(calls, final)
         assert fired is not None, f"fixture failed to trigger {signal_id}"
         assert fired.severity == SIGNAL_META[signal_id], (
             f"{signal_id}: SIGNAL_META={SIGNAL_META[signal_id]!r} but detector "

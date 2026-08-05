@@ -15,10 +15,9 @@ a general-purpose MCP server simulator.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Self
 
 from mcp_redteam.contracts import McpCall
-
 
 # Recorded fixture payloads (extracted from runs/m0_smoke/scan_result.json).
 
@@ -61,10 +60,10 @@ class FakeMcpSession:
         self.sse_url = sse_url
         self.call_log: list[dict[str, Any]] = []
 
-    async def __aenter__(self) -> "FakeMcpSession":
+    async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, *_: Any) -> None:
+    async def __aexit__(self, *_: object) -> None:
         return None
 
     async def list_tools(self) -> McpCall:

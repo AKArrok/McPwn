@@ -1,0 +1,1 @@
+"""Real-world MCP target harness: excel-mcp-server CVE-2026-40576 recall + precision + prove."""

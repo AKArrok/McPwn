@@ -22,7 +22,6 @@ from mcp_redteam.targets import mcp_client as mcp_client_mod
 from tests.fixtures.mock_mcp import FakeMcpSession
 from tests.fixtures.stub_attacker import fake_make_client
 
-
 BASELINE_PATH = pathlib.Path(__file__).parent / "baselines" / "m0_9001.json"
 
 

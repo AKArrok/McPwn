@@ -55,7 +55,9 @@ _METADATA_ONLY_SIGNALS = frozenset({
 })
 
 
-def verify_trace(trace: AttackTrace) -> tuple[list[EvidenceSignal], float]:
+def verify_trace(
+    trace: AttackTrace, sandbox_root: str | None = None
+) -> tuple[list[EvidenceSignal], float]:
     """Run all signals over the trace's recon_calls + attack_calls + final output.
 
     Signals get the *full* evidence stream so cross-call detectors like
@@ -66,7 +68,7 @@ def verify_trace(trace: AttackTrace) -> tuple[list[EvidenceSignal], float]:
     Returns (signals, confidence).
     """
     all_calls = list(trace.recon_calls) + list(trace.attack_calls)
-    signals = run_all_signals(all_calls, trace.final_llm_output)
+    signals = run_all_signals(all_calls, trace.final_llm_output, sandbox_root=sandbox_root)
     # tool_metadata_probe traces must only produce metadata-class evidence;
     # leak/behavioral signals that fired because the probed tool happens to be
     # vulnerable (e.g. DVMCP-9001 get_user_info leaks credentials) would
@@ -314,6 +316,9 @@ _SIGNAL_TO_CLASS: dict[str, VulnClass] = {
     "suspicious_error_pitch": VulnClass.TOOL_METADATA_PROBE,
     "stored_injection_roundtrip": VulnClass.INDIRECT_INJECTION,
     "llm_judged_injection": VulnClass.INDIRECT_INJECTION,
+    "sandbox_escape_write": VulnClass.PATH_TRAVERSAL,
+    "sandbox_escape_read": VulnClass.PATH_TRAVERSAL,
+    "sandbox_escape_traversal": VulnClass.PATH_TRAVERSAL,
 }
 
 _FILE_TOOL_RE = re.compile(r"file|read|download|config|manager", re.IGNORECASE)
@@ -357,6 +362,7 @@ def build_findings(
     trace_dir: Path | None = None,
     budget: TokenBudget | None = None,
     judge_fn: JudgeFn | None = None,
+    sandbox_root: str | None = None,
 ) -> tuple[list[Finding], dict[str, list[EvidenceSignal]]]:
     """Turn every trace whose confidence >= threshold into a Finding.
 
@@ -370,7 +376,7 @@ def build_findings(
     per_trace: dict[str, list[EvidenceSignal]] = {}
 
     for i, trace in enumerate(traces):
-        signals, _ = verify_trace(trace)
+        signals, _ = verify_trace(trace, sandbox_root)
         signals = _maybe_add_l2_signal(trace, signals, judge_fn, budget)
         confidence = compute_confidence(signals) if signals else 0.0
         trace_key = f"{trace.vuln_class.value}::{trace.target}"

@@ -109,6 +109,7 @@ async def scan(
     max_inner_steps: int = DEFAULT_MAX_INNER_STEPS,
     attacker_temperature: float | None = None,
     sse_headers: dict[str, str] | None = None,
+    sandbox_root: str | None = None,
 ) -> ScanResult:
     """Scan one MCP SSE endpoint. Write traces/findings under `out_dir`."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -150,13 +151,15 @@ async def scan(
                     sse_url=sse_url,
                     recon_calls=recon_calls,
                     max_inner_steps=max_inner_steps,
+                    sandbox_root=sandbox_root,
                 )
                 traces.append(trace)
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
 
     findings, _ = build_findings(
-        traces, trace_dir=trace_dir, budget=budget, judge_fn=judge_fn
+        traces, trace_dir=trace_dir, budget=budget, judge_fn=judge_fn,
+        sandbox_root=sandbox_root,
     )
     wall_elapsed = time.perf_counter() - wall_start
 
@@ -177,6 +180,7 @@ async def scan(
         attacker_model=attacker[1].model,
         attacker_temperature=attacker[1].temperature,
         attack_messages_sha1=_messages_sha1(traces),
+        sandbox_root=sandbox_root,
     )
 
     (out_dir / "scan_result.json").write_text(

@@ -70,6 +70,12 @@ def scan_cmd(
         "x-user-id=mcpwn,x-chat-id=scan1. Useful for real-world MCP "
         "servers that require per-user session headers.",
     ),
+    sandbox_root: str | None = typer.Option(
+        None,
+        "--sandbox-root",
+        help="Declared sandbox root (deployment metadata) used by "
+        "sandbox-escape detectors, e.g. /tmp/sandbox for excel-mcp-server.",
+    ),
 ) -> None:
     """Scan one MCP server. Produces findings.md + poc scripts + traces."""
     from mcp_redteam.orchestrator.runner import scan
@@ -84,6 +90,7 @@ def scan_cmd(
         max_inner_steps=max_inner_steps,
         attacker_temperature=attacker_temperature,
         sse_headers=_parse_headers(headers),
+        sandbox_root=sandbox_root,
     ))
     md_path = write_findings(result, out)
 
@@ -169,6 +176,49 @@ def dvmcp_run(
         max_tokens=max_tokens,
         wall_seconds=wall_seconds,
     ))
+    console.print(f"[green]wrote[/green] {report_path}")
+
+
+# ─── eval realworld ─────────────────────────────────────────────────────────
+
+
+realworld_app = typer.Typer(
+    add_completion=False,
+    no_args_is_help=True,
+    help="Real-world MCP target harness (excel-mcp CVE-2026-40576).",
+)
+eval_app.add_typer(realworld_app, name="realworld")
+
+
+@realworld_app.command("run")
+def realworld_run(
+    out: Path = typer.Option(Path("runs/eval_real_world"), "--out", "-o"),
+    max_tokens: int = typer.Option(30000),
+    wall_seconds: int = typer.Option(240),
+) -> None:
+    """Scan all real-world targets; recall + precision gates -> eval_report.md."""
+    from eval.realworld.runner import run_all
+
+    report_path = asyncio.run(run_all(
+        out_dir=out,
+        max_tokens=max_tokens,
+        wall_seconds=wall_seconds,
+    ))
+    console.print(f"[green]wrote[/green] {report_path}")
+
+
+@realworld_app.command("prove")
+def realworld_prove(
+    target: str = typer.Argument(
+        ...,
+        help="Target name from eval/realworld/targets.yaml (excel-0.1.7 / excel-0.1.8).",
+    ),
+    out: Path = typer.Option(Path("runs/eval_real_world/prove"), "--out", "-o"),
+) -> None:
+    """Deterministic exploit proof: write marker outside sandbox, verify via docker exec."""
+    from eval.realworld.prove import prove_target
+
+    report_path = asyncio.run(prove_target(target, out / target))
     console.print(f"[green]wrote[/green] {report_path}")
 
 

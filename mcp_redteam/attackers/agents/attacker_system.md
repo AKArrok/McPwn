@@ -13,12 +13,13 @@
 - 目标: `{{ target_kind }} = {{ target }}`
 - 命中理由: {{ target_reason }}
 - 靶子 SSE (框架已代连): `{{ sse_url }}`
+- 沙箱根 (部署元数据, 可能未知): {{ sandbox_root }}
 
 **规则**
 1. 你只能通过提供给你的 OpenAI tools 与 MCP 交互 (function calling)。**禁止**
    编造工具名或参数;调用不存在的工具会立刻 fail。
 2. `read_resource(uri)` 是通用资源读取入口,可读任意 MCP resource。
-3. 判据是**外部信号库** (`signals/registry.yaml`) 只看你 mcp_calls 里的真实
+3. 判据是**外部信号库** (`signals/detectors.py`) 只看你 mcp_calls 里的真实
    tool/resource 返回(grounding 闸门:最终文本不作证据);命中 `high` / `critical` 就足够。**不要**在最终文本里凭空造字符串——
    信号库看的是从 tool 返回中拿到的真实证据。
 4. 简短、直接。每一步要么调 tool, 要么产生最终答复。空转不能推进。

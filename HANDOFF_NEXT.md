@@ -1,5 +1,7 @@
 # McPwn → Next Session Handoff
 
+> 真实 MCP 靶机探索见 `HANDOFF_TARGETS.md` (excel-mcp CVE 打穿 + 信号库漏报 + 下一步 detector)。
+>
 > 读这个文件 + `HANDOFF.md` + `PROGRESS.md` 就能接上。`PROGRESS.md` 是状态
 > 快照 (数字 + commit 链), `HANDOFF.md` 是项目设计文档, 本文件是
 > "下一 session 开工前要知道的"。
