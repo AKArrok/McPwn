@@ -29,6 +29,21 @@ eval_app.add_typer(dvmcp_app, name="dvmcp")
 console = Console()
 
 
+def _parse_headers(raw: str | None) -> dict[str, str]:
+    """Parse `--headers` value like `x-user-id=mcpwn,x-chat-id=scan1`."""
+    out: dict[str, str] = {}
+    if not raw:
+        return out
+    for part in raw.split(","):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        key = key.strip()
+        if key:
+            out[key] = value.strip()
+    return out
+
+
 @app.command("scan")
 def scan_cmd(
     sse_url: str = typer.Argument(..., help="MCP SSE endpoint, e.g. http://127.0.0.1:9001/sse"),
@@ -48,6 +63,13 @@ def scan_cmd(
         help="Override attacker LLM temperature (default from models.yaml). "
         "Use 0 for reproducible scan runs.",
     ),
+    headers: str | None = typer.Option(
+        None,
+        "--headers",
+        help="Comma-separated SSE headers, e.g. "
+        "x-user-id=mcpwn,x-chat-id=scan1. Useful for real-world MCP "
+        "servers that require per-user session headers.",
+    ),
 ) -> None:
     """Scan one MCP server. Produces findings.md + poc scripts + traces."""
     from mcp_redteam.orchestrator.runner import scan
@@ -61,6 +83,7 @@ def scan_cmd(
         max_candidates=max_candidates,
         max_inner_steps=max_inner_steps,
         attacker_temperature=attacker_temperature,
+        sse_headers=_parse_headers(headers),
     ))
     md_path = write_findings(result, out)
 

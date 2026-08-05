@@ -108,6 +108,7 @@ async def scan(
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
     max_inner_steps: int = DEFAULT_MAX_INNER_STEPS,
     attacker_temperature: float | None = None,
+    sse_headers: dict[str, str] | None = None,
 ) -> ScanResult:
     """Scan one MCP SSE endpoint. Write traces/findings under `out_dir`."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -133,7 +134,7 @@ async def scan(
     error: str | None = None
 
     try:
-        async with McpSession(sse_url) as session:
+        async with McpSession(sse_url, headers=sse_headers) as session:
             recon_calls, candidates, tools_seen, resources_seen = await recon(session)
             ordered = plan(candidates, max_candidates=max_candidates)
 
