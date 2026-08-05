@@ -1,7 +1,7 @@
 # McPwn 进度记录
 
 > 每次开工前读这个文件 + HANDOFF.md。如果代码和这里说的不一致，以代码为准。
-> 最后更新: 2026-07-31 (commit 315df37, 补 2 个 fix: auth-gated + retry)
+> 最后更新: 2026-08-05 (commit 8f6bd67 + 315df37 + e5bf87d + 新 rate limit + 模型切 deepseek-v4-pro; M2 v4 验证 8/10 PASS)
 
 ## 当前里程碑
 
@@ -105,11 +105,21 @@ confidence 公式: `1 - prod(1 - w_i)` (去重后), critical=0.95, high=0.75, me
 
 ## 未完成 / 下一步
 
-### M2 v4 验证 (阻塞中)
-M2 v3 (`runs/m2_dvmcp_full_v3/`, 6/10) 的 2 个 miss (9008 / 9009) 是 ARK `glm-5-2` set inference limit 触顶导致, 不是 auth-gated fix (`8f6bd67`) 的回归。retry 机制 (`315df37`) 加了, 但限流没清之前重跑仍会 hit。等平台配额恢复 / 换 quota 后跑 `runs/m2_dvmcp_full_v4/` 验证 8/10 是否仍成立。
+### M2 v4 验证 (PASS)
+M2 v4 (`runs/m2_dvmcp_full_v4/`, 8/10) 验证完成。attacker 临时从 paused 的 `glm-5-2-260617` 切到 `deepseek-v4-pro-260425` (账号下唯一 active 非-paused LLM; 1s/次)。加 chat-layer rate limit (2s/call, env `MCPWN_LLM_MIN_INTERVAL_SEC` 可调) 防再撞墙。跑完 10 分 7 秒。
 
-### #4 cross-server FPR baseline (进行中)
-DVMCP 内 FPR=0 只测了"agent 不把 A 类漏洞说成 B 类"。要测"agent 在干净 MCP server 上不报警" 需要新 fixture。`eval/clean_baseline/` 下建 3 个 FastMCP server (`noop` / `summarize` / `file_list`), 跑 agent 统计 0-finding 率。
+**结论: auth-gated fix (8f6bd67) 是 model-agnostic**, 在 glm-5-2 跟 deepseek-v4-pro 两个不同 model 上保持 8/10 recall / 0.00 FPR / 1.00 poc_replay。9006 (indirect) 跟 9010 (chain) 仍 miss, 是 HANDOFF 标的 bonus, 没拆。
+
+### #4 cross-server FPR baseline (v2 PARTIAL)
+`runs/clean_baseline_v2/` 跑了, 总 FPR=0.00 但有 1 个 variant server 挂 (summarize), 实际是 1 PASS + 1 INCONCLUSIVE + 1 PROBABLE PASS。
+
+| variant | attack_calls | stop_reason | 评估 |
+|---|---|---|---|
+| 9101 noop | 17 | completed | PASS (description-regex 不被空 desc 骗) |
+| 9102 summarize | 11 | error (peer closed) | INCONCLUSIVE (server 中途断) |
+| 9103 file_list | 32 | budget_tokens | PROBABLE PASS (32 次都没触发 path-traversal) |
+
+9102 那个 RemoteProtocolError 是 server 端 bug: FastMCP 2.0 `MCPServer.run_sse_async` 在 SSE 客户端异常断时没正确清理, 子进程挂了。要 strong cross-server FPR 数字, 修 server 的 graceful shutdown, 然后 `clean_baseline_v3` 重跑。
 
 ### M3 (LLM 决策版 planner)
 把 `agent/planner.py` 的 `plan()` 从硬编 score 排序改成 LLM 决策。输入 recon 结果 (tool 列表 + resource 列表 + 描述), 输出 next-action (vuln_class, target)。和硬编版 M2 对比 recall / FPR / avg_findings_per_port。不改 recon -> executor -> verifier -> report 闭环。

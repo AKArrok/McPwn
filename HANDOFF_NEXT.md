@@ -3,7 +3,7 @@
 > 读这个文件 + `HANDOFF.md` 就能接上。`PROGRESS.md` 是状态快照（数字 + commit 链），
 > `HANDOFF.md` 是项目设计文档，这个文件是"你下一 session 开工前要知道的"。
 
-最后更新: 2026-07-31 (commits 83b5146, 8f6bd67, 315df37)
+最后更新: 2026-08-05 (commits 8f6bd67, 315df37, e5bf87d, 新 rate limit, attacker 临时切 deepseek-v4-pro; M2 v4 8/10 PASS, clean_baseline v2 PARTIAL)
 
 ---
 
