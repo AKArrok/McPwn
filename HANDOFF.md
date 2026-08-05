@@ -252,6 +252,7 @@ class ScanResult(BaseModel):
     traces: list[AttackTrace]         # everything we tried
     findings: list[Finding]           # subset with confidence >= threshold
     stop_reason: Literal["completed", "budget_tokens", "budget_time", "user_abort", "error"]
+    sandbox_root: str | None = None      # 声明的沙箱根(部署元数据,如 EXCEL_FILES_PATH);None=未知, sandbox-escape 判据降级
 ```
 
 **关键区别 vs v0**:
@@ -260,12 +261,13 @@ class ScanResult(BaseModel):
 - 新的 `Finding.confidence` 是**连续值**,不是二值 success。人类看阈值决定要不要相信。
 - `AttackTrace` 覆盖一次 (vuln_class, target) 尝试的全部上下文,是可重放的原始记录。
 - `ScanResult.findings` 是过滤后的 findings 列表;`traces` 是完整尝试列表(含未产出 finding 的)。debug 时看 traces,报告时看 findings。
+- `ScanResult.sandbox_root` 记录沙箱根(部署元数据),让 sandbox-escape 判定可复现;None 时 `sandbox_escape_write/read` 不启用,只留 `sandbox_escape_traversal` 降级。
 
 ---
 
-## 6. 通用漏洞信号库(`signals/registry.yaml`)
+## 6. 通用漏洞信号库(`signals/detectors.py`)
 
-每条信号是一个 detector 函数,输入 `(mcp_calls: list[McpCall], final_output: str)`,输出 `Optional[EvidenceSignal]`。yaml 里只声明元数据 + 关联的 `detect_*` 函数名,函数体在 `signals/detectors.py`。
+每条信号是一个 detector 函数,输入 `(mcp_calls: list[McpCall], final_output: str)`,输出 `Optional[EvidenceSignal]`。元数据 `SIGNAL_META` + 注册表 `DETECTORS` 都在 `signals/detectors.py`(早期规划里的 `registry.yaml` 已并入,不再单独存在)。detector 统一签名 `(mcp_calls, final_output, sandbox_root=None)`。
 
 **v1 目标 20-30 条**,分四类。下面是**必须实现的第一批 12 条**(M0-M2 覆盖 DVMCP 10 challenge 需要):
 
@@ -322,6 +324,16 @@ class ScanResult(BaseModel):
 `Finding.confidence >= 0.6` 才进 `findings.md`,否则只留在 `traces` 里。
 
 ---
+
+### F. 真实世界沙箱逃逸(M2.5 扩展,excel-mcp CVE-2026-40576)
+
+| signal_id | severity | 触发条件 |
+|---|---|---|
+| `sandbox_escape_write` | high | 文件类参数(filepath/path/filename/...)词法 posix 归一化后逃逸声明的 `sandbox_root`,且响应为写成功确认(created/written/saved/...) |
+| `sandbox_escape_read` | high | 同上逃逸判定 + 响应返回非空内容(排除写确认回显);read 与 write 各自独立成证据 |
+| `sandbox_escape_traversal` | medium | 无 `sandbox_root` 时的降级判据:路径含 `../` + 成功 + 工具名含 sandbox/jail/workspace 等词;单发 0.5 不过 0.6,不可能凭空造 finding |
+
+`sandbox_root` 是部署元数据(`mcpwn scan --sandbox-root`,见 §5 `ScanResult.sandbox_root`),由 operator 提供、不自动发现。路径解析用**词法 posix**(不依赖宿主 os.path),避免 Windows 宿主 / linux 容器跨平台坑。判据禁参考 DVMCP 源码答案的规则不变。
 
 ## 7. DVMCP 作为回归 fixture(不是评测目标)
 
@@ -490,6 +502,7 @@ Ch 9006(indirect) 和 9010(chain) 是 bonus,不阻塞 M2 出门。
 | M0 | `runs/m0_smoke_signal/finding_01.json` | `mcpwn scan http://127.0.0.1:9001/sse` 跑通,产出至少 1 个 Finding(即使 false positive)。证明:scan 闭环跑通、信号库能检测到东西、finding 数据结构正确。 | 约等于 v0 M0 |
 | M1 | `runs/m1_agent_loop/scan_results.json` | `mcpwn scan` 在 DVMCP 9001-9005 上跑完,`SignalRecall/recall >= 0.8`。证明:agent 能自主在多个 port 上遍历并发现漏洞。 | 约等于 v0 M2 |
 | M2 | `runs/m2_dvmcp_full/scan_results.json` + `runs/m2_dvmcp_full/eval_report.md` | DVMCP 全部 10 port 跑完,recall >= 0.7(8/10),FPR < 0.3。`eval_report.md` 含 recall / FPR / poc_replay_pass_rate。**这版可对外称完**。 | 约等于 v0 M2 |
+| M2.5 | `runs/eval_real_world/*` + `runs/m2_dvmcp_full_v5/eval_report.md` | 真实世界扩展:3 条 sandbox-escape 信号 + `eval/realworld` harness(正向 excel-0.1.7 recall 门 + 负向 0.1.8 precision 门)+ `prove` 双版本对照(0.1.7 exploited PASS / 0.1.8 blocked PASS)。验证:realworld run 2/2, DVMCP v5 recall 8/10 FPR 0 replay 5/5 无回归。 | 新增(M2 之上) |
 | M3 | `runs/m3_llm_decision/scan_results.json` + `eval_report.md` | LLM 决策版 planner(M4 消融)跑完,与硬编版 M2 对比 recall / FPR / avg_finding_per_port。 | 约等于 v0 M4 |
 
 **M2 是最重要的里程碑**。M2 出报告后就可以挂简历/README。M3 是精修。

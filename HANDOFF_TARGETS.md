@@ -96,7 +96,7 @@ call_tool("read_data_from_excel", {"filepath": "/tmp/pwn.xlsx", "sheet_name": "S
 
 ## 4. 这轮顺手改的 McPwn 代码
 
-这些改动目前**未 commit**, 工作树里:
+这些改动已提交 (commit `e19d15b`), 内容:
 
 - `mcp_redteam/targets/mcp_client.py`
   - `McpSession` 新增 `headers` 参数, 支持带 `x-user-id` / `x-chat-id` 的真实 MCP
@@ -158,3 +158,40 @@ call_tool("read_data_from_excel", {"filepath": "/tmp/pwn.xlsx", "sheet_name": "S
 
 > sqlite-npx 是 stdio-only, 项目 McpSession 走 SSE, 没有直接用; 需要
 > mcp-proxy 桥接才能当靶子, 当前优先级低。
+
+---
+
+## 8. M2.5 落地记录 (2026-08-05)
+
+### 实现 (commit e19d15b)
+- `mcp_redteam/signals/detectors.py`: 3 条新信号 `sandbox_escape_write` / `sandbox_escape_read`
+  (high, root-aware, 词法 posix 路径解析) + `sandbox_escape_traversal` (medium, 无 root 降级);
+  全部 detector 统一签名 `(mcp_calls, final_output, sandbox_root=None)`
+- `--sandbox-root` 全链路 (scan -> verifier -> detectors), `ScanResult.sandbox_root` 可复现性字段
+- `eval/realworld/`: `runner.py` (正向 recall 门 + 负向 precision 门), `prove.py` (确定性 3-call 链
+  + in-band 读回 + out-of-band docker exec 核对), `targets.yaml`, `AGENTS.md`
+- `targets/realworld/deploy.ps1`: 幂等 dry-run/`--yes`, 127.0.0.1 绑定, 容器内 pip 走代理
+- `vulns/cards/path_traversal.md` + `attacker_system.md`: 沙箱逃逸 Playbook + `sandbox_root` 变量
+
+### 验证结果
+| 验证 | 结果 |
+|---|---|
+| pytest / ruff | 101 passed / clean |
+| `mcpwn eval realworld prove excel-0.1.7` | PASS: marker 落 `/root/` (docker exec 4845B, nonce 一致) |
+| `mcpwn eval realworld prove excel-0.1.8` | PASS: 写入被拒, 无文件落地 |
+| `mcpwn eval realworld run -o runs/eval_real_world/v1` | 2/2: 0.1.7 `sandbox_escape_write` high 0.75; 0.1.8 0 findings |
+| `mcpwn eval dvmcp run -o runs/m2_dvmcp_full_v5` | recall 8/10, FPR 0, replay 5/5 (无回归) |
+
+### 能力边界 (演示确认)
+- 读: 沙箱外任意 **xlsx 家族**文件可读走 (含其他目录/租户), 跨容器 root 权限;`/etc/passwd`/shadow/ssh/.env 等文本读不了 (openpyxl 拒收)
+- 写: 任意路径写 xlsx (含覆盖已有文件)
+- 边界: 无 docker 挂载时仅容器内;宿主不可达
+
+### 使用
+```powershell
+./targets/realworld/deploy.ps1 -Yes            # 拉起 0.1.7(:9203)/0.1.8(:9204)
+mcpwn eval realworld prove excel-0.1.7         # 打穿证明
+mcpwn eval realworld prove excel-0.1.8         # 对照(修复有效)
+mcpwn eval realworld run -o runs/eval_real_world  # 检测门
+mcpwn scan <url> --sandbox-root /tmp/sandbox   # 单目标
+```

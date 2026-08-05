@@ -1,7 +1,7 @@
 # McPwn 进度记录
 
 > 每次开工前读这个文件 + HANDOFF.md。如果代码和这里说的不一致，以代码为准。
-> 最后更新: 2026-08-05 (commit 8f6bd67 ... 77f5447 + 58fbbc6 + 26f57db + b40ab0d; M2 v4 验证 8/10 PASS, M2.5 落盘 (verdict + chain 启发), clean_baseline_v5 3/3 PASS, attacker=deepseek-v4-flash, pytest 80 passed)
+> 最后更新: 2026-08-05 (e19d15b + c7516a5; M2 v4 8/10 PASS, M2.5 真实世界扩展 (sandbox-escape 信号 + eval/realworld harness + prove) 落盘, realworld run 2/2, prove 0.1.7 exploited / 0.1.8 blocked 双 PASS, DVMCP v5 8/10 FPR 0, attacker=deepseek-v4-flash, judge=doubao, pytest 101 passed)
 
 ## 当前里程碑
 
@@ -28,6 +28,8 @@ M2 数据产物: `runs/m2_dvmcp_full_v2/eval_report.md` + 每港 `scan_result.js
 897df81  feat: hallucination suppression (grounding gate + L2 judge) + M2 verified
 8f6bd67  fix: replace DVMCP-shaped _AUTH_GATED_NAMES with description+name heuristic
 315df37  fix: retry-with-backoff for LLM transient errors
+e19d15b  feat(M2.5): real-world sandbox-escape signals + eval/realworld harness + prove
+c7516a5  chore(config): judge role uses Doubao (ark-plan doubao-seed-2.0-lite / ARK_API_KEY)
 ```
 
 工作树干净 (`git status` 无未提交改动)。
@@ -48,6 +50,21 @@ M2 数据产物: `runs/m2_dvmcp_full_v2/eval_report.md` + 每港 `scan_result.js
 | 9010 | chain_composition | no | 0 | - | L2 judge 被调(1581 tok), 无 L1 锚定 |
 
 9006 和 9010 是 HANDOFF §8 标的 bonus, 不阻塞 M2。
+
+## M2.5 (真实世界扩展, 已完成)
+
+在 M2 之上补真实世界 MCP 靶机覆盖 (excel-mcp-server CVE-2026-40576):
+
+| 验证 | 结果 |
+|---|---|
+| `prove excel-0.1.7` (exploited) | PASS: 3-call 链写 marker 到 `/root/` 并读回, docker exec 落地核对一致 |
+| `prove excel-0.1.8` (blocked) | PASS: `create_workbook` 被拒, 无文件落地 |
+| `eval realworld run` | 2/2: 0.1.7 检出 `sandbox_escape_write` (high), 0.1.8 0 findings |
+| DVMCP v5 回测 | recall 8/10, FPR 0, replay 5/5 (无回归) |
+| pytest / ruff | 101 passed / clean |
+
+关键能力边界: 读原语只覆盖 xlsx 家族 (openpyxl), `/etc/passwd`/shadow/ssh/.env 等文本读不了;
+写原语 = 任意路径写 xlsx。`--sandbox-root` 是部署元数据, 无 root 时 write/read 信号降级。
 
 ## 已落地的架构决策 (按重要性排序)
 
@@ -112,7 +129,7 @@ M2 v4 (`runs/m2_dvmcp_full_v4/`, 8/10) 验证完成。attacker 临时从 paused 
 
 **结论: auth-gated fix (8f6bd67) 是 model-agnostic**, 在 glm-5-2 跟 deepseek-v4-pro 两个不同 model 上保持 8/10 recall / 0.00 FPR / 1.00 poc_replay。9006 (indirect) 跟 9010 (chain) 仍 miss, 是 HANDOFF 标的 bonus, 没拆。
 
-### M2.5 (commit 26f57db, 落盘)
+### M2.5 早期项 (commit 26f57db: judge verdict 落盘 + chain 启发)
 
 新增两项, 直接打 9006/9010 的 debug + 启发面:
 
@@ -179,9 +196,9 @@ L1 `stored_injection_roundtrip` 已命中 (marker `INJECTION_MARKER_8x7k2` 被 `
 ```
 mcp_redteam/
   contracts.py          数据契约 (VulnClass/McpCall/EvidenceSignal/AttackTrace/Finding/ScanResult)
-  cli.py                mcpwn scan <url> / ping-models / lint-cards / eval dvmcp
+  cli.py                mcpwn scan <url> / ping-models / lint-cards / eval dvmcp / eval realworld
   signals/
-    detectors.py        15 条 signal detector (14 注册 + 1 占位)
+    detectors.py        18 条信号 (17 注册 + 1 L2 占位)
   vulns/
     cards/*.md          7 张策略卡
     registry.py         load_card + lint
@@ -209,4 +226,10 @@ mcp_redteam/
 eval/dvmcp/
   expected.yaml         10 港预期 vuln class
   runner.py             全港扫描 + recall/FPR/replay 指标
+eval/realworld/
+  targets.yaml         excel-0.1.7 (positive) / excel-0.1.8 (negative)
+  runner.py            recall + precision 门
+  prove.py             确定性打穿证明 (in-band + docker exec)
+targets/realworld/
+  deploy.ps1           靶机容器管理 (dry-run/--yes, 127.0.0.1 绑定)
 ```
