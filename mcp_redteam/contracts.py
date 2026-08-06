@@ -247,6 +247,28 @@ class ScanResult(BaseModel):
     def total_tokens(self) -> int:
         return self.attacker_tokens + self.judge_tokens
 
+class PlannerDecision(BaseModel):
+    """One entry in the M3 planner's complete ordered plan (HANDOFF_M3 section 2).
+
+    The M3 judge consumes this via ``eval/dvmcp/m3_judge.py::load_planner_decisions``
+    (raw dict, no re-validation), so the field names/types here are locked:
+    ``port`` / ``index`` (0-based position in the port's ordered plan) /
+    ``vuln_class`` / ``target`` / ``source`` (``"llm"`` or ``"fallback"``) /
+    ``planned`` / ``executed`` / ``skip_reason``. ``planned``+``executed``
+    separate intent from execution so the judge can distinguish "never
+    planned" from "planned but starved by budget" on port 9010.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    port: int
+    index: int
+    vuln_class: str
+    target: str
+    source: Literal["llm", "fallback"]
+    planned: bool = True
+    executed: bool = False
+    skip_reason: str | None = None
+
 class M3JudgeReport(BaseModel):
     """M3 acceptance judge output (HANDOFF_JUDGE + grill decisions).
 

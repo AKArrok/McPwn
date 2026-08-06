@@ -185,6 +185,10 @@ def dvmcp_run(
     ),
     max_tokens: int = typer.Option(30000),
     wall_seconds: int = typer.Option(240),
+    planner_mode: str = typer.Option(
+        "hardcoded", "--planner",
+        help="Planner mode: hardcoded (score order) or llm (LLM decision).",
+    ),
 ) -> None:
     """Run `mcpwn scan` across DVMCP ports and produce eval_report.md."""
     from eval.dvmcp.runner import run_all
@@ -195,6 +199,7 @@ def dvmcp_run(
         out_dir=out,
         max_tokens=max_tokens,
         wall_seconds=wall_seconds,
+        planner_mode=planner_mode,
     ))
     console.print(f"[green]wrote[/green] {report_path}")
 

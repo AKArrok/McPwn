@@ -8,18 +8,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from mcp_redteam.agent.executor import execute_one
-from mcp_redteam.agent.planner import plan
+from mcp_redteam.agent.planner import PlannedCandidate, plan, plan_llm
 from mcp_redteam.agent.recon import recon
 from mcp_redteam.agent.verifier import build_findings, make_judge_fn
-from mcp_redteam.contracts import AttackTrace, ScanResult, ScanStopReason
+from mcp_redteam.contracts import AttackTrace, PlannerDecision, ScanResult, ScanStopReason
 from mcp_redteam.models.chat import load_registry, make_client
 from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
 from mcp_redteam.targets.mcp_client import McpSession
@@ -37,6 +38,12 @@ def _new_run_id() -> str:
 
 def _iso_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _port_from_url(sse_url: str) -> int:
+    """Extract the port from an SSE URL like http://127.0.0.1:9010/sse."""
+    m = re.search(r":(\d+)/", sse_url)
+    return int(m.group(1)) if m else 0
 
 
 def _make_judge_fn_or_none():
@@ -110,6 +117,8 @@ async def scan(
     attacker_temperature: float | None = None,
     sse_headers: dict[str, str] | None = None,
     sandbox_root: str | None = None,
+    planner_mode: Literal["hardcoded", "llm"] = "hardcoded",
+    decisions: list[PlannerDecision] | None = None,
 ) -> ScanResult:
     """Scan one MCP SSE endpoint. Write traces/findings under `out_dir`."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -137,14 +146,45 @@ async def scan(
     try:
         async with McpSession(sse_url, headers=sse_headers) as session:
             recon_calls, candidates, tools_seen, resources_seen = await recon(session)
-            ordered = plan(candidates, max_candidates=max_candidates)
+            if planner_mode == "llm":
+                planned = plan_llm(
+                    candidates,
+                    tools_seen,
+                    resources_seen,
+                    attacker[0],
+                    attacker[1],
+                    sse_url=sse_url,
+                )
+            else:
+                planned = [
+                    PlannedCandidate(c, "fallback")
+                    for c in plan(candidates, max_candidates=max_candidates)
+                ]
 
-            for candidate in ordered:
+            port = _port_from_url(sse_url)
+            for index, pc in enumerate(planned):
                 if budget.exceeded() or clock.exceeded():
+                    if decisions is not None:
+                        # Record every planned-but-unexecuted candidate so the
+                        # decisions file always covers the full plan (M3 judge
+                        # intent-vs-execution separation).
+                        skip = "budget" if budget.exceeded() else "budget_time"
+                        for j in range(index, len(planned)):
+                            pc_j = planned[j]
+                            decisions.append(PlannerDecision(
+                                port=port,
+                                index=j,
+                                vuln_class=pc_j.candidate.vuln_class.value,
+                                target=pc_j.candidate.target,
+                                source=pc_j.source,
+                                planned=True,
+                                executed=False,
+                                skip_reason=skip,
+                            ))
                     break
                 trace = await execute_one(
                     session=session,
-                    candidate=candidate,
+                    candidate=pc.candidate,
                     attacker=attacker,
                     budget=budget,
                     clock=clock,
@@ -154,6 +194,17 @@ async def scan(
                     sandbox_root=sandbox_root,
                 )
                 traces.append(trace)
+                if decisions is not None:
+                    decisions.append(PlannerDecision(
+                        port=port,
+                        index=index,
+                        vuln_class=pc.candidate.vuln_class.value,
+                        target=pc.candidate.target,
+                        source=pc.source,
+                        planned=True,
+                        executed=True,
+                        skip_reason=None,
+                    ))
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
 
