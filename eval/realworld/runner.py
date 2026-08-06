@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 from pathlib import Path
 
 import yaml
 
-from mcp_redteam.contracts import Finding, ScanResult
+from mcp_redteam.contracts import Finding, PlannerDecision, ScanResult
 from mcp_redteam.orchestrator.runner import scan
 from mcp_redteam.report.findings import write_findings
 
@@ -57,12 +58,14 @@ def _expected_label(target: dict) -> str:
     return "no sandbox_escape"
 
 
-def _write_report(rows: list[dict], report_path: Path) -> None:
+def _write_report(rows: list[dict], report_path: Path, planner_mode: str = "hardcoded") -> None:
     passed = sum(1 for r in rows if r["status"] == "PASS")
     total = len(rows)
 
     lines: list[str] = [
         "# Real-World Harness Report (excel-mcp-server CVE-2026-40576)",
+        "",
+        f"planner: `{planner_mode}`",
         "",
         "| name | version | role | expected | PASS/FAIL | findings |",
         "|---|---|---|---|---|---|",
@@ -87,13 +90,36 @@ def _write_report(rows: list[dict], report_path: Path) -> None:
     report_path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _write_planner_decisions(decisions: list[PlannerDecision], out_dir: Path) -> Path:
+    """Write the M3 planner_decisions.json contract (mirrors eval/dvmcp/runner.py).
+
+    One file at ``out_dir`` root covering every target; entries are
+    distinguished by the target's ``port``. Written in llm mode so an A/B run
+    can be audited for which planner source actually produced each decision.
+    """
+    path = out_dir / "planner_decisions.json"
+    path.write_text(
+        json.dumps(
+            {"decisions": [d.model_dump() for d in decisions]},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 async def run_all(
     out_dir: Path,
     max_tokens: int = 30000,
     wall_seconds: int = 240,
+    planner_mode: str = "hardcoded",
 ) -> Path:
     """Scan every target in targets.yaml and write ``out_dir/eval_report.md``."""
+    if planner_mode not in {"hardcoded", "llm"}:
+        raise ValueError(f"planner_mode must be hardcoded|llm, got {planner_mode!r}")
     out_dir.mkdir(parents=True, exist_ok=True)
+    decisions: list[PlannerDecision] = []
     rows: list[dict] = []
     for target in _load_targets():
         name = target["name"]
@@ -114,6 +140,8 @@ async def run_all(
                 max_tokens=max_tokens,
                 wall_seconds=wall_seconds,
                 sandbox_root=target["sandbox_root"],
+                planner_mode=planner_mode,
+                decisions=decisions,
             )
             write_findings(result, out_dir / name)
             row["findings"] = len(result.findings)
@@ -124,8 +152,11 @@ async def run_all(
             row["status"] = "FAIL"
         rows.append(row)
 
+    if planner_mode == "llm":
+        _write_planner_decisions(decisions, out_dir)
+
     report_path = out_dir / "eval_report.md"
-    _write_report(rows, report_path)
+    _write_report(rows, report_path, planner_mode)
     return report_path
 
 
@@ -143,8 +174,12 @@ def main() -> None:
         "--wall-seconds", type=int, default=240,
         help="wall-clock budget per target",
     )
+    parser.add_argument(
+        "--planner", default="hardcoded", choices=["hardcoded", "llm"],
+        help="Planner mode: hardcoded (score order) or llm (LLM decision).",
+    )
     args = parser.parse_args()
-    report = asyncio.run(run_all(Path(args.out), args.max_tokens, args.wall_seconds))
+    report = asyncio.run(run_all(Path(args.out), args.max_tokens, args.wall_seconds, args.planner))
     print(f"wrote {report}")
 
 

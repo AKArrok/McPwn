@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from eval.realworld.runner import _judge
+import asyncio
+import json
+from pathlib import Path
+
+import pytest
+
+from eval.realworld.runner import _judge, _write_planner_decisions, run_all
 from mcp_redteam.contracts import (
     EvidenceSignal,
     Finding,
+    PlannerDecision,
     ScanResult,
     VulnClass,
 )
@@ -66,3 +73,30 @@ def test_negative_gate_multiple_findings_any_sandbox_fails():
     target = {"role": "negative", "expected_signals": []}
     result = _result([_finding(["leaks_etc_passwd"]), _finding(["sandbox_escape_write"])])
     assert _judge(target, result) is False
+
+
+# ── planner-mode auditability (review fixes) ────────────────────────────────
+
+
+def test_run_all_rejects_invalid_planner_mode(tmp_path: Path):
+    with pytest.raises(ValueError, match="planner_mode must be hardcoded"):
+        asyncio.run(run_all(out_dir=tmp_path, planner_mode="llmm"))
+
+
+def test_run_all_rejects_case_variant(tmp_path: Path):
+    with pytest.raises(ValueError, match="planner_mode"):
+        asyncio.run(run_all(out_dir=tmp_path, planner_mode="LLM"))
+
+
+def test_write_planner_decisions_matches_m3_contract(tmp_path: Path):
+    dec = [
+        PlannerDecision(
+            port=9203, index=0, vuln_class="path_traversal",
+            target="read_data_from_excel", source="llm",
+            planned=True, executed=True, skip_reason=None,
+        )
+    ]
+    path = _write_planner_decisions(dec, tmp_path)
+    assert path.name == "planner_decisions.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data == {"decisions": [dec[0].model_dump()]}
