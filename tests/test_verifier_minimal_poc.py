@@ -108,3 +108,87 @@ def test_ssrf_cloud_metadata_classifies_as_ssrf():
     poc = findings[0].poc_call_sequence
     assert len(poc) == 1
     assert poc[0].args == {"url": "http://169.254.169.254/latest/meta-data/"}
+
+
+def test_evidence_judge_creates_finding_on_zero_signal_trace():
+    """Stage-2: a grounded LLM evidence verdict turns a 0-signal trace into a
+    finding (unknown-shape vuln the signal library cannot see). Also asserts
+    the premise: the exploit calls themselves fire no detector."""
+    from mcp_redteam.agent.verifier import verify_trace
+    from mcp_redteam.contracts import LlmEvidenceVerdict
+
+    recon = [
+        McpCall(kind="list_tools", name=None, args=None,
+                result_text="- read_vault: read secret by name", elapsed_ms=1)
+    ]
+    attack = [
+        _mkcall("created vault 'admin_vault' for owner 'admin'",
+                name="create_vault",
+                args={"owner": "admin", "name": "admin_vault", "secret": "s3cr3t-abc123"}),
+        _mkcall("s3cr3t-abc123", name="read_vault",
+                args={"owner": "", "name": "admin_vault"}),
+    ]
+    trace = AttackTrace(
+        vuln_class=VulnClass.AUTH_BYPASS,
+        target="read_vault",
+        strategy_card_slug="auth_bypass",
+        recon_calls=recon,
+        attack_calls=attack,
+        final_llm_output="empty owner read the admin secret",
+    )
+    sigs, _ = verify_trace(trace, None)
+    assert not sigs, f"premise broken: signal library fired {[s.signal_id for s in sigs]}"
+
+    def fake_judge(t):
+        # evidence_call_index is into recon_calls + attack_calls (=2 here:
+        # [0] list_tools, [1] create_vault, [2] read_vault).
+        return LlmEvidenceVerdict(
+            is_finding=True,
+            vuln_class=VulnClass.AUTH_BYPASS,
+            evidence_call_index=2,
+            evidence_text="s3cr3t-abc123",
+            confidence=0.9,
+            reason="read_vault(owner='') returned admin's secret",
+        )
+
+    findings, _ = build_findings([trace], trace_dir=None, evidence_judge_fn=fake_judge)
+    assert findings, "grounded LLM verdict must create a finding"
+    assert findings[0].vuln_class == VulnClass.AUTH_BYPASS
+    assert findings[0].signals[0].signal_id == "llm_evidence_verdict"
+    assert findings[0].confidence >= 0.6
+    poc = findings[0].poc_call_sequence
+    assert poc and poc[-1].args == {"owner": "", "name": "admin_vault"}
+    assert trace.llm_evidence_verdict is not None
+
+
+def test_evidence_judge_ungrounded_verdict_is_ignored():
+    """A verdict citing text not present in any real call result must NOT
+    create a finding (anti-hallucination gate)."""
+    from mcp_redteam.contracts import LlmEvidenceVerdict
+
+    attack = [
+        _mkcall("created vault ok", name="create_vault",
+                args={"owner": "admin", "name": "x", "secret": "a"}),
+        _mkcall("error: cannot read", name="read_vault", args={"owner": "", "name": "x"}),
+    ]
+    trace = AttackTrace(
+        vuln_class=VulnClass.AUTH_BYPASS,
+        target="read_vault",
+        strategy_card_slug="auth_bypass",
+        recon_calls=[],
+        attack_calls=attack,
+        final_llm_output="I saw the admin secret",
+    )
+
+    def lying_judge(t):
+        return LlmEvidenceVerdict(
+            is_finding=True,
+            vuln_class=VulnClass.AUTH_BYPASS,
+            evidence_call_index=1,
+            evidence_text="super-secret-not-in-any-result",
+            confidence=0.95,
+            reason="hallucinated",
+        )
+
+    findings, _ = build_findings([trace], trace_dir=None, evidence_judge_fn=lying_judge)
+    assert not findings, "ungrounded verdict must not become a finding"

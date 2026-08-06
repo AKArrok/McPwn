@@ -107,6 +107,10 @@ class AttackTrace(BaseModel):
     # debugging 9006/9010 no longer requires re-running with a side-channel
     # verdict capture.
     judge_verdict: JudgeVerdict | None = None
+    # Stage-2 LLM evidence judge verdict (unknown-shape experiment): when the
+    # signal library structurally misses a flaw, this LLM decision point may
+    # still ground a finding on a real call result. None = not run / nothing.
+    llm_evidence_verdict: LlmEvidenceVerdict | None = None
 
     @model_validator(mode="after")
     def _slug_matches_vuln_class(self) -> AttackTrace:
@@ -189,6 +193,44 @@ class JudgeVerdict(BaseModel):
     model_config = ConfigDict(extra="forbid")
     steered: bool
     evidence_call_index: int | None = None
+    reason: str = ""
+
+
+class LlmHypothesis(BaseModel):
+    """One LLM-generated hypothesis (Stage-2 unknown-shape experiment).
+
+    Produced by the hypothesis-generation / retrospective decision points.
+    ``target`` MUST be a real tool name or resource URI from recon - invented
+    targets are dropped at parse time (grounding: we only probe what exists).
+    ``reason`` is actionable probe guidance shown to the attacker LLM.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    vuln_class: VulnClass
+    target: str
+    reason: str
+
+
+class LlmEvidenceVerdict(BaseModel):
+    """LLM evidence-judge verdict for a trace with zero signal-library hits.
+
+    The unknown-shape premise: a real vulnerability can exist that no detector
+    in ``signals/detectors.py`` recognises. This LLM decision point may still
+    emit a finding, but ONLY when grounded: ``evidence_call_index`` points at a
+    real call and ``evidence_text`` is a verbatim substring of that call's
+    ``result_text`` (never the attacker's final message). ``confidence`` gates
+    admission (>= 0.6); the verifier maps a grounded verdict to a ``high``
+    synthetic signal ``llm_evidence_verdict`` (weight 0.75) so findings still
+    satisfy the HANDOFF confidence machinery. ``None`` on trace = judge did
+    not run or returned nothing usable.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    is_finding: bool
+    vuln_class: VulnClass | None = None
+    evidence_call_index: int | None = None
+    evidence_text: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     reason: str = ""
 
 
