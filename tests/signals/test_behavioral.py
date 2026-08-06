@@ -9,6 +9,7 @@ from mcp_redteam.signals.detectors import (
     detect_command_exec_ls_root,
     detect_command_exec_uid_stdout,
     detect_shadow_tool_pair,
+    detect_stored_injection_roundtrip,
     detect_tool_description_drift,
     detect_unauthenticated_success,
 )
@@ -125,3 +126,34 @@ def test_compute_confidence():
     assert abs(compute_confidence([med_a, med_a]) - 0.5) < 1e-6
     # LLM disagrees: -0.2 penalty.
     assert compute_confidence([med_a], llm_agrees=False) < 0.5
+
+
+def test_stored_injection_roundtrip_fires_on_read_resource_uri_reflection():
+    """Reflected canary placed in a read_resource URI must count as a
+    roundtrip: the marker is user-controlled input even though McpCall keeps
+    it in ``name`` rather than ``args``."""
+    call = McpCall(
+        kind="read_resource",
+        name="internal://credentialsINJECTION_MARKER_abcd1",
+        args=None,
+        result_text=(
+            "[mcp error] MCPError: Unknown resource: "
+            "internal://credentialsINJECTION_MARKER_abcd1"
+        ),
+        elapsed_ms=1,
+    )
+    result = detect_stored_injection_roundtrip([call], "")
+    assert result is not None
+    assert result.signal_id == "stored_injection_roundtrip"
+    assert result.source_call_index == 0
+
+
+def test_stored_injection_roundtrip_ignores_read_resource_without_marker():
+    call = McpCall(
+        kind="read_resource",
+        name="internal://credentials",
+        args=None,
+        result_text="[mcp error] MCPError: Unknown resource: internal://credentials",
+        elapsed_ms=1,
+    )
+    assert detect_stored_injection_roundtrip([call], "") is None

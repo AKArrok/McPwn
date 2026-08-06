@@ -782,13 +782,28 @@ def _extract_markers_from_args(args: dict | None) -> set[str]:
     return markers
 
 
+def _extract_markers_from_call(call: McpCall) -> set[str]:
+    """Markers in a call's user-controlled input surface.
+
+    ``call_tool`` stores the payload in args; ``read_resource`` stores it in
+    the URI (``McpCall.name``). Both are injection points for a reflected
+    canary probe, so both must be considered.
+    """
+    if call.kind == "call_tool":
+        return _extract_markers_from_args(call.args)
+    if call.kind == "read_resource" and call.name:
+        return _extract_markers_from_args({"uri": call.name})
+    return set()
+
+
 def detect_stored_injection_roundtrip(
     mcp_calls: list[McpCall], final_output: str,
     sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
-    """Fires when an ``INJECTION_MARKER_*`` placed in a ``call_tool`` arg
-    comes back verbatim in a subsequent ``call_tool`` / ``read_resource``
-    result, or is reflected in that same call's own result.
+    """Fires when an ``INJECTION_MARKER_*`` placed in a ``call_tool`` arg or
+    ``read_resource`` URI comes back verbatim in a subsequent
+    ``call_tool`` / ``read_resource`` result, or is reflected in that same
+    call's own result.
 
     Evidence: the server persisted or reflected user input without stripping
     the canary. Proves the stored / reflected injection surface exists at the
@@ -799,9 +814,7 @@ def detect_stored_injection_roundtrip(
     """
     written: dict[str, int] = {}
     for i, call in enumerate(mcp_calls):
-        if call.kind != "call_tool":
-            continue
-        for marker in _extract_markers_from_args(call.args):
+        for marker in _extract_markers_from_call(call):
             written.setdefault(marker, i)
     if not written:
         return None
