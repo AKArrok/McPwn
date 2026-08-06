@@ -5,12 +5,13 @@ Output: eval_report.md under out_dir. Also writes findings.md per port.
 
 from __future__ import annotations
 
+import json
 import random
 from pathlib import Path
 
 import yaml
 
-from mcp_redteam.contracts import Finding, McpCall, ScanResult
+from mcp_redteam.contracts import Finding, McpCall, PlannerDecision, ScanResult
 from mcp_redteam.orchestrator.runner import scan
 from mcp_redteam.report.findings import write_findings
 from mcp_redteam.signals.detectors import run_all_signals
@@ -52,11 +53,27 @@ async def _replay_poc(sse_url: str, finding: Finding) -> bool:
         return False
 
 
+
+def write_planner_decisions(decisions: list[PlannerDecision], out_dir: Path) -> Path:
+    """Write the M3 planner_decisions.json contract: {"decisions": [...]}."""
+    path = out_dir / "planner_decisions.json"
+    path.write_text(
+        json.dumps(
+            {"decisions": [d.model_dump() for d in decisions]},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 async def run_all(
     ports: list[int],
     out_dir: Path,
     max_tokens: int = 30000,
     wall_seconds: int = 240,
+    planner_mode: str = "hardcoded",
 ) -> Path:
     expected_data = _load_expected()
     expected_by_port: dict[int, dict] = {
@@ -64,6 +81,9 @@ async def run_all(
     }
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    if planner_mode not in {"hardcoded", "llm"}:
+        raise ValueError(f"planner_mode must be hardcoded|llm, got {planner_mode!r}")
+    decisions: list[PlannerDecision] = []
     results: dict[int, ScanResult] = {}
 
     for port in ports:
@@ -76,12 +96,17 @@ async def run_all(
                 out_dir=port_dir,
                 max_tokens=max_tokens,
                 wall_seconds=wall_seconds,
+                planner_mode=planner_mode,
+                decisions=decisions,
             )
             write_findings(result, port_dir)
         except Exception as exc:
             print(f"[eval] ERROR {sse_url}: {type(exc).__name__}: {exc}")
             continue
         results[port] = result
+
+    if planner_mode == "llm":
+        write_planner_decisions(decisions, out_dir)
 
     # ── compute metrics ──────────────────────────────────────────────────
     # Signal-based hit: a finding hits if ANY of its signal_ids appears in

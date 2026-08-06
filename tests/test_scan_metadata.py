@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from mcp_redteam.contracts import ScanResult, ScanStopReason
+from mcp_redteam.contracts import ScanResult
 
 
 def test_scan_result_reproducibility_fields_default_to_safe():

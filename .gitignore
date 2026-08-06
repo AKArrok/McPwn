@@ -23,3 +23,4 @@ runs/*
 .vscode/
 # Local real-world target scratch (not part of repo fixtures)
 eval_real_world/
+targets/excel-mcp-server/

@@ -1,0 +1,21 @@
+targets:
+  - name: excel-0.1.7
+    role: positive
+    sse_url: http://127.0.0.1:9203/sse
+    version: "0.1.7"
+    cve: CVE-2026-40576
+    sandbox_root: /tmp/sandbox
+    container: excel-mcp-017
+    expected_signals: [sandbox_escape_write, sandbox_escape_read]
+    prove_expect: exploited
+    marker_path: /root/mcpwn_pwned_<nonce>.xlsx
+  - name: excel-0.1.8
+    role: negative
+    sse_url: http://127.0.0.1:9204/sse
+    version: "0.1.8"
+    cve: null
+    sandbox_root: /tmp/sandbox
+    container: excel-mcp-018
+    expected_signals: []
+    prove_expect: blocked
+    marker_path: /root/mcpwn_pwned_<nonce>.xlsx

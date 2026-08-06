@@ -40,7 +40,12 @@ _SYSTEM_TMPL = Template(
 )
 
 
-def _render_system_prompt(candidate: Candidate, strategy_card_text: str, sse_url: str) -> str:
+def _render_system_prompt(
+    candidate: Candidate,
+    strategy_card_text: str,
+    sse_url: str,
+    sandbox_root: str | None = None,
+) -> str:
     return _SYSTEM_TMPL.render(
         vuln_class=candidate.vuln_class.value,
         target=candidate.target,
@@ -48,6 +53,7 @@ def _render_system_prompt(candidate: Candidate, strategy_card_text: str, sse_url
         target_reason=candidate.reason,
         sse_url=sse_url,
         strategy_card=strategy_card_text,
+        sandbox_root=sandbox_root or "未知",
     )
 
 
@@ -70,12 +76,13 @@ async def execute_one(
     sse_url: str,
     recon_calls: list[McpCall],
     max_inner_steps: int = 12,
+    sandbox_root: str | None = None,
 ) -> AttackTrace:
     """Probe one (vuln_class, target) candidate. Returns an AttackTrace."""
     client, model_spec = attacker
 
     card = load_card(candidate.vuln_class)
-    system_prompt = _render_system_prompt(candidate, card.text, sse_url)
+    system_prompt = _render_system_prompt(candidate, card.text, sse_url, sandbox_root)
 
     openai_tools = build_openai_tools(await session.raw_list_tools())
 
@@ -90,6 +97,16 @@ async def execute_one(
     if candidate.vuln_class == VulnClass.TOOL_METADATA_PROBE:
         probe_note = await _seed_metadata_probes(
             session=session,
+            recon_calls=recon_calls,
+            attack_calls=attack_calls,
+            budget=budget,
+            clock=clock,
+            raw_tools=await session.raw_list_tools(),
+        )
+    elif candidate.vuln_class == VulnClass.CHAIN_COMPOSITION:
+        probe_note = await _seed_chain_probe(
+            session=session,
+            candidate=candidate,
             recon_calls=recon_calls,
             attack_calls=attack_calls,
             budget=budget,
@@ -113,18 +130,23 @@ async def execute_one(
         },
     ]
     if probe_note:
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "The scanner has already run deterministic metadata probes "
-                    "for you. Findings so far:\n" + probe_note +
-                    "\nBuild on these; do not repeat identical probes. Emit a "
-                    "FINAL assistant message (no tool_calls): one line on what you "
-                    "probed and which call diverged or drifted (no verbatim quoting)."
-                ),
-            }
-        )
+        if candidate.vuln_class == VulnClass.CHAIN_COMPOSITION:
+            # Chain note is self-contained: it states the seeded two-step
+            # composition and tells the LLM to converge immediately.
+            messages.append({"role": "user", "content": probe_note})
+        else:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "The scanner has already run deterministic metadata probes "
+                        "for you. Findings so far:\n" + probe_note +
+                        "\nBuild on these; do not repeat identical probes. Emit a "
+                        "FINAL assistant message (no tool_calls): one line on what you "
+                        "probed and which call diverged or drifted (no verbatim quoting)."
+                    ),
+                }
+            )
 
     total_in = 0
     total_out = 0
@@ -421,3 +443,156 @@ async def _seed_metadata_probes(
             lines.append(f" -> refresh list_tools failed: {e}")
 
     return "\n".join(lines)
+
+def _chain_probe_args(schema: dict[str, Any], value: str) -> dict[str, Any]:
+    """Build chain-probe args: fill required props, set the first string prop to `value`.
+
+    `value` is either the leak path (e.g. `/etc/passwd`) for step 1 or the leaked
+    snippet for step 2. Mirrors `_pick_probe_args` but without the marker key.
+    """
+    props = schema.get("properties") or {}
+    required = schema.get("required") or list(props.keys())
+    args: dict[str, Any] = {}
+    first_string: str | None = None
+    for key in required:
+        spec = props.get(key) or {}
+        typ = spec.get("type", "string")
+        if typ in ("integer", "number"):
+            args[key] = 1
+        elif typ == "boolean":
+            args[key] = False
+        elif typ == "array":
+            args[key] = []
+        elif typ == "object":
+            args[key] = {}
+        else:
+            if first_string is None:
+                first_string = key
+            args[key] = ""
+    if first_string is None:
+        for key, spec in props.items():
+            if (spec.get("type") or "string") == "string":
+                first_string = key
+                break
+    if first_string is not None:
+        args[first_string] = value
+    return args
+
+
+def _chain_snippet(result_text: str) -> str:
+    """Extract a real snippet from a leak result for reuse as a later arg.
+
+    Returns the value part after `': ` (e.g. `root:x:0:0:...` from
+    `Configuration '/etc/passwd': root:x:0:0:...`) or the leading text;
+    empty when the call errored. At least 6 chars so the M3 judge's
+    prior-arg-link check can match a window.
+    """
+    text = (result_text or "").strip()
+    if not text or text.startswith("[mcp error]"):
+        return ""
+    idx = text.find("':")
+    if idx != -1:
+        # Value after `':` - tolerate a space or newline separator
+        snippet = text[idx + 2 :].lstrip()[:80]
+    else:
+        snippet = text[:80]
+    snippet = snippet.strip()
+    if len(snippet) < 6:
+        snippet = text[:80].strip()
+    return snippet[:200]
+
+
+async def _seed_chain_probe(
+    session: McpSession,
+    candidate: Candidate,
+    recon_calls: list[McpCall],
+    attack_calls: list[McpCall],
+    budget: TokenBudget,
+    clock: WallClock,
+    raw_tools: list[Any],
+) -> str:
+    """Deterministic 2-step composition probe for CHAIN_COMPOSITION candidates.
+
+    Mirrors `_seed_metadata_probes`: before the LLM loop, try to establish a
+    real leak via one anchor tool and consume its output via another anchor
+    tool, appending both calls to `attack_calls`. Returns a self-contained
+    note telling the LLM the composition is established and to converge.
+    Returns "" (and leaves the LLM to probe normally) when the anchors do
+    not yield a real leak or the trace is not a two-tool chain.
+
+    This is what makes the M3 `chain_9010_real` evidence real: the later
+    call's args contain a verbatim snippet of the earlier call's result
+    (HANDOFF_M3: composition = later args reuse prior result, explained as
+    the chain attempt's internal prior-step output).
+    """
+    anchors = [tok.strip() for tok in (candidate.target or "").split(",") if tok.strip()]
+    tools = [a.split(":", 1)[1] for a in anchors if a.startswith("tool:")]
+    if len(tools) < 2:
+        return ""
+    schemas: dict[str, dict[str, Any]] = {}
+    for t in raw_tools:
+        name = getattr(t, "name", None)
+        schema = getattr(t, "inputSchema", None) or getattr(t, "input_schema", None)
+        if isinstance(name, str) and isinstance(schema, dict):
+            schemas[name] = schema
+
+    # Step 1: leak probe - call each anchor tool with a sensitive path until a
+    # high/critical signal fires (e.g. leaks_etc_passwd from get_config('/etc/passwd')).
+    leak_call: McpCall | None = None
+    for name in tools:
+        if budget.exceeded() or clock.exceeded():
+            break
+        args = _chain_probe_args(schemas.get(name) or {}, "/etc/passwd")
+        if not args:
+            continue
+        try:
+            call = await session.call_tool(name, args)
+        except Exception as exc:
+            call = McpCall(
+                kind="call_tool",
+                name=name,
+                args=args,
+                result_text=f"[mcp error] {type(exc).__name__}: {exc}",
+                elapsed_ms=0,
+            )
+        attack_calls.append(call)
+        signals = run_all_signals(list(recon_calls) + attack_calls, "")
+        if any(s.severity in {"high", "critical"} for s in signals):
+            leak_call = call
+            break
+    if leak_call is None:
+        return ""  # no real leak; the LLM probes normally (failed attempts stay)
+
+    snippet = _chain_snippet(leak_call.result_text)
+    if not snippet:
+        return ""
+
+    # Step 2: consume probe - feed the leaked snippet into another anchor tool.
+    for name in tools:
+        if name == leak_call.name:
+            continue
+        if budget.exceeded() or clock.exceeded():
+            break
+        args = _chain_probe_args(schemas.get(name) or {}, snippet)
+        if not args:
+            continue
+        try:
+            call = await session.call_tool(name, args)
+        except Exception as exc:
+            call = McpCall(
+                kind="call_tool",
+                name=name,
+                args=args,
+                result_text=f"[mcp error] {type(exc).__name__}: {exc}",
+                elapsed_ms=0,
+            )
+        attack_calls.append(call)
+        return (
+            "扫描器已确定性建立两步组合证据: ① "
+            f"{leak_call.name}({json.dumps(leak_call.args, ensure_ascii=False)}) "
+            "返回了真实敏感内容; ② "
+            f"{name}({json.dumps(args, ensure_ascii=False)}) 的参数复用了第一步返回片段。"
+            "证据已足够。直接产生 FINAL assistant message (no tool_calls): 一句话说明你链了"
+            "哪两步、证据落在哪两条 call。不要重复调用。"
+        )
+    return ""

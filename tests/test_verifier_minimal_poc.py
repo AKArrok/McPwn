@@ -77,3 +77,34 @@ def test_etc_passwd_only_in_final_output_is_not_a_finding():
     )
     findings, _ = build_findings([trace], trace_dir=None)
     assert not findings
+
+
+def test_ssrf_cloud_metadata_classifies_as_ssrf():
+    """An SSRF probe that returns IMDS key names must produce an `ssrf` finding
+    (evidence-driven class, not the hypothesis), with a 1-call PoC."""
+    recon = [
+        McpCall(kind="list_tools", name=None, args=None,
+                result_text="- fetch_url: fetches a URL server-side", elapsed_ms=1)
+    ]
+    attack = [
+        _mkcall(
+            "ami-id\ninstance-id\nlocal-ipv4\n",
+            name="fetch_url",
+            args={"url": "http://169.254.169.254/latest/meta-data/"},
+        ),
+        _mkcall("Error: connection refused", name="fetch_url", args={"url": "http://127.0.0.1:22/"}),
+    ]
+    trace = AttackTrace(
+        vuln_class=VulnClass.SSRF,
+        target="fetch_url",
+        strategy_card_slug="ssrf",
+        recon_calls=recon,
+        attack_calls=attack,
+        final_llm_output="IMDS metadata keys returned by fetch_url",
+    )
+    findings, _ = build_findings([trace], trace_dir=None)
+    assert findings, "expected at least one finding above threshold"
+    assert findings[0].vuln_class == VulnClass.SSRF
+    poc = findings[0].poc_call_sequence
+    assert len(poc) == 1
+    assert poc[0].args == {"url": "http://169.254.169.254/latest/meta-data/"}

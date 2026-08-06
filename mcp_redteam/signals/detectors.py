@@ -141,7 +141,8 @@ _HARDCODED_PW_RE = re.compile(
 
 
 def detect_leaks_etc_passwd(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     m, idx = _scan_calls(mcp_calls, final_output, _ETC_PASSWD_RE, kinds=_CONTENT_KINDS)
     if m:
@@ -150,7 +151,8 @@ def detect_leaks_etc_passwd(
 
 
 def detect_leaks_shadow_hash(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     m, idx = _scan_calls(mcp_calls, final_output, _SHADOW_HASH_RE, kinds=_CONTENT_KINDS)
     if m:
@@ -159,7 +161,8 @@ def detect_leaks_shadow_hash(
 
 
 def detect_leaks_ssh_private_key(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     m, idx = _scan_calls(mcp_calls, final_output, _SSH_KEY_RE, kinds=_CONTENT_KINDS)
     if m:
@@ -168,7 +171,8 @@ def detect_leaks_ssh_private_key(
 
 
 def detect_leaks_api_key_shape(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     m, idx = _scan_calls(mcp_calls, final_output, _API_KEY_RE, kinds=_CONTENT_KINDS)
     if m:
@@ -177,7 +181,8 @@ def detect_leaks_api_key_shape(
 
 
 def detect_leaks_hardcoded_password(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     # We reject values starting with `$` (shadow-hash prefix) to avoid double-counting.
     for i, call in enumerate(mcp_calls):
@@ -203,7 +208,8 @@ _ADMIN_RE = re.compile(
 
 
 def detect_command_exec_uid_stdout(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     m, idx = _scan_calls(mcp_calls, final_output, _UID_RE)
     if m:
@@ -212,7 +218,8 @@ def detect_command_exec_uid_stdout(
 
 
 def detect_command_exec_ls_root(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     # Fire only when a same-call args have shell metachars AND the same or
     # subsequent call output looks like ls -l.
@@ -228,7 +235,8 @@ def detect_command_exec_ls_root(
 
 
 def detect_admin_action_confirmed(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     m, idx = _scan_calls(mcp_calls, final_output, _ADMIN_RE)
     if m:
@@ -349,7 +357,8 @@ def _is_auth_gated_tool(call: McpCall, prior_calls: list[McpCall]) -> bool:
 
 
 def detect_unauthenticated_success(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     for i, call in enumerate(mcp_calls):
         if call.kind != "call_tool" or not call.args:
@@ -435,7 +444,8 @@ def _parse_list_tools_lookup(text: str) -> dict[str, str]:
 
 
 def detect_tool_description_drift(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     """Fires when two `list_tools` snapshots disagree on any tool's description.
 
@@ -487,7 +497,8 @@ def _desc_similarity(a: str, b: str) -> float:
 
 
 def detect_shadow_tool_pair(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     """HANDOFF §6: two tools whose names differ by Levenshtein <= 2 AND whose
     descriptions share Jaccard similarity > 0.7. Uses the last ``list_tools``
@@ -575,7 +586,8 @@ def _normalize_response(text: str) -> str:
 
 
 def detect_shadow_tool_behavior_divergence(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     """Fires when two similarly-named tools return *different* content for the
     same input.
@@ -643,7 +655,8 @@ _RUG_PULL_MARKER = "__mcpwn_rug_probe__"
 
 
 def detect_rug_pull_response_flip(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     """Fires when repeat calls to the same tool with the same args (excluding
     the rug-pull probe marker) produce materially different responses after N
@@ -693,7 +706,8 @@ _SUSPICIOUS_ERROR_PATTERNS: list[re.Pattern[str]] = [
 
 
 def detect_suspicious_error_pitch(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     """Fires when a call_tool response looks like an error but ALSO contains
     upsell/admin/credential language.
@@ -726,7 +740,8 @@ def detect_suspicious_error_pitch(
 
 
 def detect_llm_judged_injection(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
     """Placeholder until M2/M3 wire a small judge LLM. NOT registered in
     ``DETECTORS`` so ``run_all_signals`` does not waste a call slot on a stub.
@@ -767,12 +782,28 @@ def _extract_markers_from_args(args: dict | None) -> set[str]:
     return markers
 
 
+def _extract_markers_from_call(call: McpCall) -> set[str]:
+    """Markers in a call's user-controlled input surface.
+
+    ``call_tool`` stores the payload in args; ``read_resource`` stores it in
+    the URI (``McpCall.name``). Both are injection points for a reflected
+    canary probe, so both must be considered.
+    """
+    if call.kind == "call_tool":
+        return _extract_markers_from_args(call.args)
+    if call.kind == "read_resource" and call.name:
+        return _extract_markers_from_args({"uri": call.name})
+    return set()
+
+
 def detect_stored_injection_roundtrip(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
 ) -> EvidenceSignal | None:
-    """Fires when an ``INJECTION_MARKER_*`` placed in a ``call_tool`` arg
-    comes back verbatim in a subsequent ``call_tool`` / ``read_resource``
-    result, or is reflected in that same call's own result.
+    """Fires when an ``INJECTION_MARKER_*`` placed in a ``call_tool`` arg or
+    ``read_resource`` URI comes back verbatim in a subsequent
+    ``call_tool`` / ``read_resource`` result, or is reflected in that same
+    call's own result.
 
     Evidence: the server persisted or reflected user input without stripping
     the canary. Proves the stored / reflected injection surface exists at the
@@ -783,9 +814,7 @@ def detect_stored_injection_roundtrip(
     """
     written: dict[str, int] = {}
     for i, call in enumerate(mcp_calls):
-        if call.kind != "call_tool":
-            continue
-        for marker in _extract_markers_from_args(call.args):
+        for marker in _extract_markers_from_call(call):
             written.setdefault(marker, i)
     if not written:
         return None
@@ -813,6 +842,241 @@ def detect_stored_injection_roundtrip(
     return None
 
 
+# ── F. sandbox escape / path traversal (real-world, root-aware) ─────────────
+#
+# Real-world servers (e.g. excel-mcp-server CVE-2026-40576) confine file
+# operations to a declared sandbox root (EXCEL_FILES_PATH); a successful
+# write/read whose resolved path escapes that root is a sandbox escape, not a
+# leak. ``sandbox_root`` is deployment metadata supplied by the operator
+# (``scan --sandbox-root`` / eval manifest), never auto-discovered.
+#
+# Path resolution is deliberately *lexical posix*: detectors run on the host
+# (often Windows) while targets run in linux containers, so host ``os.path``
+# would mis-resolve ``/tmp/...``. We collapse segments and apply POSIX ``..``
+# semantics (``..`` at root stays root). Backslash is a *literal filename
+# character* on POSIX, not a separator: normalising ``\`` -> ``/`` here
+# manufactured escapes that did not exist (excel-mcp 0.1.8 regression -
+# ``create_workbook("..\\..\\x")`` wrote ``/tmp/sandbox/..\..\x`` INSIDE the
+# root, yet the old code reported ``sandbox_escape_write``). All current
+# targets are linux containers; add a target-OS flag before ever treating
+# ``\`` as a separator again.
+
+_SANDBOX_PATH_KEY_RE = re.compile(
+    r"(?:filepath|path|filename|file|dir|directory|folder|document|uri)",
+    re.IGNORECASE,
+)
+_SANDBOX_DESC_RE = re.compile(r"(?:sandbox|jail|isolat|workspace)", re.IGNORECASE)
+_SANDBOX_TRAVERSAL_RE = re.compile(r"\.\./|%2e%2e", re.IGNORECASE)  # POSIX: `..\` is a literal filename, not traversal
+_SANDBOX_SUCCESS_RE = re.compile(
+    r"(?i)(?:created|written|wrote|saved|success(?:fully)?|completed|\bok\b)"
+)
+_SANDBOX_ERROR_RE = re.compile(
+    r"(?i)(?:error|exception|failed|not found|does not support|invalid|"
+    r"permission denied|traceback|must be relative)"
+)
+
+
+def _posix_resolve(path: str) -> str:
+    r"""Lexically normalise a (possibly linux-container) path without host FS.
+
+    POSIX semantics: ``/`` is the only separator; ``\`` is a literal filename
+    character (excel-mcp 0.1.8 wrote ``..\..\x`` as one in-root filename, so
+    mapping ``\`` -> ``/`` here fabricated a false escape).
+    """
+    is_abs = path.startswith("/")
+    parts: list[str] = []
+    for seg in path.split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(seg)
+    resolved = "/".join(parts)
+    return ("/" + resolved) if is_abs else resolved
+
+
+def _escapes_root(path_arg: str, sandbox_root: str) -> bool:
+    root = _posix_resolve(sandbox_root).rstrip("/") or "/"
+    resolved = _posix_resolve(
+        path_arg if path_arg.startswith("/") else root + "/" + path_arg
+    )
+    return not (resolved == root or resolved.startswith(root + "/"))
+
+
+def _file_path_args(call: McpCall) -> list[str]:
+    """String arg values whose key looks file-ish, in insertion order."""
+    if not call.args:
+        return []
+    return [
+        value
+        for key, value in call.args.items()
+        if _SANDBOX_PATH_KEY_RE.search(key) and isinstance(value, str) and value
+    ]
+
+
+def _escaping_path_args(call: McpCall, sandbox_root: str) -> list[str]:
+    return [p for p in _file_path_args(call) if _escapes_root(p, sandbox_root)]
+
+
+def _is_success_text(text: str, *, read: bool) -> bool:
+    if _SANDBOX_ERROR_RE.search(text):
+        return False
+    if read:
+        # read evidence = returned content, not a write acknowledgement echo
+        return bool(text.strip()) and not _SANDBOX_SUCCESS_RE.search(text)
+    return bool(_SANDBOX_SUCCESS_RE.search(text))
+
+
+def detect_sandbox_escape_write(
+    mcp_calls: list[McpCall], final_output: str, sandbox_root: str | None = None
+) -> EvidenceSignal | None:
+    """A file-ish path resolved outside the declared root AND a success
+    acknowledgement => arbitrary file write past the sandbox."""
+    if not sandbox_root:
+        return None
+    for i, call in enumerate(mcp_calls):
+        if call.kind != "call_tool":
+            continue
+        escaping = _escaping_path_args(call, sandbox_root)
+        if escaping and _is_success_text(call.result_text, read=False):
+            return _signal(
+                "sandbox_escape_write", "high", f"escaped write path {escaping[0]!r}", i
+            )
+    return None
+
+
+def detect_sandbox_escape_read(
+    mcp_calls: list[McpCall], final_output: str, sandbox_root: str | None = None
+) -> EvidenceSignal | None:
+    """A file-ish path resolved outside the declared root returned content."""
+    if not sandbox_root:
+        return None
+    for i, call in enumerate(mcp_calls):
+        if call.kind != "call_tool":
+            continue
+        escaping = _escaping_path_args(call, sandbox_root)
+        if escaping and _is_success_text(call.result_text, read=True):
+            return _signal(
+                "sandbox_escape_read", "high", f"escaped read path {escaping[0]!r}", i
+            )
+    return None
+
+
+def detect_sandbox_escape_traversal(
+    mcp_calls: list[McpCall], final_output: str, sandbox_root: str | None = None
+) -> EvidenceSignal | None:
+    """Degraded fallback when no root is declared: a ``..`` traversal that
+    succeeded on a tool whose name advertises a sandbox/workspace. Medium
+    severity -> alone stays below the 0.6 finding threshold."""
+    if sandbox_root:
+        return None
+    for i, call in enumerate(mcp_calls):
+        if call.kind != "call_tool":
+            continue
+        if call.name and not _SANDBOX_DESC_RE.search(call.name):
+            continue
+        traversing = [a for a in _file_path_args(call) if _SANDBOX_TRAVERSAL_RE.search(a)]
+        # traversal success = neither an error nor an empty response (write ack
+        # or read content both count)
+        if traversing and not _SANDBOX_ERROR_RE.search(call.result_text) and call.result_text.strip():
+            return _signal(
+                "sandbox_escape_traversal",
+                "medium",
+                f"traversal {traversing[0]!r} succeeded",
+                i,
+            )
+    return None
+
+
+
+
+
+# ── G. SSRF (server-side request forgery) ────────────────────────────────────
+# External reference: mcpwn MCP-004 + "auditing-mcp-servers-for-tool-poisoning"
+# skill (SSRF_TARGETS list). Grounding rule: a signal fires only when BOTH
+# (a) the call's args point at a loopback/private/link-local/metadata target,
+# and (b) the server's real response contains evidence it actually reached that
+# target (cloud metadata key names / internal service banner). URL echoes alone
+# ("fetching http://169.254.169.254/latest/meta-data/...") never fire because
+# the response regexes require key/value or banner shapes, not the URL text.
+
+_METADATA_ARG_RE = re.compile(
+    r"169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200",
+    re.IGNORECASE,
+)
+# IMDS / GCP metadata key names. Real IMDS directory responses are bare
+# newline-separated key names ("ami-id\ninstance-id\n..."), so match bare
+# tokens; the args-gate (metadata endpoint in the call args) keeps a generic
+# URL echo from firing.
+_CLOUD_METADATA_RE = re.compile(
+    r"\b(?:ami-id|instance-id|local-ipv4|public-keys|security-credentials|"
+    r"instance-type)\b|\b(?:ami-[0-9a-f]{8,17}|i-[0-9a-f]{8,17})\b",
+    re.IGNORECASE,
+)
+_INTERNAL_ARG_RE = re.compile(
+    r"127\.0\.0\.1|localhost|0\.0\.0\.0|10\.\d+\.\d+\.\d+|"
+    r"172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.",
+    re.IGNORECASE,
+)
+_INTERNAL_BANNER_RE = re.compile(
+    r"SSH-2\.0-|OpenSSH|redis_version:|Redis server v=|ERR unknown command|"
+    r"MongoDB server version|Welcome to nginx|nginx/|Apache/2\.|"
+    r"Microsoft-IIS|220 .*ESMTP|FTP server ready|telnetd",
+    re.IGNORECASE,
+)
+
+
+def _iter_arg_strings(args: dict | None) -> list[str]:
+    """Flatten every string value in a call's args (nested dicts/lists)."""
+    out: list[str] = []
+    if not args:
+        return out
+    stack: list[object] = [args]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(item)
+        elif isinstance(item, str):
+            out.append(item)
+    return out
+
+
+def detect_ssrf_cloud_metadata(
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
+) -> EvidenceSignal | None:
+    for i, call in enumerate(mcp_calls):
+        if call.kind not in _CONTENT_KINDS:
+            continue
+        arg_text = " ".join(_iter_arg_strings(call.args))
+        if not _METADATA_ARG_RE.search(arg_text):
+            continue
+        m = _CLOUD_METADATA_RE.search(call.result_text)
+        if m:
+            return _signal("ssrf_cloud_metadata", "high", m.group(), i)
+    return None
+
+
+def detect_ssrf_internal_service(
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
+) -> EvidenceSignal | None:
+    for i, call in enumerate(mcp_calls):
+        if call.kind not in _CONTENT_KINDS:
+            continue
+        arg_text = " ".join(_iter_arg_strings(call.args))
+        if not _INTERNAL_ARG_RE.search(arg_text):
+            continue
+        m = _INTERNAL_BANNER_RE.search(call.result_text)
+        if m:
+            return _signal("ssrf_internal_service", "high", m.group(), i)
+    return None
+
+
 # ── registry ─────────────────────────────────────────────────────────────────
 
 SIGNAL_META: dict[str, Severity] = {
@@ -831,10 +1095,15 @@ SIGNAL_META: dict[str, Severity] = {
     "rug_pull_response_flip": "medium",
     "suspicious_error_pitch": "medium",
     "stored_injection_roundtrip": "medium",
+    "sandbox_escape_write": "high",
+    "sandbox_escape_read": "high",
+    "sandbox_escape_traversal": "medium",
+    "ssrf_cloud_metadata": "high",
+    "ssrf_internal_service": "high",
 }
 
 
-DETECTORS: dict[str, Callable[[list[McpCall], str], EvidenceSignal | None]] = {
+DETECTORS: dict[str, Callable[..., EvidenceSignal | None]] = {
     "leaks_etc_passwd": detect_leaks_etc_passwd,
     "leaks_shadow_hash": detect_leaks_shadow_hash,
     "leaks_ssh_private_key": detect_leaks_ssh_private_key,
@@ -850,13 +1119,20 @@ DETECTORS: dict[str, Callable[[list[McpCall], str], EvidenceSignal | None]] = {
     "rug_pull_response_flip": detect_rug_pull_response_flip,
     "suspicious_error_pitch": detect_suspicious_error_pitch,
     "stored_injection_roundtrip": detect_stored_injection_roundtrip,
+    "sandbox_escape_write": detect_sandbox_escape_write,
+    "sandbox_escape_read": detect_sandbox_escape_read,
+    "sandbox_escape_traversal": detect_sandbox_escape_traversal,
+    "ssrf_cloud_metadata": detect_ssrf_cloud_metadata,
+    "ssrf_internal_service": detect_ssrf_internal_service,
 }
 
 
 # ── public API ───────────────────────────────────────────────────────────────
 
 def run_all_signals(
-    mcp_calls: list[McpCall], final_output: str
+    mcp_calls: list[McpCall],
+    final_output: str,
+    sandbox_root: str | None = None,
 ) -> list[EvidenceSignal]:
     """Run every registered detector; return fired signals.
 
@@ -867,7 +1143,7 @@ def run_all_signals(
     results: list[EvidenceSignal] = []
     for signal_id, detector in DETECTORS.items():
         try:
-            fired = detector(mcp_calls, final_output)
+            fired = detector(mcp_calls, final_output, sandbox_root=sandbox_root)
         except Exception:  # noqa: BLE001
             _log.exception("detector %s crashed; skipping", signal_id)
             continue

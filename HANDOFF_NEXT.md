@@ -1,5 +1,7 @@
 # McPwn → Next Session Handoff
 
+> 真实 MCP 靶机探索见 `HANDOFF_TARGETS.md` (excel-mcp CVE 打穿 + 信号库漏报 + 下一步 detector)。
+>
 > 读这个文件 + `HANDOFF.md` + `PROGRESS.md` 就能接上。`PROGRESS.md` 是状态
 > 快照 (数字 + commit 链), `HANDOFF.md` 是项目设计文档, 本文件是
 > "下一 session 开工前要知道的"。
@@ -19,6 +21,11 @@ recon → hypothesis → attack → verify → report, 产出 `findings.md` +
 `deepseek-v4-pro-260425` (账号下唯一可用的 active LLM)。**M2 v3 6/10
 跟 v4 8/10 的差异是 ARK set inference limit, 不是代码回归**——加了
 chat-layer rate limit (commit 41704e1) 防止再撞墙。
+
+**M2.5 (真实世界扩展) 已完成并提交**: 3 条 sandbox-escape 信号 + `eval/realworld`
+harness (正向 excel-0.1.7 recall 门 + 负向 0.1.8 precision 门) + `prove` 双版本
+对照 (0.1.7 exploited PASS / 0.1.8 blocked PASS)。验证: realworld run 2/2,
+DVMCP v5 回测 recall 8/10 FPR 0 replay 5/5 (无回归)。详见 `HANDOFF_TARGETS.md`。
 
 **下一里程碑是 M3 (LLM 决策版 planner)**, HANDOFF §3 标的。但 M3 战略
 问题没定: "换决策方式 (LLM 选 next candidate)" 还是 "加新能力 (LLM
@@ -321,19 +328,16 @@ summarize variant 跑 11 calls 后挂, 整 trace stop_reason=error, 0 findings
 try/except, 捕获 `RemoteProtocolError` 优雅退出。或者显式调用
 `server.shutdown()` 在 finally 块。
 
-### model.yaml 是临时切
-`mcp_redteam/config/models.yaml` 现在 attacker.model =
-`deepseek-v4-pro-260425` (commit 97887db)。ARK `glm-5-2-260617` 被
-"set inference limit" 锁了, 需在 ARK 控制台 Model Activation 页手动
-关 Safe Experience Mode 才解锁。**glm-5-2 解锁后**:
-1. 把 model 切回 `glm-5-2-260617`
-2. 跑 `runs/m2_dvmcp_full_v5/` 验证 v2 → v5 在两个 model 间一致
-3. commit, 删 commit 97887db 的"临时" 注释
+### model 配置 (M2.5 后已稳定)
+`mcp_redteam/config/models.yaml`: attacker = `deepseek-v4-flash`
+(DeepSeek 官方 API, `DEEPSEEK_API_KEY`); judge = `doubao-seed-2.0-lite`
+(ark-plan, `ARK_API_KEY`, 用户选定)。ARK 托管的 `glm-5-2` / `deepseek-v4-pro`
+均被 set inference limit pause, 不再使用。
 
-### judge LLM 是 deepseek-v4-flash (未切过, 一直 OK)
-`config/models.yaml` judge role 用 `deepseek-v4-flash`, 一直没换过。
-attacker 切到 deepseek-v4-pro 之后, judge 跟 attacker 走同一 ARK key
-但不同 endpoint, 都活。
+### judge LLM 是豆包 (用户选定)
+`config/models.yaml` judge role 用 `doubao-seed-2.0-lite` (ark-plan, `ARK_API_KEY`)。
+judge 是 best-effort (L2 仅 indirect/chain trace), 失败时 `_make_judge_fn_or_none`
+降级为 None, 不影响扫描主流程。
 
 ### evaluator LLM rate limit
 即使有 rate limit (commit 41704e1), 长期跑 (e.g. M3 LLM planner)

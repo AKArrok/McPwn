@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 
 
 class VulnClass(str, Enum):
-    """Seven-class MCP vulnerability taxonomy (HANDOFF paragraph 4)."""
+    """Eight-class MCP vulnerability taxonomy (HANDOFF paragraph 4)."""
 
     DIRECT_PROMPT_INJECTION = "direct_prompt_injection"
     COMMAND_INJECTION = "command_injection"
@@ -27,6 +27,7 @@ class VulnClass(str, Enum):
     TOOL_METADATA_PROBE = "tool_metadata_probe"
     INDIRECT_INJECTION = "indirect_injection"
     CHAIN_COMPOSITION = "chain_composition"
+    SSRF = "ssrf"
 
 
 McpCallKind = Literal["list_tools", "list_resources", "call_tool", "read_resource"]
@@ -238,8 +239,59 @@ class ScanResult(BaseModel):
     attacker_model: str = ""
     attacker_temperature: float = 0.0
     attack_messages_sha1: str = ""
+    # Declared sandbox root (deployment metadata, e.g. EXCEL_FILES_PATH).
+    # Reproducibility anchor: which root the sandbox-escape verdict used.
+    sandbox_root: str | None = None
 
     @computed_field  # type: ignore[misc]
     @property
     def total_tokens(self) -> int:
         return self.attacker_tokens + self.judge_tokens
+
+class PlannerDecision(BaseModel):
+    """One entry in the M3 planner's complete ordered plan (HANDOFF_M3 section 2).
+
+    The M3 judge consumes this via ``eval/dvmcp/m3_judge.py::load_planner_decisions``
+    (raw dict, no re-validation), so the field names/types here are locked:
+    ``port`` / ``index`` (0-based position in the port's ordered plan) /
+    ``vuln_class`` / ``target`` / ``source`` (``"llm"`` or ``"fallback"``) /
+    ``planned`` / ``executed`` / ``skip_reason``. ``planned``+``executed``
+    separate intent from execution so the judge can distinguish "never
+    planned" from "planned but starved by budget" on port 9010.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    port: int
+    index: int
+    vuln_class: str
+    target: str
+    source: Literal["llm", "fallback"]
+    planned: bool = True
+    executed: bool = False
+    skip_reason: str | None = None
+
+class M3JudgeReport(BaseModel):
+    """M3 acceptance judge output (HANDOFF_JUDGE + grill decisions).
+
+    verdict is aggregated conservatively: any criterion "fail" -> "fail";
+    otherwise any "inconclusive" -> "inconclusive"; otherwise "pass".
+    criteria uses the locked keys: recall_llm_ge_hardcoded /
+    fpr_llm_le_hardcoded / chain_9010_real / avg_findings_llm_ge_hardcoded /
+    planner_non_fallback_ge_0_8.
+    metrics holds the code-computed numbers (recall/fpr/avg_findings
+    both sides, planner non-fallback rate, hallucination rate,
+    n_ports_compared) so a pass/fail is independently re-verifiable
+    without trusting LLM arithmetic (judge does no number inference).
+    judge_model / judge_tokens record which model produced the verdict
+    and the out-of-band token cost (never attacker budget).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    verdict: Literal["pass", "fail", "inconclusive"]
+    criteria: dict[str, Literal["pass", "fail", "inconclusive"]]
+    metrics: dict[str, float | int | None]
+    planner_fallback_rate: float | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    reason: str = ""
+    judge_model: str = ""
+    judge_tokens: int = 0

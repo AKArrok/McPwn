@@ -18,10 +18,8 @@ import pathlib
 from unittest.mock import patch
 
 from mcp_redteam.orchestrator import runner as runner_mod
-from mcp_redteam.targets import mcp_client as mcp_client_mod
 from tests.fixtures.mock_mcp import FakeMcpSession
 from tests.fixtures.stub_attacker import fake_make_client
-
 
 BASELINE_PATH = pathlib.Path(__file__).parent / "baselines" / "m0_9001.json"
 
@@ -42,7 +40,7 @@ def test_scan_against_m0_baseline(tmp_path) -> None:
     baseline = _load_baseline()
 
     with patch.object(runner_mod, "make_client", side_effect=fake_make_client), \
-         patch.object(mcp_client_mod, "McpSession", FakeMcpSession):
+         patch.object(runner_mod, "McpSession", FakeMcpSession):
         result = asyncio.run(runner_mod.scan(
             sse_url=baseline["sse_url"],
             out_dir=tmp_path,

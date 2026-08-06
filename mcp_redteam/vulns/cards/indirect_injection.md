@@ -9,6 +9,9 @@ Server 有文本处理/存储类 tool (`process_document`, `analyze_email`, `sum
 - `stored_injection_roundtrip` (新增): 写入含指令标记的内容,另一路径读回,标记串未被清洗即命中
 - 通用 `leaks_*` 类: 注入过程中触发敏感数据回显
 - `tool_description_drift`: 攻击后 `list_tools` 描述被污染
+- **传播证据 (加分)**: 读回内容里出现「工具调用形状 JSON」(`{"tool": "...", "args": {...}}`)
+  或系统级指令 (`[system]` / `<important>`) 时, 说明注入已进入下游 LLM 可消费的指令面
+  (mcpwn MCP-002 的输出注入判据)
 
 > L2 完整验证 (LLM 真被带偏) 需要接入 victim LLM 或 judge LLM,见 `PROMPT_INJECTION_GAP.md` §7。本卡覆盖 L0/L1 (server 侧攻击面存在性)。
 
