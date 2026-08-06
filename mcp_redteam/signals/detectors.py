@@ -979,6 +979,91 @@ def detect_sandbox_escape_traversal(
 
 
 
+
+# ── G. SSRF (server-side request forgery) ────────────────────────────────────
+# External reference: mcpwn MCP-004 + "auditing-mcp-servers-for-tool-poisoning"
+# skill (SSRF_TARGETS list). Grounding rule: a signal fires only when BOTH
+# (a) the call's args point at a loopback/private/link-local/metadata target,
+# and (b) the server's real response contains evidence it actually reached that
+# target (cloud metadata key names / internal service banner). URL echoes alone
+# ("fetching http://169.254.169.254/latest/meta-data/...") never fire because
+# the response regexes require key/value or banner shapes, not the URL text.
+
+_METADATA_ARG_RE = re.compile(
+    r"169\.254\.169\.254|metadata\.google\.internal|100\.100\.100\.200",
+    re.IGNORECASE,
+)
+# IMDS / GCP metadata key names. Real IMDS directory responses are bare
+# newline-separated key names ("ami-id\ninstance-id\n..."), so match bare
+# tokens; the args-gate (metadata endpoint in the call args) keeps a generic
+# URL echo from firing.
+_CLOUD_METADATA_RE = re.compile(
+    r"\b(?:ami-id|instance-id|local-ipv4|public-keys|security-credentials|"
+    r"instance-type)\b|\b(?:ami-[0-9a-f]{8,17}|i-[0-9a-f]{8,17})\b",
+    re.IGNORECASE,
+)
+_INTERNAL_ARG_RE = re.compile(
+    r"127\.0\.0\.1|localhost|0\.0\.0\.0|10\.\d+\.\d+\.\d+|"
+    r"172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.",
+    re.IGNORECASE,
+)
+_INTERNAL_BANNER_RE = re.compile(
+    r"SSH-2\.0-|OpenSSH|redis_version:|Redis server v=|ERR unknown command|"
+    r"MongoDB server version|Welcome to nginx|nginx/|Apache/2\.|"
+    r"Microsoft-IIS|220 .*ESMTP|FTP server ready|telnetd",
+    re.IGNORECASE,
+)
+
+
+def _iter_arg_strings(args: dict | None) -> list[str]:
+    """Flatten every string value in a call's args (nested dicts/lists)."""
+    out: list[str] = []
+    if not args:
+        return out
+    stack: list[object] = [args]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            stack.extend(item)
+        elif isinstance(item, str):
+            out.append(item)
+    return out
+
+
+def detect_ssrf_cloud_metadata(
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
+) -> EvidenceSignal | None:
+    for i, call in enumerate(mcp_calls):
+        if call.kind not in _CONTENT_KINDS:
+            continue
+        arg_text = " ".join(_iter_arg_strings(call.args))
+        if not _METADATA_ARG_RE.search(arg_text):
+            continue
+        m = _CLOUD_METADATA_RE.search(call.result_text)
+        if m:
+            return _signal("ssrf_cloud_metadata", "high", m.group(), i)
+    return None
+
+
+def detect_ssrf_internal_service(
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
+) -> EvidenceSignal | None:
+    for i, call in enumerate(mcp_calls):
+        if call.kind not in _CONTENT_KINDS:
+            continue
+        arg_text = " ".join(_iter_arg_strings(call.args))
+        if not _INTERNAL_ARG_RE.search(arg_text):
+            continue
+        m = _INTERNAL_BANNER_RE.search(call.result_text)
+        if m:
+            return _signal("ssrf_internal_service", "high", m.group(), i)
+    return None
+
+
 # ── registry ─────────────────────────────────────────────────────────────────
 
 SIGNAL_META: dict[str, Severity] = {
@@ -1000,6 +1085,8 @@ SIGNAL_META: dict[str, Severity] = {
     "sandbox_escape_write": "high",
     "sandbox_escape_read": "high",
     "sandbox_escape_traversal": "medium",
+    "ssrf_cloud_metadata": "high",
+    "ssrf_internal_service": "high",
 }
 
 
@@ -1022,6 +1109,8 @@ DETECTORS: dict[str, Callable[..., EvidenceSignal | None]] = {
     "sandbox_escape_write": detect_sandbox_escape_write,
     "sandbox_escape_read": detect_sandbox_escape_read,
     "sandbox_escape_traversal": detect_sandbox_escape_traversal,
+    "ssrf_cloud_metadata": detect_ssrf_cloud_metadata,
+    "ssrf_internal_service": detect_ssrf_internal_service,
 }
 
 

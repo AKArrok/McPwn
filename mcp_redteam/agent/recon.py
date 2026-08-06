@@ -35,6 +35,8 @@ _TOOL_PATTERNS: list[tuple[re.Pattern[str], VulnClass, str, float]] = [
         VulnClass.AUTH_BYPASS, "tool name/desc suggests auth-gated action", 0.95),
     (re.compile(r"\b(process|analyze|summarize|document|email|note)\b", re.IGNORECASE),
         VulnClass.INDIRECT_INJECTION, "tool processes user-supplied text", 0.6),
+    (re.compile(r"\b(fetch|http|url|webhook|callback|request|scrape|proxy)\b", re.IGNORECASE),
+        VulnClass.SSRF, "tool fetches/forwards URLs server-side", 0.85),
 ]
 
 

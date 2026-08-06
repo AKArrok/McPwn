@@ -134,6 +134,16 @@ _FIXTURES: dict[str, tuple[list[McpCall], str]] = {
              args={"filepath": "../../escape.xlsx"})],
         "",
     ),
+    "ssrf_cloud_metadata": (
+        [_mk("ami-id\ninstance-id\nlocal-ipv4\n",
+             name="fetch_url", args={"url": "http://169.254.169.254/latest/meta-data/"})],
+        "",
+    ),
+    "ssrf_internal_service": (
+        [_mk("SSH-2.0-OpenSSH_9.6p1 Debian",
+             name="fetch_url", args={"url": "http://127.0.0.1:22/"})],
+        "",
+    ),
     # llm_judged_injection is a placeholder (returns None); skip.
 }
 

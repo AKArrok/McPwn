@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 
 
 class VulnClass(str, Enum):
-    """Seven-class MCP vulnerability taxonomy (HANDOFF paragraph 4)."""
+    """Eight-class MCP vulnerability taxonomy (HANDOFF paragraph 4)."""
 
     DIRECT_PROMPT_INJECTION = "direct_prompt_injection"
     COMMAND_INJECTION = "command_injection"
@@ -27,6 +27,7 @@ class VulnClass(str, Enum):
     TOOL_METADATA_PROBE = "tool_metadata_probe"
     INDIRECT_INJECTION = "indirect_injection"
     CHAIN_COMPOSITION = "chain_composition"
+    SSRF = "ssrf"
 
 
 McpCallKind = Literal["list_tools", "list_resources", "call_tool", "read_resource"]

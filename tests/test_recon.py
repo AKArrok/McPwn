@@ -26,6 +26,12 @@ def test_classify_tool_file_hit():
     assert VulnClass.PATH_TRAVERSAL in classes
 
 
+def test_classify_tool_ssrf_hit():
+    hits = _classify_tool("fetch_url", "fetches a URL server-side")
+    classes = {h[0] for h in hits}
+    assert VulnClass.SSRF in classes
+
+
 def test_classify_resource_template():
     hits = _classify_resource("notes://{user_id}")
     classes = {h[0] for h in hits}

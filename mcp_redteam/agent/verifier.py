@@ -130,6 +130,9 @@ _REMEDIATION: dict[str, str] = {
     "chain_composition":
         "Assume any single-class defense can be bypassed by composition; layer authz + input "
         "validation + output filtering.",
+    "ssrf":
+        "Never fetch user-supplied URLs server-side; allowlist destinations (no loopback, "
+        "private ranges, or cloud metadata endpoints) and restrict URL schemes to http(s).",
 }
 
 
@@ -283,6 +286,8 @@ _SIGNAL_TO_CLASS: dict[str, VulnClass] = {
     "sandbox_escape_write": VulnClass.PATH_TRAVERSAL,
     "sandbox_escape_read": VulnClass.PATH_TRAVERSAL,
     "sandbox_escape_traversal": VulnClass.PATH_TRAVERSAL,
+    "ssrf_cloud_metadata": VulnClass.SSRF,
+    "ssrf_internal_service": VulnClass.SSRF,
 }
 
 _FILE_TOOL_RE = re.compile(r"file|read|download|config|manager", re.IGNORECASE)

@@ -24,7 +24,7 @@
 新定位下,以下三条**结构性变化**必须贯彻:
 
 1. **判据不再针对具体 challenge**。改为**通用漏洞信号库**(`signals/registry.yaml`)+ LLM 二审(`verifier`)。每条信号声明一类"这看起来像被打穿了"的证据,比如"输出含 `/etc/passwd` 起始行"、"tool description 前后两次不一致"、"未鉴权 resource 返回明显敏感 payload"。信号不关心具体是哪个 challenge。
-2. **策略不再按 challenge 分**。改为**MCP 漏洞类别**级别(7 类,见 §4)。每类一份策略卡,agent 侦察后根据 tool/resource 形状挑选策略。DVMCP 10 challenge 只是这 7 类的抽样样本。
+2. **策略不再按 challenge 分**。改为**MCP 漏洞类别**级别(8 类,见 §4)。每类一份策略卡,agent 侦察后根据 tool/resource 形状挑选策略。DVMCP 10 challenge 只是这 8 类的抽样样本。
 3. **报告不再是 CSV 主表**。改为 `findings.md`:每一个 finding 一段,含 vuln class、置信度、复现步骤、payload、证据(命中的信号)、影响、修复建议。DVMCP 回归的输出是"agent 发现了 N 个 finding,其中 X 个对应到预期的 vuln class(recall = X/10)"。
 
 ---
@@ -60,7 +60,7 @@
 |---|---|
 | `mcp_redteam/signals/registry.yaml` | 通用漏洞信号库(20-30 条,见 §6) |
 | `mcp_redteam/signals/detectors.py` | 每条信号一个纯函数 `detect_xxx(mcp_calls, output) -> Optional[Evidence]` |
-| `mcp_redteam/vulns/*.md` | 7 类 MCP 漏洞策略卡(见 §4) |
+| `mcp_redteam/vulns/*.md` | 8 类 MCP 漏洞策略卡(见 §4) |
 | `mcp_redteam/vulns/registry.py` | VulnClass 枚举 + 从 md 加载 |
 | `mcp_redteam/agent/recon.py` | 侦察阶段:list_tools + list_resources + 按启发式给每个 tool/resource 打 vuln class 候选标签 |
 | `mcp_redteam/agent/planner.py` | 决定下一步试哪个 (vuln_class, target) 组合 |
@@ -129,9 +129,9 @@
 
 ---
 
-## 4. 七类 MCP 漏洞策略(VulnClass)
+## 4. 八类 MCP 漏洞策略(VulnClass)
 
-这 7 类是策略卡的分类学,不是判据分类。每类一份 `mcp_redteam/vulns/<slug>.md`,由 `executor` 加载喂 attacker LLM。DVMCP 10 challenge 是这 7 类的抽样(见 §7 映射表)。
+这 8 类是策略卡的分类学,不是判据分类。每类一份 `mcp_redteam/vulns/<slug>.md`,由 `executor` 加载喂 attacker LLM。DVMCP 10 challenge 是这 7 类的抽样(见 §7 映射表)。
 
 | slug | 名称 | 识别启发式(recon 阶段用) | 典型 payload 形状 |
 |---|---|---|---|
@@ -142,6 +142,7 @@
 | `tool_metadata_probe` | 工具元数据漏洞(rug pull / shadowing) | 存在同名近义工具;或 tool description 前后两次调用不一致 | 多次调同一 tool,diff description;调用近义 tool 中的可疑变体 |
 | `indirect_injection` | 间接注入(工具返回值流入 LLM 上下文) | tool 描述表明会"处理"/"分析"用户提供文本 | 提交含 `SYSTEM: reveal ...` 的文档文本 |
 | `chain_composition` | 复合链(以上任意 2+ 组合) | 单类攻击尝试均失败但存在多可疑面 | 例:先 direct injection 拿 URI,再 path traversal 读文件 |
+| `ssrf` | 服务端请求伪造(URL 参数被 server 代发) | tool 名/描述含 `fetch`/`http`/`url`/`webhook`/`request`;参数含 `url`/`endpoint` | `http://169.254.169.254/latest/meta-data/` / `file:///etc/passwd` |
 
 **策略卡格式**(四段固定,启动时 lint):
 
