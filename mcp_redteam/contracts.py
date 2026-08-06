@@ -284,6 +284,14 @@ class ScanResult(BaseModel):
     # Declared sandbox root (deployment metadata, e.g. EXCEL_FILES_PATH).
     # Reproducibility anchor: which root the sandbox-escape verdict used.
     sandbox_root: str | None = None
+    # Seed used for LLM sampling (provider-dependent; None = not seeded).
+    # Honest "same-seed" reproducibility: scan() records the actual seed here;
+    # providers that ignore seed still get drift tracked by attack_messages_sha1.
+    seed: int | None = None
+    # Which model performed LLM evidence judgment (judge role preferred;
+    # attacker-model fallback is loud-logged). Audits the "judge out-of-band"
+    # claim: tokens count as judge either way, model is recorded here.
+    evidence_judge_model: str = ""
 
     @computed_field  # type: ignore[misc]
     @property

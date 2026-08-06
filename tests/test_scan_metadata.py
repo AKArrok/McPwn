@@ -91,3 +91,39 @@ def test_attack_messages_sha1_format_locked():
     )
     assert len(r.attack_messages_sha1) == 40
     int(r.attack_messages_sha1, 16)  # must be valid hex
+
+
+def test_scan_result_seed_and_evidence_judge_model_defaults():
+    """Stage-3 rigor fields default safe: seed None, evidence_judge_model ''.
+
+    scan(seed=...) must be recorded on ScanResult (no fake 'same seed'
+    claims), and evidence_judge_model must default empty so a scan that never
+    ran evidence judgment doesn't pretend a judge model was used.
+    """
+    r = ScanResult(
+        run_id="r",
+        sse_url="x",
+        started_at="t",
+        wall_seconds=1.0,
+        stop_reason="completed",
+    )
+    assert r.seed is None
+    assert r.evidence_judge_model == ""
+
+
+def test_scan_result_seed_and_evidence_judge_model_round_trip():
+    """Filled rigor fields survive model_dump_json / model_validate_json."""
+    r = ScanResult(
+        run_id="r",
+        sse_url="x",
+        started_at="t",
+        wall_seconds=1.0,
+        stop_reason="completed",
+        seed=42,
+        evidence_judge_model="doubao-seed-2.0-lite",
+    )
+    r2 = ScanResult.model_validate_json(
+        r.model_dump_json(exclude={"total_tokens"})
+    )
+    assert r2.seed == 42
+    assert r2.evidence_judge_model == "doubao-seed-2.0-lite"

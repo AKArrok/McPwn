@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import subprocess
 import time
@@ -28,7 +29,6 @@ from mcp_redteam.agent.recon import recon
 from mcp_redteam.agent.verifier import build_findings, make_judge_fn, verify_trace
 from mcp_redteam.contracts import (
     AttackTrace,
-    LlmEvidenceVerdict,
     PlannerDecision,
     ScanResult,
     ScanStopReason,
@@ -42,6 +42,8 @@ DEFAULT_MAX_TOKENS = 30000
 DEFAULT_WALL_SECONDS = 240
 DEFAULT_MAX_INNER_STEPS = 12
 DEFAULT_MAX_CANDIDATES = 20
+
+_log = logging.getLogger(__name__)
 
 
 def _new_run_id() -> str:
@@ -68,6 +70,29 @@ def _make_judge_fn_or_none():
     except Exception:  # judge optional - missing API key / role
         return None
     return make_judge_fn(jclient, jspec)
+
+
+def _make_evidence_judge_fn(attacker, budget):
+    """Evidence judge prefers the judge-role model (tokens stay out-of-band).
+
+    Falls back to the attacker client with a loud warning when the judge role
+    is unconfigured so llm_points keeps working in key-limited environments.
+    Returns (callable, model_name) - the model is recorded on ScanResult so
+    the "judge out-of-band" claim is auditable.
+    """
+    try:
+        jclient, jspec = make_client("judge")
+    except Exception as exc:  # judge optional - missing API key / role
+        _log.warning(
+            "judge role unavailable for evidence judge (%s); "
+            "falling back to attacker model %s",
+            exc, attacker[1].model,
+        )
+        jclient, jspec = attacker
+    return (
+        lambda trace: evidence_verdict(trace, jclient, jspec, budget),
+        jspec.model,
+    )
 
 
 def _safe_git_sha() -> str:
@@ -132,6 +157,7 @@ async def scan(
     planner_mode: Literal["hardcoded", "llm"] = "hardcoded",
     decisions: list[PlannerDecision] | None = None,
     llm_points: bool = False,
+    seed: int | None = None,
 ) -> ScanResult:
     """Scan one MCP SSE endpoint. Write traces/findings under `out_dir`."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -148,7 +174,7 @@ async def scan(
 
     budget = TokenBudget(max_tokens_total=max_tokens)
     clock = WallClock(wall_seconds=wall_seconds)
-    attacker = make_client("attacker", temperature=attacker_temperature)
+    attacker = make_client("attacker", temperature=attacker_temperature, seed=seed)
     judge_fn = _make_judge_fn_or_none()
 
     traces: list[AttackTrace] = []
@@ -282,13 +308,11 @@ async def scan(
     # Stage-2 LLM decision point 3: evidence judgment. Only active under
     # llm_points; the closure grounds every verdict on real call results.
     evidence_judge_fn = None
+    evidence_judge_model = ""
     if llm_points:
-        _ev_client, _ev_spec = attacker
-
-        def _evidence_judge(trace: AttackTrace) -> LlmEvidenceVerdict | None:
-            return evidence_verdict(trace, _ev_client, _ev_spec, budget)
-
-        evidence_judge_fn = _evidence_judge
+        evidence_judge_fn, evidence_judge_model = _make_evidence_judge_fn(
+            attacker, budget
+        )
 
     findings, _ = build_findings(
         traces, trace_dir=trace_dir, budget=budget, judge_fn=judge_fn,
@@ -313,6 +337,8 @@ async def scan(
         attacker_model=attacker[1].model,
         attacker_temperature=attacker[1].temperature,
         attack_messages_sha1=_messages_sha1(traces),
+        seed=seed,
+        evidence_judge_model=evidence_judge_model,
         sandbox_root=sandbox_root,
     )
 

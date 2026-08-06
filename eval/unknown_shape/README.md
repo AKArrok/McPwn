@@ -36,7 +36,7 @@ admin 的 secret。这是服务端特定的访问控制逻辑错误：
 |---|---|---|---|
 | 1 baseline | 当前 agent 扫 vault（hardcoded planner + 固定信号库） | 0 findings（结构性漏） | ✅ 0 findings |
 | 2 LLM 增量 | LLM 三决策点：假设生成 / 复盘 / 证据判定 | ≥1 finding（读到他人 secret） | ✅ 2 findings |
-| 3 重复 | 同 seed 同 budget N=3 | 每 run ≥1 finding，miss 即 fail（严格更优） | ✅ 3/3 PASS |
+| 3 重复 | 同 budget、记录 seed、每 run 全新 server N=3 | 每 run ≥1 finding，miss 即 fail（严格更优） | ✅ 3/3 PASS |
 
 ## Stage 1 结果（2026-08-06，hardcoded planner，30k tokens）
 
@@ -103,10 +103,25 @@ python eval/unknown_shape/run_baseline.py   # 期望 findings=0
 # 4. Stage 2: LLM 三决策点
 python eval/unknown_shape/run_llm.py        # 期望 findings>=1
 
-# 5. Stage 3: 重复 N 次, 严格更优
+# 5. Stage 3: 重复 N 次, 严格更优 (每 run 自动起全新 server, 无需手动起靶机)
 python eval/unknown_shape/run_repeat.py 3   # 期望 3/3 PASS
+#    可选: --seed N 透传 LLM seed (provider 支持时); --port-base 改起始端口 (默认 19205)
 ```
 
+## 严谨性修复（2026-08-06，三坑）
+
+第二段 3/3 PASS 之后，补了三处"实验可信度"修复，判据与结论不变：
+
+1. **"同 seed"真实化**：`scan(seed=...)` 全链路透传（chat.py → ModelSpec →
+   OpenAI-compatible `seed` 参数）并记录到 `ScanResult.seed`。DeepSeek 不支持
+   `seed` 参数（models.yaml 默认不设），此时如实留 None，run 间漂移由
+   `attack_messages_sha1` 度量；支持 seed 的 provider 可在 models.yaml 配置。
+2. **状态隔离**：`run_repeat.py` 每 run 自动 spawn 一个全新 `vault_server.py`
+   （`eval/unknown_shape/_fresh_server.py`，默认端口 19205+i），跑完即终止——
+   不再让 run 0 建的 vault 泄漏到 run 1/2（旧版共享内存态是混淆变量）。
+3. **证据判定模型**：证据判定默认用 `judge` 角色模型（doubao），judge 未配置时
+   退回 attacker 模型并 loud warning；实际模型记录到 `ScanResult.evidence_judge_model`
+   （token 无论哪种都记 judge，带外不占 attacker 预算）。
 ## 增量判定标准（已通过，2026-08-06）
 
 与 M3 相反——**必须严格更优**：

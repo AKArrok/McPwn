@@ -1,4 +1,6 @@
 # 模型注册表:key 是逻辑名,value 描述 OpenAI 兼容端点。API key 走环境变量。
+# 可选字段: seed (int) - LLM 采样种子, 仅当端点支持 OpenAI `seed` 参数时设置;
+# DeepSeek 不支持 seed, 留空即可 (Stage-3 "同 seed" 如实记录, 漂移看 attack_messages_sha1)。
 attacker:
   provider: deepseek
   base_url: https://api.deepseek.com/v1
