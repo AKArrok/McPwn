@@ -89,7 +89,7 @@ class _FakeClient:
 
 def test_make_judge_fn_sends_external_templates():
     client = _FakeClient()
-    spec = types.SimpleNamespace(model="m", temperature=0.0)
+    spec = types.SimpleNamespace(model="m", temperature=0.0, seed=None)
     fn = make_judge_fn(client, spec)
     verdict = fn(_trace(), None)
     msgs = client.chat.completions.captured["messages"]

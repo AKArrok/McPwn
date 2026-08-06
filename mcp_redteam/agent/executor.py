@@ -77,8 +77,15 @@ async def execute_one(
     recon_calls: list[McpCall],
     max_inner_steps: int = 12,
     sandbox_root: str | None = None,
+    prior_evidence: list[str] | None = None,
 ) -> AttackTrace:
-    """Probe one (vuln_class, target) candidate. Returns an AttackTrace."""
+    """Probe one (vuln_class, target) candidate. Returns an AttackTrace.
+
+    ``prior_evidence`` (cross-candidate memory, LangGraph path): one summary
+    line per earlier hit, injected as an extra user message so later
+    candidates (especially chain_composition) can build on prior findings.
+    Rendered as a user message, never into the strategy card / system prompt.
+    """
     client, model_spec = attacker
 
     card = load_card(candidate.vuln_class)
@@ -129,6 +136,18 @@ async def execute_one(
             ),
         },
     ]
+    if prior_evidence:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "Prior evidence from earlier candidates in this scan:\n"
+                    + "\n".join(f"- {line}" for line in prior_evidence)
+                    + "\nBuild on these for chained/compositional attacks; "
+                    "do not re-probe what already hit."
+                ),
+            }
+        )
     if probe_note:
         if candidate.vuln_class == VulnClass.CHAIN_COMPOSITION:
             # Chain note is self-contained: it states the seeded two-step
@@ -163,6 +182,7 @@ async def execute_one(
                 client,
                 model=model_spec.model,
                 temperature=model_spec.temperature,
+                seed=model_spec.seed,
                 messages=messages,
                 tools=openai_tools,
                 tool_choice="auto",
@@ -287,6 +307,7 @@ async def execute_one(
                     client,
                     model=model_spec.model,
                     temperature=model_spec.temperature,
+                    seed=model_spec.seed,
                     messages=messages,
                     tools=openai_tools,
                     tool_choice="none",

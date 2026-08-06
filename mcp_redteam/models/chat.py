@@ -29,6 +29,10 @@ class ModelSpec:
     temperature: float
     timeout: float
     key_env: str
+    # Optional LLM sampling seed (OpenAI-compatible `seed` param). None = the
+    # provider default; only set it when the endpoint supports `seed` - some
+    # providers (e.g. DeepSeek) reject unknown params with a 400.
+    seed: int | None = None
 
 
 def _load_registry() -> dict[str, dict]:
@@ -57,6 +61,8 @@ def load_spec(role: Role) -> ModelSpec:
     missing = required - cfg.keys()
     if missing:
         raise KeyError(f"role {role!r} missing keys: {sorted(missing)}")
+    raw_seed = cfg.get("seed")
+    seed = int(raw_seed) if raw_seed is not None else None
     return ModelSpec(
         role=role,
         provider=cfg["provider"],
@@ -65,16 +71,20 @@ def load_spec(role: Role) -> ModelSpec:
         temperature=float(cfg.get("temperature", 0.7)),
         timeout=float(cfg.get("timeout", 60)),
         key_env=cfg["key_env"],
+        seed=seed,
     )
 
 
 def make_client(
     role: Role,
     temperature: float | None = None,
+    seed: int | None = None,
 ) -> tuple[OpenAI, ModelSpec]:
     spec = load_spec(role)
     if temperature is not None:
         spec = dataclasses.replace(spec, temperature=temperature)
+    if seed is not None:
+        spec = dataclasses.replace(spec, seed=seed)
     key = os.environ.get(spec.key_env)
     if not key:
         raise RuntimeError(
@@ -146,8 +156,16 @@ def _rate_limit_wait() -> None:
         _last_call_monotonic = time.monotonic()
 
 
-def chat_create_with_retry(client: OpenAI, **kwargs):
+def chat_create_with_retry(
+    client: OpenAI,
+    *,
+    seed: int | None = None,
+    **kwargs,
+):
     """Call ``client.chat.completions.create(**kwargs)`` with exponential backoff.
+
+    ``seed`` is forwarded to the API as the OpenAI-compatible ``seed`` param
+    only when it is not None; None leaves the provider default untouched.
 
     Retries up to ``_MAX_RETRIES=5`` times on ``RateLimitError``,
     ``APITimeoutError``, ``APIConnectionError``, ``InternalServerError``.
@@ -161,6 +179,8 @@ def chat_create_with_retry(client: OpenAI, **kwargs):
     much time. Token budget is unaffected: failed attempts are not
     charged by the upstream API.
     """
+    if seed is not None:
+        kwargs["seed"] = seed
     for attempt in range(_MAX_RETRIES + 1):
         _rate_limit_wait()
         try:

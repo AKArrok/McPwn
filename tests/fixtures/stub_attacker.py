@@ -142,7 +142,7 @@ class FakeChatCompletions:
 
 # ── fake_make_client: stand-in for the real make_client inside tests ─────────
 
-def fake_make_client(role: str, temperature: float | None = None):
+def fake_make_client(role: str, temperature: float | None = None, seed: int | None = None):
     """Stand-in for ``mcp_redteam.models.chat.make_client``.
 
     Returns a (fake_client, fake_spec) tuple for the ``attacker`` role so the

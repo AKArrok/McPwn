@@ -16,6 +16,7 @@ dependencies = [
     "pandas>=2.2",
     "matplotlib>=3.8",
     "typer>=0.12",
+    "langgraph>=1.2,<2",
 ]
 
 [project.optional-dependencies]
@@ -57,6 +58,7 @@ target-version = "py313"
 "mcp_redteam/cli.py" = ["BLE001", "B008"]
 "mcp_redteam/orchestrator/runner.py" = ["BLE001"]
 "mcp_redteam/orchestrator/reset_hook.py" = ["PLW1510"]
+"mcp_redteam/orchestrator/scan_meta.py" = ["BLE001"]
 "mcp_redteam/targets/mcp_client.py" = ["PYI034"]
 "mcp_redteam/models/chat.py" = ["TRY004"]
 "eval/dvmcp/runner.py" = ["BLE001"]

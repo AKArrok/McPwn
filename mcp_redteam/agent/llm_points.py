@@ -275,6 +275,7 @@ def generate_hypotheses(
                 client,
                 model=model_spec.model,
                 temperature=model_spec.temperature,
+                seed=model_spec.seed,
                 messages=[
                     {"role": "system", "content": _HYPOTHESIS_TMPL.render(
                         max_hypotheses=max_hypotheses)},
@@ -333,6 +334,7 @@ def retrospective_hypotheses(
             client,
             model=model_spec.model,
             temperature=model_spec.temperature,
+            seed=model_spec.seed,
             messages=[
                 {"role": "system", "content": _RETROSPECTIVE_TMPL.render(
                     max_hypotheses=max_hypotheses)},
@@ -375,6 +377,7 @@ def evidence_verdict(
             client,
             model=model_spec.model,
             temperature=model_spec.temperature,
+            seed=model_spec.seed,
             messages=[
                 {"role": "system", "content": _EVIDENCE_JUDGE_TMPL.render()},
                 {"role": "user", "content": user_message},

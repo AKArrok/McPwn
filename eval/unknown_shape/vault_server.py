@@ -11,6 +11,8 @@ Run:  python eval/unknown_shape/vault_server.py          (SSE on 127.0.0.1:9205)
 
 from __future__ import annotations
 
+import argparse
+
 from mcp.server.mcpserver import MCPServer
 
 server = MCPServer("vault-mcp")
@@ -71,4 +73,10 @@ def grant_access(owner: str, name: str, delegate: str) -> str:
 
 
 if __name__ == "__main__":
-    server.run(transport="sse", host="127.0.0.1", port=9205)
+    parser = argparse.ArgumentParser(
+        description="vault-mcp SSE server (unknown-shape fixture)"
+    )
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=9205)
+    args = parser.parse_args()
+    server.run(transport="sse", host=args.host, port=args.port)

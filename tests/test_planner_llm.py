@@ -284,7 +284,7 @@ async def test_scan_llm_mode_fills_decisions(tmp_path, monkeypatch):
     monkeypatch.setattr(runner_mod, "execute_one", _fake_execute_one)
     monkeypatch.setattr(
         runner_mod, "make_client",
-        lambda role, temperature=None: (types.SimpleNamespace(), types.SimpleNamespace(model="fake", temperature=0.7)),
+        lambda role, temperature=None, seed=None: (types.SimpleNamespace(), types.SimpleNamespace(model="fake", temperature=0.7)),
     )
     monkeypatch.setattr(runner_mod, "_make_judge_fn_or_none", lambda: None)
 
@@ -325,7 +325,7 @@ async def test_scan_llm_mode_budget_skip_records_unexecuted(tmp_path, monkeypatc
     monkeypatch.setattr(runner_mod, "execute_one", _fake_execute_one)
     monkeypatch.setattr(
         runner_mod, "make_client",
-        lambda role, temperature=None: (types.SimpleNamespace(), types.SimpleNamespace(model="fake", temperature=0.7)),
+        lambda role, temperature=None, seed=None: (types.SimpleNamespace(), types.SimpleNamespace(model="fake", temperature=0.7)),
     )
     monkeypatch.setattr(runner_mod, "_make_judge_fn_or_none", lambda: None)
 
@@ -360,7 +360,7 @@ async def test_scan_hardcoded_mode_fills_fallback_decisions(tmp_path, monkeypatc
     monkeypatch.setattr(runner_mod, "execute_one", _fake_execute_one)
     monkeypatch.setattr(
         runner_mod, "make_client",
-        lambda role, temperature=None: (types.SimpleNamespace(), types.SimpleNamespace(model="fake", temperature=0.7)),
+        lambda role, temperature=None, seed=None: (types.SimpleNamespace(), types.SimpleNamespace(model="fake", temperature=0.7)),
     )
     monkeypatch.setattr(runner_mod, "_make_judge_fn_or_none", lambda: None)
 

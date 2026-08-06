@@ -416,3 +416,40 @@ flowchart LR
 | 改输出格式 | `report/findings.py` |
 | 改预算语义 | `orchestrator/budget.py` |
 | 加真实目标回归 | `eval_real_world/` / `eval/clean_baseline/` 模式 |
+---
+
+## 11. LangGraph 运行视图（`--graph`）
+
+> 详细设计见 `HANDOFF_LANGGRAPH.md`。旧 `runner.scan` 保留为默认路径与
+> parity 锚点;`scan(..., graph=True)` / `mcpwn scan --graph` 走等价的
+> 显式状态机,不改变任何领域契约（信号库 / 策略卡 / 预算三闸门 / 报告格式）。
+
+```mermaid
+flowchart LR
+    START --> RECON[recon_node]
+    RECON --> HYP[hypothesis_node<br/>llm_points only]
+    HYP --> PLAN[plan_node]
+    PLAN --> EXEC[execute_node]
+    EXEC --> GATE{signal_gate}
+    GATE -- execute --> EXEC
+    GATE -- retrospective --> RETRO[retrospective_node<br/>0命中+llm_points+预算margin]
+    RETRO --> EXEC
+    GATE -- verify --> VERIF[verify_node<br/>build_findings]
+    VERIF --> REPORT[report_node]
+    REPORT --> END
+```
+
+要点:
+- **state 只含可序列化数据**;`McpSession` / attacker client / `TokenBudget` /
+  `WallClock` 通过 `GraphDeps` 闭包注入,不进 state（可 dump / 可 checkpoint）。
+- **跨 trace 记忆（B）**:`execute_node` 每次执行前把 `state.prior_evidence`
+  作为 user message 注入（不碰策略卡 / system prompt）;trace 命中信号后把
+  摘要写入 `prior_evidence`;命中 high/critical 时剩余 `chain_composition`
+  候选提到最前（`promote_chains`）,但不跳过任何候选。
+- **llm_points 三决策点**语义与 runner 相同:假设生成（recon 后、plan 前,
+  additive）;复盘（第一波 0 命中且剩余预算 ≥8k,只触发一次,第二波复用
+  同一 execute 循环）;证据判定（judge 模型、带外预算、grounding 闸门）。
+- **异常恢复**：graph 带 `MemorySaver` checkpoint,节点失败后
+  `get_state` 取回 partial traces,照常出 `stop_reason=error` 的 ScanResult。
+- **parity 守护**:`tests/test_langgraph_parity.py`（finding 集合等价）+
+  `tests/test_langgraph_memory.py`（记忆注入 / chain 排序 / 三决策点）。

@@ -11,7 +11,7 @@ import re
 from collections.abc import Callable
 from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from jinja2 import Template
 
@@ -210,14 +210,17 @@ def make_judge_fn(client: OpenAI, spec: ModelSpec) -> JudgeFn:
             return None
         user_msg = _build_judge_user_message(trace)
         try:
-            resp = client.chat.completions.create(
-                model=spec.model,
-                temperature=spec.temperature,
-                messages=[
+            create_kwargs: dict[str, Any] = {
+                "model": spec.model,
+                "temperature": spec.temperature,
+                "messages": [
                     {"role": "system", "content": _JUDGE_SYSTEM_TMPL.render()},
                     {"role": "user", "content": user_msg},
                 ],
-            )
+            }
+            if spec.seed is not None:
+                create_kwargs["seed"] = spec.seed
+            resp = client.chat.completions.create(**create_kwargs)
         except Exception:  # noqa: BLE001
             _log.exception("judge LLM call failed; treating as not-steered")
             return None
