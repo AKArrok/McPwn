@@ -193,7 +193,10 @@ def planner_stats(decisions: list[dict], llm_summary: dict) -> dict:
     hallucinated_count = 0
     for d in llm_decisions:
         target = str(d.get("target") or "")
-        if "," in target:
+        if "," in target or target == "n/a":
+            # chain targets carry comma-separated anchors (exempt); the
+            # tool_metadata_probe placeholder target "n/a" is not a real
+            # tool/resource name and must not count as a hallucination.
             continue
         info = ports.get(d.get("port")) or {}
         seen = set(info.get("tools_seen") or []) | set(info.get("resources_seen") or [])
@@ -309,11 +312,18 @@ def chain_gate(llm_summary: dict, decisions: list[dict] | None) -> dict | None:
         for d in decisions or []
     )
     prior_link = False
+    anchors_called = False
     if chain_trace is not None:
         calls = chain_trace.get("attack_calls") or []
-        prior_link = _has_prior_arg_link(calls) or _calls_two_anchors(
-            chain_trace.get("target") or "", calls
-        )
+        # prior_link aligns with the LLM judge single pass standard: a later
+        # call args reuse a >=6-char substring of an earlier result. The old
+        # or _calls_two_anchors(...) fired whenever two anchor tools were both
+        # called regardless of data flow -> false prior_link=True on 9010
+        # (process_user_input invoked with static input). Two-anchor coverage is
+        # surfaced as a separate anchors_called hint for the judge, but it
+        # cannot pass the gate on its own.
+        prior_link = _has_prior_arg_link(calls)
+        anchors_called = _calls_two_anchors(chain_trace.get("target") or "", calls)
     if chain_trace is None:
         excerpt = {"absent": True}
     else:
@@ -331,12 +341,14 @@ def chain_gate(llm_summary: dict, decisions: list[dict] | None) -> dict | None:
             ],
             "final_llm_output": (chain_trace.get("final_llm_output") or "")[:500],
             "judge_verdict": chain_trace.get("judge_verdict"),
+            "anchors_called": anchors_called,
         }
     return {
         "chain_trace_present": chain_trace_present,
         "chain_attack_calls": chain_attack_calls,
         "chain_planned_unexecuted": chain_planned_unexecuted,
         "prior_link": prior_link,
+        "anchors_called": anchors_called,
         "excerpt": excerpt,
     }
 
@@ -440,6 +452,7 @@ def run_judge_m3(
         "n_ports_compared": len(ports),
         "chain_trace_present": int(cg["chain_trace_present"]) if cg else 0,
         "chain_prior_link": int(cg["prior_link"]) if cg else 0,
+        "chain_anchors_called": int(cg["anchors_called"]) if cg else 0,
     }
     evidence_refs = [
         str(baseline_dir / f"port_{p}" / "scan_result.json") for p in ports

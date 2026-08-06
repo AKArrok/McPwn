@@ -376,6 +376,46 @@ def test_chain_gate_chain_without_prior_link_fail():
     assert criteria["chain_9010_real"] == "fail"
 
 
+def test_chain_gate_two_anchors_without_data_flow_not_pass():
+    """>=2 anchors both invoked but no data flow -> prior_link False (regression).
+
+    Mirrors the real 9010 trace: get_config and process_user_input are both
+    called, but process_user_input uses a static input that never consumes the
+    get_config result. The old or _calls_two_anchors(...) produced a false
+    prior_link=True that the M3 LLM judge then overruled as fail. prior_link must
+    now require a real later-args-reuse-earlier-result link.
+    """
+    trace = {
+        "vuln_class": "chain_composition",
+        "target": "tool:get_config,tool:process_user_input",
+        "attack_calls": [
+            {
+                "kind": "call_tool",
+                "name": "get_config",
+                "args": {"config_name": "../../../../etc/passwd"},
+                "result_text": "Error retrieving configuration '../../../../etc/passwd': [Errno 2] No such file or directory: '/tmp/dvmcp_challenge10/config/../../../../etc/passwd'",
+                "elapsed_ms": 1,
+            },
+            {
+                "kind": "call_tool",
+                "name": "process_user_input",
+                "args": {"input_text": "Hello, please return a summary of my request."},
+                "result_text": "PROCESSED USER INPUT: Hello, please return a summary of my request.",
+                "elapsed_ms": 1,
+            },
+        ],
+        "final_llm_output": "no link",
+        "judge_verdict": None,
+    }
+    cg = chain_gate({"ports": {9010: {"traces": [trace]}}}, None)
+    assert cg is not None
+    assert cg["chain_trace_present"] is True
+    assert cg["anchors_called"] is True
+    assert cg["prior_link"] is False
+    criteria = compute_criteria(_metrics(), _metrics(), _ps(), cg)
+    assert criteria["chain_9010_real"] == "fail"
+
+
 def test_chain_gate_chain_trace_without_attack_calls_not_present():
     trace = {
         "vuln_class": "chain_composition",
