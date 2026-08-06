@@ -1,414 +1,180 @@
-# McPwn → Next Session Handoff
+# McPwn → Next Session Handoff（当前）
 
-> 真实 MCP 靶机探索见 `HANDOFF_TARGETS.md` (excel-mcp CVE 打穿 + 信号库漏报 + 下一步 detector)。
->
-> 读这个文件 + `HANDOFF.md` + `PROGRESS.md` 就能接上。`PROGRESS.md` 是状态
-> 快照 (数字 + commit 链), `HANDOFF.md` 是项目设计文档, 本文件是
-> "下一 session 开工前要知道的"。
+> 顶层规约 = `HANDOFF.md`（唯一权威，设计细节）；状态快照 = `PROGRESS.md`。
+> **历史里程碑 handoff 已归档**到 `attic/handoffs/`：`HANDOFF_M3.md` /
+> `HANDOFF_M3_PLANNER.md` / `HANDOFF_M3_PLANNER_DONE.md` / `HANDOFF_JUDGE.md` /
+> `HANDOFF_TARGETS.md` / `HANDOFF_MCP_SKILLS_RESEARCH.md`。
+> 本文件是"下一 session 开工前要知道的"，只讲当前状态。
 
-最后更新: 2026-08-05 (commits 8f6bd67, 315df37, e5bf87d, 41704e1, 97887db, 9d2b5cd)
+最后更新: 2026-08-06（HEAD `d88f2f5`，分支 codex/b-c-ci）
 
 ---
 
 ## TL;DR
 
-McPwn 是 MCP 红队 agent: 给一个陌生 MCP server 的 SSE 端点, 自主完成
-recon → hypothesis → attack → verify → report, 产出 `findings.md` +
-可重放 PoC。DVMCP (Damn Vulnerable MCP Server) 是 fixture, 不是评测目标。
+McPwn 是 MCP 红队 agent：给一个陌生 MCP server 的 SSE 端点，自主完成
+recon → hypothesis → attack → verify → report，产出 `findings.md` + 可重放 PoC。
+DVMCP / excel-mcp / vault-mcp 都是 fixture，不是评测目标。
 
-**M2 v4 验证通过 (8/10, FPR=0, replay=5/5), auth-gated fix 跨 model 复用
-确认。** attacker 临时从被 ARK paused 的 `glm-5-2-260617` 切到
-`deepseek-v4-pro-260425` (账号下唯一可用的 active LLM)。**M2 v3 6/10
-跟 v4 8/10 的差异是 ARK set inference limit, 不是代码回归**——加了
-chat-layer rate limit (commit 41704e1) 防止再撞墙。
+**当前主线 = 未知形状靶机三阶段实验（LLM 提能验证），已 3/3 PASS（严格更优）。**
 
-**M2.5 (真实世界扩展) 已完成并提交**: 3 条 sandbox-escape 信号 + `eval/realworld`
-harness (正向 excel-0.1.7 recall 门 + 负向 0.1.8 precision 门) + `prove` 双版本
-对照 (0.1.7 exploited PASS / 0.1.8 blocked PASS)。验证: realworld run 2/2,
-DVMCP v5 回测 recall 8/10 FPR 0 replay 5/5 (无回归)。详见 `HANDOFF_TARGETS.md`。
-
-**下一里程碑是 M3 (LLM 决策版 planner)**, HANDOFF §3 标的。但 M3 战略
-问题没定: "换决策方式 (LLM 选 next candidate)" 还是 "加新能力 (LLM
-提议新 signal)"。
+三条已收口的历史线：
+- **M2**：DVMCP 8/10 recall + FPR 0 + replay 5/5（v4 跨 model 确认）。
+- **M3（结论为负，别再碰）**：LLM planner == hardcoded（recall/fpr 全等、
+  avg_findings 更低），五判据全是"不劣于"→ **等价也 pass = 自欺**。教训：
+  提能实验判据必须"严格更优"且可证伪。
+- **SSRF 第 8 类**（skills 调研落地，commit `6eb315f`）：contracts + 2 信号 +
+  recon + 卡 + 测试。**未在真靶上验证过**（没有 fetch_url 靶机）。
 
 ---
 
-## 关键设计决策 (不要再讨论)
+## 当前主线：未知形状实验（vault-mcp，CWE-639）
 
-### 1. 信号 + 证据 = 真相, 假设 = hint
-Hit 判定: `finding.signal_ids ∩ expected_signals ≠ ∅`, 跟
-`vuln_class` 解耦。`expected.yaml` 每港有 `expected_signals` 列表
-(不是 `also_accept`)。HANDOFF §6 的 12 条信号规格**先于** detector
-实现冻结 (HANDOFF 阶段), `expected.yaml` 之后写。
+完整协议与结果见 `eval/unknown_shape/README.md`（协议权威）。要点：
 
-### 2. Grounding 闸门 (防 LLM 幻觉)
-`_scan_calls` 不扫 `final_output`, leak/行为 signal 只从真实
-`McpCall.result_text` 命中。每条 fired signal 必带非空
-`source_call_index`。`test_hallucinated_secret_in_final_output_does_not_fire`
-是回归门。
+### 靶机
+`eval/unknown_shape/vault_server.py`（SSE 127.0.0.1:9205，内存态）：4 工具
+`create_vault / read_vault / list_vaults / grant_access`。漏洞 = `_can_read`
+用**子串匹配**判归属（`"" in "admin"` 为 True）→ `read_vault(owner="")` 读到
+他人 secret。**不在固定 vuln class 集里、信号库零命中、recon 误判成
+path_traversal**——这就是"未知形状"。
 
-### 3. 窄 L2 judge (indirect/chain only)
-`verifier` 对 `INDIRECT_INJECTION` / `CHAIN_COMPOSITION` trace 调
-judge LLM (role="judge")。judge 输入 = 真实 `attack_calls.result_text` +
-`final_llm_output` + 任务描述。`llm_judged_injection` (medium) 单条
-不过 0.6 阈值, 必须与确定性 L1 (`stored_injection_roundtrip` /
-`tool_description_drift`) 同 trace 共现才成 finding。judge token 走
-`budget.add("judge", ...)`, 独立计数不挤 attacker。
+### 判据（锁死，别放松）
+1. baseline = 0 findings（结构性漏，已实测）
+2. llm 版每 run ≥1 finding（读到非本人 secret）
+3. 同 budget 同 seed N=3，**miss 一次即 fail**（严格更优，不是"不劣于"）
 
-### 4. metadata probing 主动探测 (executor)
-`executor._seed_metadata_probes` 在 LLM 循环开始**之前**对
-`TOOL_METADATA_PROBE` 候选主动调: shadow tool 对同 args 各一次 /
-单 tool 4 次 rug pull / refresh `list_tools`。**这层探测不需要 LLM**,
-所以 429 / paused 也不影响 (M2 v3 / v4 9004/9005 的 hit 都是这条路径
-贡献的)。MCP SDK 会吞 schema 外的 marker args, 所以
-`rug_pull_response_flip` 有不依赖 marker 的 fallback 分组。
-
-### 5. auth detector 两遍 pass (9007/9009 关键)
-`detect_unauthenticated_success` 第二遍不再 hardcode
-`(remote_access|admin|manage|verify_token|authenticate|grant_role)` —
-那是 DVMCP-shaped 的, 真实 MCP server 的 `check_permission` /
-`require_auth` / `is_authorized` 不会 fire。新逻辑 (8f6bd67):
-- `_AUTH_DESC_RE` (主): tool description 含 auth/permission/token/
-  role/admin/credential 等关键词
-- `_AUTH_NAME_RE` (兜底): tool name 含 `auth\w*` / `verify_?token` /
-  `credential\w*` / `permission\w*` / `grant_?role` / `admin\w*`
-- `_is_auth_gated_tool()` helper 合并两路
-
-`prior_auth_ok` **故意不动** (还是 hardcode `"authenticate"`), 注释
-解释: "session 概念, 改宽会抑制后续真漏洞报出" (a forged
-`verify_token` 自身是 vuln, 1st pass 已 fire, 但不构成 session,
-不应阻止后续 auth-gated tool call 的 report)。
-
-### 6. verifier 过滤 (FPR 的关键)
-`TOOL_METADATA_PROBE` trace 只接受 metadata 类 signal
-(drift/shadow/rug_pull/suspicious_error/stored_injection), 滤掉
-leak/行为类。原因: 主动探测会调到有漏洞的 tool (e.g. 9001
-`get_user_info`, 9003 `file_manager`), leak signal 会命中但证据属于
-该 tool 自己的 vuln_class, 不属于 metadata probing。
-
-### 7. Hard-coded tool gating 在 vuln_class 决策上是不可信的
-`recon.AUTH_BYPASS` score 从 0.75 提到 0.95, 高于
-`COMMAND_INJECTION` 的 0.9。让 `remote_access` / `verify_token` 优先
-走 auth_bypass 策略卡。M3 的 LLM planner 应该比这更聪明。
-
-### 8. retry-with-backoff (chat layer)
-`chat_create_with_retry` 包装 `client.chat.completions.create`:
-- 重试 5 次 (RateLimitError / APITimeoutError / APIConnectionError /
-  InternalServerError)
-- 退避 1, 2, 4, 8, 16s
-- 4xx (BadRequestError 等代码 bug) 不重试
-- 耗尽后最后一个异常原样 raise (executor 现有 except Exception
-  仍能 fire)
-
-动机: M2 v3 / v4 第一次都 429, executor 一 break 就 0 attack_calls。
-retry 配合 rate limit 一起, retry 兜 transient, rate limit 兜
-sustained。
-
-### 9. chat-layer rate limit (新增, 41704e1)
-`_MIN_INTERVAL_SEC` (默认 2.0s, `MCPWN_LLM_MIN_INTERVAL_SEC` env
-覆盖) + `_last_call_monotonic` + `threading.Lock`。
-`_rate_limit_wait()` 在 `chat_create_with_retry` 每次 attempt 之前
-强制 sleep 到距上次 ≥ N 秒。thread-safe 让 sync client 也能被 async
-executor 串行化。
-
-ARK `glm-5-2` 的 "set inference limit" 是**平台硬墙**, retry
-(抖动的) 救不了, rate limit (sustained) 也救不了——只能换 model
-或解锁。**两个机制是配合关系, 不是替代关系**。
-
-### 10. eval 信号判据 = signal ∩ expected, 不是 class
-`eval/dvmcp/runner.py` 第 99 行起的 hit 判定:
-`{s.signal_id for s in f.signals} & expected_sigs`。`primary_class`
-只作人类阅读用。`expected_signals` 是 ground truth, HANDOFF §6 阶段
-冻结, 不是 detector 反推。改 `expected.yaml` 必须 commit message 带
-reason, 否则视为自评污染。
-
----
-
-## 当前状态 (数字)
-
-### M2 v4 (commit 9d2b5cd, deepseek-v4-pro)
-
-| 指标 | v2 baseline (glm-5-2) | v4 (deepseek-v4-pro) | 一致? |
+### 三个 LLM 决策点（LLM 只在这三个点上线，**不做排列**）
+| 点 | 时机 | 职责 | 预算 |
 |---|---|---|---|
-| recall | 0.80 (8/10) | 0.80 (8/10) | ✓ |
-| FPR | 0.00 | 0.00 | ✓ |
-| avg_findings_per_port | 1.0 | 1.0 | ✓ |
-| poc_replay | 1.00 (5/5) | 1.00 (5/5) | ✓ |
+| 假设生成 | recon 后，2 次独立采样 union | 提 recon 正则漏的逻辑型假设（owner 子串绕过），score 0.99 排最前 | attacker |
+| 复盘 | 第一波 0 命中且剩余预算 ≥8k | 看失败 trace 找被带偏原因，提下一步 | attacker |
+| 证据判定 | 信号库 0 命中的 trace | 判真实调用是否有证据；**grounding 闸门** | judge（带外） |
 
-Per-port 9 hit 港 (9001-9005, 9007-9009), 2 miss (9006 indirect,
-9010 chain — HANDOFF §8 标的 bonus, 不阻塞 M2)。
+**grounding 闸门（防自欺的核心）**：`evidence_text` 必须是
+`evidence_call_index` 指向的真实调用 `result_text` 里的**逐字子串**；
+绝不引用 attacker 总结文本。run 0（无漏洞 trace）时证据判定诚实返回
+is_finding=false——不会为凑 finding 编造。
 
-**结论**: 8f6bd67 的 auth-gated fix **model-agnostic**。在两个不同
-LLM 上保持 8/10 recall + 0.00 FPR + 1.00 poc_replay。
+### 结果史（诚实记录）
+- Stage 2：findings=2（read_vault + grant_access）
+- Stage 3 第一轮 **2/3 FAIL**：假设生成单采样没提出假设 → attacker 被
+  path_traversal 误判带偏、烧穿预算 → 复盘被 `budget.exceeded` 闸门关掉（接线 bug）
+- 修复（不改判据）：假设生成 **2 采样 union**（降方差，仍 attacker 预算）；
+  复盘闸门改 **剩余预算 ≥8k margin**；加原始输出 INFO 日志
+- Stage 3 第二轮 **3/3 PASS**：每 run 2 findings
 
-### clean_baseline v2 (9d2b5cd)
-
-| variant | attack_calls | stop_reason | 评估 |
-|---|---|---|---|
-| 9101 noop | 17 | completed | **PASS** |
-| 9102 summarize | 11 | error (peer closed) | **INCONCLUSIVE** |
-| 9103 file_list | 32 | budget_tokens | **PROBABLE PASS** |
-
-总 FPR=0.00 但 verdict = **PARTIAL**。9102 的 RemoteProtocolError 是
-`eval/clean_baseline/servers/` FastMCP 子进程 graceful shutdown bug,
-不是 agent/detector 问题。**修这个**才能拿强 cross-server FPR 证明
-(见 "M3 / 后续" 节)。
-
-### 全量验证
-
-- 72/72 pytest pass (含 5 条新 `test_chat_retry.py` rate limit + 1 条
-  `tests/test_clean_baseline_servers.py` variant registry)
-- ruff check mcp_redteam eval: 0 errors
-- ruff check tests: 6 pre-existing errors in user-authored files
-  (`tests/fixtures/mock_mcp.py`, `tests/test_regression_baseline.py`,
-  `tests/test_scan_metadata.py`) — out of scope, do not touch
+### 诚实边界
+单靶机 N=3 样本量小；换一种逻辑漏洞形状（非子串鉴权 / delegate 语义 / SSRF）
+是否仍成立**未验证**——这是下一步的第一优先。
 
 ---
 
-## Commit 链 (main → codex/b-c-ci, 13 个)
+## 关键设计决策（不要再讨论）
+
+1. **信号 + 证据 = 真相，假设 = hint**：hit 判定 = `signal ∩ expected`，跟
+   vuln_class 解耦。expected_signals 冻结于 HANDOFF §6，改必须 commit 带 reason。
+2. **Grounding 闸门**：`_scan_calls` 只扫真实 `McpCall.result_text`，绝不扫
+   `final_output`（防 LLM 幻觉）。证据判定同规则：evidence 必须是真实调用返回
+   的逐字子串。
+3. **窄 L2 judge**：indirect/chain only；judge token 独立计数不挤 attacker。
+4. **metadata / chain 确定性播种**：executor `_seed_metadata_probes` /
+   `_seed_chain_probe` 在 LLM 循环前跑，429 / paused 不影响。
+5. **LLM 三决策点 ≠ planner**：假设生成 / 复盘 / 证据判定是**新增面**；
+   排列（M3）已证 ROI 负，别再加 LLM 排序。
+6. **判据可证伪**："严格更优"（≥1 / miss=fail），不是"不劣于"。
+
+---
+
+## 当前状态（数字）
+
+- pytest **209 passed** / ruff clean / `lint-cards` 8/8（8 张卡）
+- 8 个 vuln class；**20 条注册信号** + `llm_evidence_verdict` 合成信号（证据判定）
+- 新增测试：`tests/test_llm_points.py`（解析/校验/grounding 纯函数）、
+  `tests/test_verifier_minimal_poc.py`（证据判定正/反例）、
+  `tests/signals/test_ssrf.py`（SSRF 闸门正/反例）
+- 模型：attacker=`deepseek-v4-flash`（DeepSeek 官方），
+  judge=`doubao-seed-2.0-lite`（ARK）。ARK 托管的 glm-5-2 / deepseek-v4-pro 被
+  set inference limit pause，不再使用。
+- 预算口径：假设生成 / 复盘记 attacker；证据判定记 judge（带外，与 L2 judge 同口径）。
+
+## Commit 链（codex/b-c-ci，最近 8 个）
 
 ```code
-9d2b5cd  docs: record M2 v4 8/10 PASS + clean_baseline v2 PARTIAL results
-97887db  chore: swap attacker model glm-5-2-260617 -> deepseek-v4-pro-260425
-41704e1  fix: chat-layer rate limit + async subprocess.wait
-e5bf87d  feat: cross-server FPR baseline (eval/clean_baseline/)
-d1417bf  feat(B+C+CI): scan reproducibility + offline regression baseline + GitHub Actions   <-- user
-315df37  fix: retry-with-backoff for LLM transient errors
-8f6bd67  fix: replace DVMCP-shaped _AUTH_GATED_NAMES with description+name heuristic
-1808e51  docs: add HANDOFF_NEXT.md for new-session review
-83b5146  feat: signal-based eval + evidence_class (honest vulnerability discovery)
-342aef4  docs: add PROGRESS.md to prevent context drift across sessions
-897df81  feat: hallucination suppression (grounding gate + L2 judge) + M2 verified
-6f7be23  fix: auth_bypass detection for 9007/9009 -> M2 recall 8/10
-7cf39bc  feat: poc_replay_pass_rate + eval findings.md + ruff clean (0 errors)
+d88f2f5  feat(stage2): unknown-shape 实验 - LLM 只在假设生成/复盘/证据判定三个点
+6eb315f  feat(ssrf): 第 8 类 SSRF + tool-poisoning 提示词启发（skills 调研）
+777cb8f  feat(eval): unknown-shape 靶机 vault-mcp + Stage-1 baseline（agent 漏）
+99450ac  feat(eval): realworld --planner 校验 + decisions 审计
+8d28505  fix(signals): POSIX 反斜杠是字面文件名不是分隔符
+4aa65d4  docs(m3): 验收 verdict=pass + 根因复盘 + 判据修复记录
+508205e  fix(m3 judge): hallucination 排除 meta-probe; chain_gate prior_link
+dcabff1  docs: M3 planner 实现 handoff
 ```
-
-工作树干净 (`git status` 无未提交改动)。
 
 ---
 
-## 目录地图 (核心文件)
+## 目录地图（核心文件）
 
-```
-HANDOFF.md                      项目设计文档 (读这个)
-PROGRESS.md                     状态快照 (数字 + commit 链)
-HANDOFF_NEXT.md                 本文件, 跨 session 上下文
+```code
+HANDOFF.md            项目设计文档（唯一权威，读这个）
+HANDOFF_NEXT.md       本文件，当前跨 session 上下文
+PROGRESS.md           长期状态快照（数字 + commit 链）
+attic/handoffs/       历史里程碑 handoff（M3 / JUDGE / TARGETS / SKILLS 调研）
 
 mcp_redteam/
-  contracts.py                  VulnClass / McpCall / EvidenceSignal / AttackTrace /
-                                Finding / ScanResult (含 finding.hypothesis_class
-                                + evidence_class 双字段)
-  cli.py                        mcpwn scan <url> / ping-models / lint-cards /
-                                eval dvmcp. 顶部 load_dotenv().
-
-  signals/detectors.py          15 条 signal detector (14 注册 + llm_judged_injection
-                                占位). _scan_calls 不扫 final_output (grounding 闸门).
-                                _AUTH_DESC_RE / _AUTH_NAME_RE 描述 + 名称启发 (8f6bd67).
-                                commit 41704e1 之前.
-  vulns/cards/*.md              7 张策略卡 (通用红队启发, 无 challenge 明文答案).
-  vulns/registry.py             load_card + lint (禁 secret 明文 + 禁 challenge 名).
-
+  contracts.py        VulnClass(8) / McpCall / EvidenceSignal / AttackTrace
+                      (+llm_evidence_verdict) / Finding / LlmHypothesis /
+                      LlmEvidenceVerdict / ScanResult / PlannerDecision
+  cli.py              scan / ping-models / lint-cards / eval dvmcp
+  signals/detectors.py  20 条注册信号 + llm_judged_injection 占位
+  vulns/cards/*.md    8 张策略卡（含 ssrf.md）
   agent/
-    recon.py                    list tools/resources + classify by name/description
-                                regex. AUTH_BYPASS score=0.95, COMMAND_INJECTION=0.9.
-    planner.py                  按 score 排序遍历. **M3 改这里**.
-    executor.py                 openai function-calling 循环 + _seed_metadata_probes.
-                                chat_create_with_retry 包装 (commit 41704e1).
-    verifier.py                 signals + confidence + L2 judge (indirect/chain only) +
-                                evidence_class 推断 + TOOL_METADATA_PROBE 过滤.
+    recon.py          name/desc 正则分类（AUTH 0.95 / CMD 0.9 / SSRF 0.85 /
+                      PATH 0.8 / INDIRECT 0.6 / meta 0.4）
+    planner.py        plan() 硬编排序 + plan_llm()（M3，已证 ROI 负，别再用）
+    llm_points.py     ★ 三决策点：generate_hypotheses / retrospective_hypotheses /
+                      evidence_verdict + 纯解析/grounding 函数
+    executor.py       openai function-calling 循环 + _seed_metadata_probes +
+                      _seed_chain_probe
+    verifier.py       signals + confidence + L2 judge + evidence_judge_fn
+                      （0 信号 trace 上 grounded 证据判定 → llm_evidence_verdict）
+  orchestrator/runner.py  scan() 顶级驱动；llm_points=True 开启三决策点
+  attackers/agents/   attacker_system / planner_system / hypothesis_system /
+                      retrospective_system / evidence_judge_system（全外置）
+  models/chat.py      OpenAI-compat + chat_create_with_retry + rate limit
+  targets/mcp_client.py  MCP SDK 薄封装
 
-  orchestrator/
-    runner.py                   scan() 顶级驱动. SeriaPortBudget + WallClock 跨 trace 共享.
-    budget.py                   三闸门 (turns / tokens / wall). judge token 独立.
-
-  targets/mcp_client.py         MCP SDK 薄封装 (raw_list_tools/resources).
-  models/chat.py                OpenAI-compat 工厂 + chat_create_with_retry +
-                                _rate_limit_wait (MCPWN_LLM_MIN_INTERVAL_SEC env).
-  config/models.yaml            attacker=deepseek-v4-pro-260425 (临时, 见 commit 97887db).
-                                judge=deepseek-v4-flash.
-
-  adapters/base.py              PyRIT Protocol 镜像 (不装 PyRIT).
-  attackers/agents/
-    attacker_system.md          通用红队 agent 人格 (jinja2).
-
-  report/findings.py            ScanResult → findings.md + poc/*.py.
-                                evidence_class 仅在 ≠ vuln_class 时显示.
-
-eval/dvmcp/
-  expected.yaml                 10 港预期 (port + name + primary_class +
-                                expected_signals + evidence_hint).
-  runner.py                     全港扫描 + signal-based recall/FPR/replay 指标.
-  AGENTS.md                     5 字段本地契约 (5-field, signal-based, FPR 局限).
-
-eval/clean_baseline/            (本 session 新增, e5bf87d)
-  AGENTS.md                     5 字段, 标清楚是测 cross-server FPR (不是
-                                cross-vuln-class).
-  servers/__init__.py           3 个 FastMCP variant (mcp 2.0 MCPServer):
-                                noop (空 desc) / summarize (prompt-like desc) /
-                                file_list (路径形 arg, server 端 hard cap).
-  servers/__main__.py           薄 entry point (python -m).
-  runner.py                     启 server 子进程 + poll 端口 + scan + 收.
-                                asyncio.create_subprocess_exec.
-                                load_dotenv 跟 cli.py 对齐.
+eval/
+  unknown_shape/      ★ vault-mcp 三阶段实验（README 是协议权威）
+  dvmcp/              DVMCP fixture + m3_judge.py
+  realworld/          excel-mcp CVE 回归（prove.py 双版本对照）
+  clean_baseline/     cross-server FPR baseline（9102 有 shutdown bug）
 
 tests/
-  test_chat_retry.py            5 条: 重试成功 / 4 transient 类 / BadRequest 不重试 /
-                                耗尽 raise / backoff 序列 (41704e1 + rate limit mock).
-  test_clean_baseline_servers.py 5 条: 3 variant registry + public file 严格性 +
-                                build_app rejects unknown.
-  test_behavioral.py            34 条 (uid / ls / admin_action / unauthenticated).
-  test_leaks.py                 leak detectors.
-  test_metadata_behavior_signals.py  metadata signals.
-  test_drift_uses_combined_calls.py  drift detector contract.
-  test_ground_truth_credentials.py   ground truth credentials.
-  test_signal_meta_matches_detectors.py  meta <-> detectors <-> fire 三者一致.
-  test_recon.py, test_vulns_registry.py, test_verifier_minimal_poc.py,
-  test_l2_judge.py              misc.
-  fixtures/mock_mcp.py          (user) 71/72 + 5+5 = 132 tests
-  test_regression_baseline.py   (user) 共存
-  test_scan_metadata.py         (user)
+  test_llm_points.py / test_verifier_minimal_poc.py / signals/test_ssrf.py ...
 ```
 
 ---
 
-## M3 任务: LLM 决策版 planner (战略问题没定)
+## 已知坑
 
-HANDOFF §3 把 planner 画成 "select next (vuln_class, target)" 决策核心。
-M2 用硬编 score 排序遍历, M3 换成 LLM 决策。
-
-### 战略问题 (开工前要决定)
-
-**M3 目标是什么?**
-- (a) "LLM 选 next candidate 持平或更好" — 战术, 几乎一定等价于硬编。
-  7 类信号 × ~15 DVMCP tool 的组合空间里, 硬编 score 排序已饱和。
-  LLM planner 学的就是 score 排序的近似。**劝别做, ROI 负。**
-- (b) "LLM 提议新 signal" — 能力, 需要重新设计 verifier (新 signal
-  入库 + 单独 0.6 阈值). 战略价值高, 工程量大。
-- (c) "LLM 跨 trace 推理" — 能力, 把 trace 历史喂给 LLM, 让 LLM 在多步
-  证据上做因果推理 (对 9010 chain 拿下有意义). 战略价值高, 工程量中。
-
-**(a) 劝不做。(b)(c) 是真工作, 但工程量完全不一样。**
-
-### 战术问题 (无论选哪个战略都要决定)
-
-1. LLM planner 输入: 喂啥? (recon 结果 / 上一步执行结果 / LLM 自由
-   生成 candidate)
-2. LLM planner 输出: 单步 `(vuln_class, target, reason)` / 多步
-   计划 / 自由文本指令
-3. 怎么对比 LLM vs 硬编: 同样 30000 token / 240s wall budget, 报
-   recall / FPR / avg_findings / poc_replay, 加 trace diff
-4. Token 成本: 每决策一次 LLM 调用, 10 港 × 多候选 = 涨一量级.
-   要不要给 LLM planner 单独 budget 闸门, 还是算在 attacker 里?
-
-### 失败模式预设
-
-- LLM 太保守: 倾向选"安全"那几类, 跳过 rug_pull/shadow → recall 掉
-- LLM 太激进: 一次生成很多 candidate, 每个都跑 → budget 超时
-- LLM 幻觉 candidate: 选了 recon 没列出的 → executor 找不到, 跑空
-- **最可能**: LLM planner 与硬编 planner **完全等价**。如果等价,
-  M3 ROI 负, 别做
-
-### 完成后产出
-
-`runs/m3_llm_decision/scan_results.json` + `eval_report.md`, 跟
-`runs/m2_dvmcp_full_v4/eval_report.md` 对比。
+1. **clean_baseline 9102 shutdown bug（未修）**：FastMCP SSE 断开时子进程没优雅
+   清理，报 `RemoteProtocolError`，trace stop_reason=error。修法：`sse.connect_sse`
+   外层 try/except 或 finally 里 `server.shutdown()`。跟当前主线无关。
+2. **vault server 是内存态**：重复跑实验会看到之前 prove.py / 之前 run 建的 vault
+   （"同 seed"口径是共享该状态）。要干净环境就重启 `vault_server.py`。
+3. **证据判定只在 0 信号 trace 跑**，且仅 `llm_points=True` 时启用（默认关，
+   不影响 DVMCP / realworld 既有口径）。
+4. **假设生成 / 复盘是 LLM 调用**：单次可能失败或空返回（已用 2 采样降方差，
+   不保证 100%）。这是模型随机性，不是 bug。
 
 ---
 
-## 已知坑和注意事项
+## 下一步（按优先级）
 
-### 9102 server graceful shutdown bug (clean_baseline)
-`eval/clean_baseline/servers/__init__.py` FastMCP `MCPServer.run_sse_async`
-在 SSE 客户端断开时, 子进程没正确清理, 报 `RemoteProtocolError: peer
-closed connection without sending complete message body`。`runs/clean_baseline_v2/`
-summarize variant 跑 11 calls 后挂, 整 trace stop_reason=error, 0 findings
-可能是"agent 还没动手就崩"而不是"agent 探了没找到"。
-
-**修法** (未做, 跟 v4 数字验证无关): 在 `sse.connect_sse` 之外包一层
-try/except, 捕获 `RemoteProtocolError` 优雅退出。或者显式调用
-`server.shutdown()` 在 finally 块。
-
-### model 配置 (M2.5 后已稳定)
-`mcp_redteam/config/models.yaml`: attacker = `deepseek-v4-flash`
-(DeepSeek 官方 API, `DEEPSEEK_API_KEY`); judge = `doubao-seed-2.0-lite`
-(ark-plan, `ARK_API_KEY`, 用户选定)。ARK 托管的 `glm-5-2` / `deepseek-v4-pro`
-均被 set inference limit pause, 不再使用。
-
-### judge LLM 是豆包 (用户选定)
-`config/models.yaml` judge role 用 `doubao-seed-2.0-lite` (ark-plan, `ARK_API_KEY`)。
-judge 是 best-effort (L2 仅 indirect/chain trace), 失败时 `_make_judge_fn_or_none`
-降级为 None, 不影响扫描主流程。
-
-### evaluator LLM rate limit
-即使有 rate limit (commit 41704e1), 长期跑 (e.g. M3 LLM planner)
-仍可能撞墙, 因为 rate limit 只防 sustained, 不防 absolute cap。
-**对策**: LLM planner 自身也要有 budget, 写明在 M3 任务里。
-
-### MCP SDK 会丢 schema 外的参数
-`executor._seed_metadata_probes` 塞的 `__mcpwn_rug_probe__` 等 marker
-arg 会被 MCP SDK 丢弃 (SDK 只传 schema declare 的参数). 所以
-`rug_pull_response_flip` 有不依赖 marker 的 fallback 分组 (按
-`(name, args)` 归组). 写新探测逻辑时记得: **marker args 不可靠,
-用 schema 内的参数构造探测**。
-
-### signal_id 命名约定
-`leaks_*` 泄露类, `command_exec_*` 行为类 (shell exec), `admin_*` /
-`unauthenticated_*` auth 类, `tool_description_drift` / `shadow_*` /
-`rug_pull_*` / `suspicious_error_*` / `stored_injection_roundtrip`
-metadata 类, `llm_judged_injection` L2 类。`expected.yaml` 用
-signal_id 列表, 新增 signal 时**必须**在 `expected.yaml` 加对应
-signal_id (否则 DVMCP recall 会掉)。
-
-### 9006 / 9010 仍是 bonus
-HANDOFF §8 标这两个是 bonus: 9006 (indirect) 需要 L2 judge 调参, 9010
-(chain) 需要 multi-step planner — 都在 M3 范畴。**M3 不一定拿下**,
-但 M3 至少要解释为什么不拿 + 怎么拿。
-
-### M2 v3 6/10 (vs v2 8/10) 不是代码回归
-- v3 miss 的 9008/9009 是 ARK glm-5-2 在 2026-07-31 触 set inference
-  limit, executor 在 step 0 拿到 429 立刻 break, 0 attack_calls
-- v4 用 deepseek-v4-pro 重跑, 8/10 跟 v2 一致
-- 这说明 v3 的 6/10 是 LLM availability 问题, 不是 auth-gated fix
-  的回归。**别把 v3 数字当 evidence**。
-
-### 9001 ground truth 里 marker 出现
-DVMCP 9001 `notes://` 资源读出来含 canary `INJECTION_MARKER_8x7k2`。
-`stored_injection_roundtrip` signal 在 9001 fire 是预期。读 9001
-trace 时不要把它当 false positive。
-
-### expected.yaml 改之前先冻结
-`expected_signals` 顺序: HANDOFF §6 冻结 12 条信号规格 →
-`signals/detectors.py` 实现 → `expected.yaml` 标注。改 expected.yaml
-必须有可追溯理由 (git commit message 必带 reason), 否则视为自评污染。
-**别做"看了 detector 之后写 expected" 的循环**。
-
----
-
-## 开工第一步
-
-```bash
-# 1. 读这三个文件, 15 分钟
-cat HANDOFF.md
-cat PROGRESS.md
-cat HANDOFF_NEXT.md     # 本文件
-
-# 2. 跑测试和 lint 确认环境 OK
-cd McPwn
-python -m pytest tests -q
-python -m ruff check mcp_redteam eval
-python -m mcp_redteam.cli lint-cards
-
-# 3. 检查 DVMCP 状态 (应该在跑)
-docker ps | grep dvmcp
-
-# 4. 确认 attacker model (现在 deepseek-v4-pro, 看 models.yaml)
-cat mcp_redteam/config/models.yaml
-
-# 5. 决定 M3 战略 (a/b/c) 之后开工
-#    - 选 (a): 劝别做
-#    - 选 (b): 设计 LLM signal proposer, 改 verifier
-#    - 选 (c): 设计 multi-step trace-aware planner, 改 executor
-#    战略定了再碰代码
-```
-
-不要直接动代码。先答 M3 战略问题。
+1. **泛化验证**：换一种逻辑漏洞形状（非子串鉴权缺陷 / delegate 语义 / 带
+   fetch_url 的 SSRF 靶机）重跑三阶段，验证三个决策点不是只对 vault 有效。
+2. **接进回归**：把 vault-mcp + 三决策点做成 `eval` 里可跑的 fixture，防止以后
+   改动破坏 "strict-better" 能力。
+3. 可选：修 clean_baseline 9102 shutdown bug（跨 server FPR 的强证明还缺）。
+4. 可选：SSRF 类需要一个真实 fetch_url 靶机才能验证（skills 调研的遗留）。
