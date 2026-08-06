@@ -839,15 +839,21 @@ def detect_stored_injection_roundtrip(
 #
 # Path resolution is deliberately *lexical posix*: detectors run on the host
 # (often Windows) while targets run in linux containers, so host ``os.path``
-# would mis-resolve ``/tmp/...``. We normalise ``\`` -> ``/``, collapse
-# segments, and apply POSIX ``..`` semantics (``..`` at root stays root).
+# would mis-resolve ``/tmp/...``. We collapse segments and apply POSIX ``..``
+# semantics (``..`` at root stays root). Backslash is a *literal filename
+# character* on POSIX, not a separator: normalising ``\`` -> ``/`` here
+# manufactured escapes that did not exist (excel-mcp 0.1.8 regression -
+# ``create_workbook("..\\..\\x")`` wrote ``/tmp/sandbox/..\..\x`` INSIDE the
+# root, yet the old code reported ``sandbox_escape_write``). All current
+# targets are linux containers; add a target-OS flag before ever treating
+# ``\`` as a separator again.
 
 _SANDBOX_PATH_KEY_RE = re.compile(
     r"(?:filepath|path|filename|file|dir|directory|folder|document|uri)",
     re.IGNORECASE,
 )
 _SANDBOX_DESC_RE = re.compile(r"(?:sandbox|jail|isolat|workspace)", re.IGNORECASE)
-_SANDBOX_TRAVERSAL_RE = re.compile(r"\.\.[/\\]|%2e%2e", re.IGNORECASE)
+_SANDBOX_TRAVERSAL_RE = re.compile(r"\.\./|%2e%2e", re.IGNORECASE)  # POSIX: `..\` is a literal filename, not traversal
 _SANDBOX_SUCCESS_RE = re.compile(
     r"(?i)(?:created|written|wrote|saved|success(?:fully)?|completed|\bok\b)"
 )
@@ -858,10 +864,15 @@ _SANDBOX_ERROR_RE = re.compile(
 
 
 def _posix_resolve(path: str) -> str:
-    """Lexically normalise a (possibly linux-container) path without host FS."""
+    r"""Lexically normalise a (possibly linux-container) path without host FS.
+
+    POSIX semantics: ``/`` is the only separator; ``\`` is a literal filename
+    character (excel-mcp 0.1.8 wrote ``..\..\x`` as one in-root filename, so
+    mapping ``\`` -> ``/`` here fabricated a false escape).
+    """
     is_abs = path.startswith("/")
     parts: list[str] = []
-    for seg in path.replace("\\", "/").split("/"):
+    for seg in path.split("/"):
         if seg in ("", "."):
             continue
         if seg == "..":
