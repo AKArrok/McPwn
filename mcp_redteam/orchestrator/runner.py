@@ -6,14 +6,10 @@ shared TokenBudget + WallClock, and writes trace/finding artefacts to disk.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import re
-import subprocess
 import time
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -31,10 +27,16 @@ from mcp_redteam.contracts import (
     AttackTrace,
     PlannerDecision,
     ScanResult,
-    ScanStopReason,
 )
-from mcp_redteam.models.chat import load_registry, make_client
+from mcp_redteam.models.chat import make_client
 from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
+from mcp_redteam.orchestrator.scan_meta import (
+    config_snapshot,
+    iso_now,
+    messages_sha1,
+    safe_git_sha,
+    stop_reason,
+)
 from mcp_redteam.targets.mcp_client import McpSession
 from mcp_redteam.vulns.registry import lint_all_cards
 
@@ -48,10 +50,6 @@ _log = logging.getLogger(__name__)
 
 def _new_run_id() -> str:
     return f"scan-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
-
-
-def _iso_now() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _port_from_url(sse_url: str) -> int:
@@ -95,53 +93,6 @@ def _make_evidence_judge_fn(attacker, budget):
     )
 
 
-def _safe_git_sha() -> str:
-    """Best-effort current HEAD; empty string outside a git repo or on error.
-
-    Used as a reproducibility anchor in ``ScanResult.git_sha`` so a months-old
-    ``scan_result.json`` can be tied back to the code that produced it.
-    """
-    try:
-        out = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=5, check=False,
-        )
-        return out.stdout.strip()
-    except Exception:
-        return ""
-
-
-def _config_snapshot() -> dict[str, Any]:
-    """Snapshot of the parsed models.yaml registry. Empty dict on any error."""
-    try:
-        return load_registry()
-    except Exception:
-        return {}
-
-
-def _messages_sha1(traces: list[AttackTrace]) -> str:
-    """SHA-1 of every attacker_message across traces, ordered and serialised.
-
-    Behavioural-drift detection: if the same scan against the same target
-    produces a different ``attack_messages_sha1`` between runs, the attacker
-    LLM took a different decision path even if the findings look identical.
-    """
-    h = hashlib.sha1()
-    for trace in traces:
-        for msg in trace.attacker_messages:
-            h.update(json.dumps(msg, sort_keys=True, default=str).encode("utf-8"))
-            h.update(b"\n")
-    return h.hexdigest()
-
-
-def _stop_reason(budget: TokenBudget, clock: WallClock, error: str | None) -> ScanStopReason:
-    if error:
-        return "error"
-    if budget.exceeded():
-        return "budget_tokens"
-    if clock.exceeded():
-        return "budget_time"
-    return "completed"
 
 
 async def scan(
@@ -158,8 +109,30 @@ async def scan(
     decisions: list[PlannerDecision] | None = None,
     llm_points: bool = False,
     seed: int | None = None,
+    graph: bool = False,
 ) -> ScanResult:
-    """Scan one MCP SSE endpoint. Write traces/findings under `out_dir`."""
+    """Scan one MCP SSE endpoint. Write traces/findings under `out_dir`.
+
+    ``graph=True`` runs the same pipeline as an explicit LangGraph state
+    machine (``mcp_redteam/langgraph/``); the hand-written loop below stays
+    as the default path and parity anchor (HANDOFF_LANGGRAPH §4.3).
+    """
+    if graph:
+        return await _scan_graph(
+            sse_url=sse_url,
+            out_dir=out_dir,
+            max_tokens=max_tokens,
+            wall_seconds=wall_seconds,
+            max_candidates=max_candidates,
+            max_inner_steps=max_inner_steps,
+            attacker_temperature=attacker_temperature,
+            sse_headers=sse_headers,
+            sandbox_root=sandbox_root,
+            planner_mode=planner_mode,
+            decisions=decisions,
+            llm_points=llm_points,
+            seed=seed,
+        )
     out_dir.mkdir(parents=True, exist_ok=True)
     trace_dir = out_dir / "traces"
     trace_dir.mkdir(exist_ok=True)
@@ -169,7 +142,7 @@ async def scan(
         raise RuntimeError("Strategy card lint failed:\n  " + "\n  ".join(lint_errors))
 
     run_id = _new_run_id()
-    started_at = _iso_now()
+    started_at = iso_now()
     wall_start = time.perf_counter()
 
     budget = TokenBudget(max_tokens_total=max_tokens)
@@ -331,12 +304,12 @@ async def scan(
         resources_seen=resources_seen,
         traces=traces,
         findings=findings,
-        stop_reason=_stop_reason(budget, clock, error),
-        git_sha=_safe_git_sha(),
-        config_snapshot=_config_snapshot(),
+        stop_reason=stop_reason(budget, clock, error),
+        git_sha=safe_git_sha(),
+        config_snapshot=config_snapshot(),
         attacker_model=attacker[1].model,
         attacker_temperature=attacker[1].temperature,
-        attack_messages_sha1=_messages_sha1(traces),
+        attack_messages_sha1=messages_sha1(traces),
         seed=seed,
         evidence_judge_model=evidence_judge_model,
         sandbox_root=sandbox_root,
@@ -346,3 +319,116 @@ async def scan(
         result.model_dump_json(indent=2), encoding="utf-8"
     )
     return result
+
+
+async def _scan_graph(
+    sse_url: str,
+    out_dir: Path,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    wall_seconds: int = DEFAULT_WALL_SECONDS,
+    max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    max_inner_steps: int = DEFAULT_MAX_INNER_STEPS,
+    attacker_temperature: float | None = None,
+    sse_headers: dict[str, str] | None = None,
+    sandbox_root: str | None = None,
+    planner_mode: Literal["hardcoded", "llm"] = "hardcoded",
+    decisions: list[PlannerDecision] | None = None,
+    llm_points: bool = False,
+    seed: int | None = None,
+) -> ScanResult:
+    """LangGraph-shaped twin of ``scan`` (grill decision 7a / graph=True).
+
+    Owns the session lifetime and the ScanResult construction; the graph
+    (``mcp_redteam/langgraph/``) only orchestrates. Mirrors ``scan``'s
+    lint gate, budget/clock semantics, M3 decisions bookkeeping and
+    reproducibility metadata so a parity test can compare the two field by
+    field.
+    """
+    from mcp_redteam.langgraph.graph import build_graph
+    from mcp_redteam.langgraph.nodes import GraphDeps, assemble_result
+    from mcp_redteam.langgraph.state import McPwnState
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    trace_dir = out_dir / "traces"
+    trace_dir.mkdir(exist_ok=True)
+
+    lint_errors = lint_all_cards()
+    if lint_errors:
+        raise RuntimeError("Strategy card lint failed:\n  " + "\n  ".join(lint_errors))
+
+    run_id = _new_run_id()
+    started_at = iso_now()
+    wall_start = time.perf_counter()
+
+    budget = TokenBudget(max_tokens_total=max_tokens)
+    clock = WallClock(wall_seconds=wall_seconds)
+    attacker = make_client("attacker", temperature=attacker_temperature, seed=seed)
+    judge_fn = _make_judge_fn_or_none()
+
+    # Stage-2 LLM evidence judge (unknown-shape verdicts): judge role
+    # preferred, attacker fallback, tokens out-of-band - same as scan().
+    evidence_judge_fn = None
+    evidence_judge_model = ""
+    if llm_points:
+        evidence_judge_fn, evidence_judge_model = _make_evidence_judge_fn(
+            attacker, budget
+        )
+
+    deps = GraphDeps(
+        session=None,  # type: ignore[arg-type] - bound inside the session ctx
+        attacker=attacker,
+        budget=budget,
+        clock=clock,
+        sse_url=sse_url,
+        sandbox_root=sandbox_root,
+        judge_fn=judge_fn,
+        evidence_judge_fn=evidence_judge_fn,
+        evidence_judge_model=evidence_judge_model,
+        decisions=decisions,
+        port=_port_from_url(sse_url),
+        seed=seed,
+        llm_points=llm_points,
+    )
+
+    initial_state: McPwnState = {
+        "sse_url": sse_url,
+        "out_dir": str(out_dir),
+        "planner_mode": planner_mode,
+        "max_candidates": max_candidates,
+        "max_inner_steps": max_inner_steps,
+        "llm_points": llm_points,
+        "sandbox_root": sandbox_root,
+        "run_id": run_id,
+        "started_at": started_at,
+        "wall_start": wall_start,
+        "traces": [],
+        "prior_evidence": [],
+    }
+
+    config: dict[str, Any] = {"configurable": {"thread_id": run_id}}
+    app = None
+    try:
+        async with McpSession(sse_url, headers=sse_headers) as session:
+            deps.session = session
+            app = build_graph(deps)
+            await app.ainvoke(initial_state, config)
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        _log.exception("graph scan failed: %s", exc)
+        # Recover partial work committed before the failure (MemorySaver),
+        # mirroring runner.scan which keeps partial traces and still builds
+        # findings on error. Fall back to the initial state if the graph
+        # never committed a checkpoint.
+        partial: McPwnState = dict(initial_state)
+        if app is not None:
+            try:
+                partial = dict(app.get_state(config).values)
+            except Exception:
+                partial = dict(initial_state)
+        deps.result = assemble_result(deps, partial, error=error)
+        (out_dir / "scan_result.json").write_text(
+            deps.result.model_dump_json(indent=2), encoding="utf-8"
+        )
+
+    assert deps.result is not None, "graph scan produced no result"
+    return deps.result

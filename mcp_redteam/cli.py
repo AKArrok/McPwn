@@ -96,6 +96,19 @@ def scan_cmd(
         help="Declared sandbox root (deployment metadata) used by "
         "sandbox-escape detectors, e.g. /tmp/sandbox for excel-mcp-server.",
     ),
+    graph: bool = typer.Option(
+        False,
+        "--graph",
+        help="Run the pipeline as an explicit LangGraph state machine "
+        "(parity with the default hand-written loop).",
+    ),
+    llm_points: bool = typer.Option(
+        False,
+        "--llm-points",
+        help="Enable the three Stage-2 LLM decision points: hypothesis "
+        "generation, zero-finding retrospective, and grounded evidence "
+        "judgment by the judge role model (unknown-shape coverage).",
+    ),
 ) -> None:
     """Scan one MCP server. Produces findings.md + poc scripts + traces."""
     from mcp_redteam.orchestrator.runner import scan
@@ -111,6 +124,8 @@ def scan_cmd(
         attacker_temperature=attacker_temperature,
         sse_headers=_parse_headers(headers),
         sandbox_root=sandbox_root,
+        graph=graph,
+        llm_points=llm_points,
     ))
     md_path = write_findings(result, out)
 
