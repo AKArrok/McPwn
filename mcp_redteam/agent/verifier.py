@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from jinja2 import Template
 
+from mcp_redteam.agent.llm_points import ground_evidence_verdict
 from mcp_redteam.contracts import (
     FINDING_CONFIDENCE_THRESHOLD,
     AttackTrace,
@@ -22,6 +23,7 @@ from mcp_redteam.contracts import (
     Finding,
     FindingSeverity,
     JudgeVerdict,
+    LlmEvidenceVerdict,
     McpCall,
     VulnClass,
 )
@@ -332,6 +334,7 @@ def build_findings(
     budget: TokenBudget | None = None,
     judge_fn: JudgeFn | None = None,
     sandbox_root: str | None = None,
+    evidence_judge_fn: Callable[[AttackTrace], LlmEvidenceVerdict | None] | None = None,
 ) -> tuple[list[Finding], dict[str, list[EvidenceSignal]]]:
     """Turn every trace whose confidence >= threshold into a Finding.
 
@@ -347,6 +350,33 @@ def build_findings(
     for i, trace in enumerate(traces):
         signals, _ = verify_trace(trace, sandbox_root)
         signals = _maybe_add_l2_signal(trace, signals, judge_fn, budget)
+
+        # Stage-2 LLM evidence judge: only for traces where the deterministic
+        # signal library found nothing (unknown-shape vulns). The verdict is
+        # grounding-gated - evidence must be a verbatim substring of a real
+        # call result - so it cannot fabricate findings. Runs out-of-band
+        # (judge source) via the caller-supplied closure.
+        llm_verdict: LlmEvidenceVerdict | None = None
+        if not signals and evidence_judge_fn is not None:
+            verdict = evidence_judge_fn(trace)
+            if verdict is not None:
+                trace.llm_evidence_verdict = verdict
+                all_calls = list(trace.recon_calls) + list(trace.attack_calls)
+                if (
+                    verdict.is_finding
+                    and verdict.confidence >= CONFIDENCE_THRESHOLD
+                    and ground_evidence_verdict(verdict, all_calls)
+                ):
+                    signals = [
+                        EvidenceSignal(
+                            signal_id="llm_evidence_verdict",
+                            severity="high",
+                            matched_text=(verdict.evidence_text or "")[:512],
+                            source_call_index=verdict.evidence_call_index,
+                        )
+                    ]
+                    llm_verdict = verdict
+
         confidence = compute_confidence(signals) if signals else 0.0
         trace_key = f"{trace.vuln_class.value}::{trace.target}"
         per_trace[trace_key] = signals
@@ -372,24 +402,40 @@ def build_findings(
             trace_ref = str(trace_dir / fname)
 
         evidence_class = _infer_evidence_class(signals, trace)
+        if llm_verdict is not None and llm_verdict.vuln_class is not None:
+            finding_vuln_class = llm_verdict.vuln_class
+            evidence_class = llm_verdict.vuln_class
+        else:
+            finding_vuln_class = trace.vuln_class
+
+        if llm_verdict is not None:
+            summary = (
+                f"LLM evidence judge (grounded, unknown-shape) on {trace.target!r}: "
+                f"{llm_verdict.reason or 'reason n/a'} "
+                f"(confidence={llm_verdict.confidence:.2f}, call "
+                f"#{llm_verdict.evidence_call_index})."
+            )
+        else:
+            summary = (
+                f"Probing {trace.target!r} under hypothesis "
+                f"'{trace.vuln_class.value}' fired signal(s): "
+                + ", ".join(s.signal_id for s in signals)
+                + f". Top signal: {top.signal_id} (severity={top.severity})."
+            )
+
         finding = Finding(
-            finding_id=Finding.compute_id(trace.vuln_class, trace.target, top.signal_id),
-            vuln_class=trace.vuln_class,
+            finding_id=Finding.compute_id(finding_vuln_class, trace.target, top.signal_id),
+            vuln_class=finding_vuln_class,
             hypothesis_class=trace.vuln_class,
             evidence_class=evidence_class,
             target=trace.target,
             severity=severity,
             confidence=confidence,
-            title=f"{trace.vuln_class.value.replace('_', ' ').title()} on {trace.target}",
-            summary=(
-                f"Probing {trace.target!r} under hypothesis "
-                f"'{trace.vuln_class.value}' fired signal(s): "
-                + ", ".join(s.signal_id for s in signals)
-                + f". Top signal: {top.signal_id} (severity={top.severity})."
-            ),
+            title=f"{finding_vuln_class.value.replace('_', ' ').title()} on {trace.target}",
+            summary=summary,
             signals=signals,
             poc_call_sequence=_minimal_poc(trace, signals),
-            remediation_hint=_REMEDIATION.get(trace.vuln_class.value, ""),
+            remediation_hint=_REMEDIATION.get(finding_vuln_class.value, ""),
             trace_ref=trace_ref,
         )
         findings.append(finding)

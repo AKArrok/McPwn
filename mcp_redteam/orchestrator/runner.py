@@ -17,10 +17,22 @@ from pathlib import Path
 from typing import Any, Literal
 
 from mcp_redteam.agent.executor import execute_one
+from mcp_redteam.agent.llm_points import (
+    evidence_verdict,
+    generate_hypotheses,
+    retrospective_hypotheses,
+    tool_summary,
+)
 from mcp_redteam.agent.planner import PlannedCandidate, plan, plan_llm
 from mcp_redteam.agent.recon import recon
-from mcp_redteam.agent.verifier import build_findings, make_judge_fn
-from mcp_redteam.contracts import AttackTrace, PlannerDecision, ScanResult, ScanStopReason
+from mcp_redteam.agent.verifier import build_findings, make_judge_fn, verify_trace
+from mcp_redteam.contracts import (
+    AttackTrace,
+    LlmEvidenceVerdict,
+    PlannerDecision,
+    ScanResult,
+    ScanStopReason,
+)
 from mcp_redteam.models.chat import load_registry, make_client
 from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
 from mcp_redteam.targets.mcp_client import McpSession
@@ -119,6 +131,7 @@ async def scan(
     sandbox_root: str | None = None,
     planner_mode: Literal["hardcoded", "llm"] = "hardcoded",
     decisions: list[PlannerDecision] | None = None,
+    llm_points: bool = False,
 ) -> ScanResult:
     """Scan one MCP SSE endpoint. Write traces/findings under `out_dir`."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -146,6 +159,22 @@ async def scan(
     try:
         async with McpSession(sse_url, headers=sse_headers) as session:
             recon_calls, candidates, tools_seen, resources_seen = await recon(session)
+
+            # Stage-2 LLM decision point 1: hypothesis generation. Additive
+            # only - never reorders candidates (M3 permutation lesson).
+            if llm_points:
+                extra = generate_hypotheses(
+                    candidates,
+                    tools_seen,
+                    resources_seen,
+                    attacker[0],
+                    attacker[1],
+                    budget=budget,
+                    tool_descriptions=tool_summary(recon_calls),
+                    sse_url=sse_url,
+                )
+                candidates = candidates + extra
+
             if planner_mode == "llm":
                 planned = plan_llm(
                     candidates,
@@ -205,12 +234,65 @@ async def scan(
                         executed=True,
                         skip_reason=None,
                     ))
+
+            # Stage-2 LLM decision point 2: retrospective review of a
+            # zero-finding wave. Runs only when nothing was found, budget/clock
+            # remain, and the experiment flag is on; follow-ups are a second
+            # bounded wave inside the same session.
+            # Retrospective fires only when enough budget remains for a
+            # follow-up wave to actually run (margin, not "not exceeded" -
+            # otherwise a budget-starving wrong lead would silently disable
+            # the safety net).
+            _retro_margin = 8000
+            if (
+                llm_points
+                and not clock.exceeded()
+                and budget.counted_tokens < budget.max_tokens_total - _retro_margin
+            ):
+                found_any = any(verify_trace(t, sandbox_root)[0] for t in traces)
+                if not found_any:
+                    followups = retrospective_hypotheses(
+                        traces,
+                        tools_seen,
+                        resources_seen,
+                        attacker[0],
+                        attacker[1],
+                        budget=budget,
+                        tool_descriptions=tool_summary(recon_calls),
+                        sse_url=sse_url,
+                    )
+                    for fc in plan(followups, max_candidates=max_candidates):
+                        if budget.exceeded() or clock.exceeded():
+                            break
+                        follow_trace = await execute_one(
+                            session=session,
+                            candidate=fc,
+                            attacker=attacker,
+                            budget=budget,
+                            clock=clock,
+                            sse_url=sse_url,
+                            recon_calls=recon_calls,
+                            max_inner_steps=max_inner_steps,
+                            sandbox_root=sandbox_root,
+                        )
+                        traces.append(follow_trace)
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
 
+    # Stage-2 LLM decision point 3: evidence judgment. Only active under
+    # llm_points; the closure grounds every verdict on real call results.
+    evidence_judge_fn = None
+    if llm_points:
+        _ev_client, _ev_spec = attacker
+
+        def _evidence_judge(trace: AttackTrace) -> LlmEvidenceVerdict | None:
+            return evidence_verdict(trace, _ev_client, _ev_spec, budget)
+
+        evidence_judge_fn = _evidence_judge
+
     findings, _ = build_findings(
         traces, trace_dir=trace_dir, budget=budget, judge_fn=judge_fn,
-        sandbox_root=sandbox_root,
+        sandbox_root=sandbox_root, evidence_judge_fn=evidence_judge_fn,
     )
     wall_elapsed = time.perf_counter() - wall_start
 

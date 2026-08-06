@@ -24,3 +24,9 @@ runs/*
 # Local real-world target scratch (not part of repo fixtures)
 eval_real_world/
 targets/excel-mcp-server/
+
+# Handoff / session-context docs — 本地保留, 不推远端
+HANDOFF*.md
+PROGRESS.md
+attic/handoffs/
+attic/benchmark-v0/HANDOFF.benchmark-v0.md
