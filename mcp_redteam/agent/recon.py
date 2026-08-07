@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from mcp_redteam.contracts import McpCall, VulnClass
 from mcp_redteam.targets.mcp_client import McpSession
@@ -22,6 +23,11 @@ class Candidate:
     target_kind: str                     # "tool" | "resource"
     score: float                         # heuristic priority
     reason: str                          # why we picked this
+    # Where this candidate came from. "llm_hypothesis" candidates are the
+    # Stage-2 decision point (hypothesis gen + retrospective follow-ups) and
+    # share a bounded budget pool so a wrong LLM lead cannot starve the
+    # (possibly correct) recon candidates behind it. See runner.scan.
+    origin: Literal["recon", "llm_hypothesis"] = "recon"
 
 
 # ── classifier heuristics ────────────────────────────────────────────────────

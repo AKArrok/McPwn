@@ -47,6 +47,7 @@ async def one(
             planner_mode="hardcoded",
             llm_points=True,
             seed=seed,
+            llm_hyp_budget=-1,  # unknown-shape: recon 全错类, LLM 假设需自由探索
         )
     detail = [
         (f.vuln_class.value, f.target, round(f.confidence, 2))

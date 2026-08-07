@@ -45,6 +45,7 @@ async def one(port: int, seed: int | None, out_dir: Path) -> dict:
             planner_mode="hardcoded",
             llm_points=True,
             seed=seed,
+            llm_hyp_budget=-1,  # unknown-shape 消融: LLM 假设需自由探索
         )
     return {
         "findings": len(result.findings),

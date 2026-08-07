@@ -198,6 +198,12 @@ async def execute_one(
             total_in += pin
             total_out += pout
             budget.add("attacker", pin, pout)
+            # LLM-hypothesis candidates share a bounded pool (see
+            # runner.scan): a wrong LLM lead must not starve the recon
+            # candidates behind it. Pool exhausted -> stop this trace.
+            if candidate.origin == "llm_hypothesis" and not budget.charge_llm_hyp(pin, pout):
+                final_text = "[llm-hypothesis budget pool exhausted]"
+                break
 
         choice = resp.choices[0]
         msg = choice.message

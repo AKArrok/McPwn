@@ -138,3 +138,86 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
 对照 HANDOFF §10 验收（≥8/10 recall / 0 FPR / 5/5 replay）: **graph 9/10 满足
 且严格更优; FPR 0; replay 5/5**。9004 差异可能含 LLM 漂移(N=1), 但方向是
 "graph 不劣于 runner" 且额外命中一港。
+
+---
+
+## 7. vault-mcp（unknown-shape 实验，CWE-639 子串鉴权，2026-08-06）
+
+> 协议与结果: `eval/unknown_shape/README.md`（权威）。判据锁死:
+> baseline=0 findings（结构性漏）、llm 版每 run ≥1、同 budget N=3 **miss 即 fail**。
+
+| 阶段 | 结果 |
+|---|---|
+| Stage-1 baseline（hardcoded planner + 信号库） | ✅ **0 findings**（`stop=budget_tokens`，attacker 被 recon 带偏 path_traversal，22 次调用全是穿越尝试） |
+| Stage-2 LLM 三决策点（假设生成/复盘/证据判定） | ✅ 2 findings（`AUTH_BYPASS read_vault 0.75` + `grant_access 0.75`） |
+| Stage-3 重复 N=3 | 第一轮 **2/3 FAIL**（假设单采样没提 auth_bypass）→ 修复：假设生成 2 采样 union + 复盘闸门改剩余预算≥8k → **第二轮 3/3 PASS** |
+| Stage-4 提示词消融（2×2，A=双 HINTED / D=双 STRIPPED） | ✅ **A 3/3 + D 3/3**：剥离版提示词+卡（无 vault 答案）仍 3/3 → **能力成立（LLM 价值含「发现」不止「执行」）** |
+
+- 证据 grounding: `read_vault(owner="", name=...)` 返回 admin secret（`"" in "admin"`）。
+- judge 诚实: baseline 的 path_traversal 误判 trace 上 `is_finding=false`（不编造）。
+
+---
+
+## 8. delegate-mcp（泛化验证，CWE-639 授权作用域缺陷，2026-08）
+
+> 协议与结果: `eval/generalize/README.md`（权威）。换形状重跑三阶段——与 vault
+> 的**子串匹配**机制不同: `_can_read` 精确匹配，漏洞在 `grant_access` 把
+> delegate 记入**全局集合**（授权作用域泄漏到所有 vault）。剥离版提示词+卡
+> （类级框架，无 vault 答案）。判据同 vault: 每 run ≥1、N=3、miss 即 fail。
+
+| 轮次 | 结果 | 修复 |
+|---|---|---|
+| baseline | ✅ 0 findings（结构性漏） | — |
+| 第 1 轮 | **2/3 FAIL** | owner=`admin` 可猜 → LLM 走"冒充 owner 自授权"通用路径污染归因 → 修复: `admin_vault` owner 改不可猜字符串 `owner-9f7c3e21` |
+| 第 2 轮 | **1/3 FAIL** | attacker grant 成功后只自证（读自己 vault）不做范围验证 → 修复: auth_bypass 卡补类级第 6 步"授权成功后用被授权身份 list 枚举可见资源并对比" |
+| 第 3 轮 | **2/3 FAIL** | 同型"自证收敛" → 卡第 6 步加强（明确 list 枚举动作） |
+| **第 4 轮** | ✅ **3/3 PASS（strict-better）** | run 0/1/2 各 1 finding（auth_bypass 0.75），归因全部干净 |
+
+- 成功 finding 形态: attacker 诚实身份建 vault → grant 自己第二账号 → 被授权
+  身份 `list_vaults` 意外列出 `admin_vault` / 读到未授权 vault secret（judge 0.9 认账）。
+- 结论: 假设生成/judge 跨形状稳定，**方差在执行层"验证范围"动作** → 跨形状
+  稳定性低于 vault；精确结论 = "类级框架 + 类级执行引导下跨形状严格更优成立"。
+
+---
+
+## 9. fetch（真实靶机，SSRF，2026-08）
+
+> 协议与结果: `eval/fetch_ssrf/README.md`（权威）。GitHub 官方
+> `modelcontextprotocol/servers` 的 `mcp-server-fetch`（真实 server，stdio），
+> stdio→SSE 透传桥 + 本地 intranet 受害者（全 127.0.0.1 合规）。SSRF 面是
+> **设计特性**（README 自认可访问内网）→ 最新版即"漏洞版"。补上 HANDOFF 遗留
+> 的"SSRF 真靶验证"。
+
+| 项目 | 结果 |
+|---|---|
+| prove（确定性 exploit） | ✅ `fetch("http://127.0.0.1:9211/")` 回流 `TOP-SECRET-INTRANET-2026` + nginx banner |
+| **标准 scan** | ✅ **1 finding（`ssrf/fetch 0.75`，`ssrf_internal_service` high，stop=completed）**——SSRF 类（信号+卡）在真实 server 上端到端成立。命中点: `fetch("http://127.0.0.1:80/")` 返回**本机真实内网服务**的 `IIS Windows` banner（系统 HTTP.sys，非自建），`0x7f000001` 十六进制绕过同样命中 |
+| llm_points 轮 | ⚠️ 连续 3 次 miss（1 次误报已修 + 2 次零命中）——暴露两个真实问题（见下） |
+
+### 真实靶机暴露的两个问题
+
+1. **信号假阳性（已修复）**: llm 轮误报 `path_traversal@fetch 0.75`，根因
+   `leaks_hardcoded_password` 把错误回显 `Failed to fetch file:///etc/passwd:
+   UnsupportedProtocol...` 的 `/etc/passwd:` 当密码键值（fetch 实际拒绝
+   file://，无真实泄漏）。修复: `_HARDCODED_PW_RE` 加 `(?<![/a-zA-Z0-9])`
+   前缀负向断言 + 3 条回归测试（`tests/signals/test_leaks.py`）。
+2. **llm_points 假设抢占 trade-off（已修复）**: 假设生成 score=0.99
+   排最前，曾把 recon 已正确分类的 `SSRF@fetch`（0.85）挤出 30k 预算 → llm 轮
+   3 次 miss vs 标准 scan 一次即中。修复 = **LLM-hypothesis budget pool**
+   （`llm_hyp_budget`，默认 40% attacker 预算）: LLM 假设候选共享一个池，
+   池耗尽后剩余 LLM 假设被跳过、recon 候选照常执行；unknown-shape 实验
+   （vault/delegate）传 `-1` 关闭池保持原行为。实现见
+   `orchestrator/runner.py` + `orchestrator/budget.py`，
+   回归测试 `tests/test_llm_hyp_budget.py`。
+
+---
+
+## 10. 靶机成果总表（截至 2026-08）
+
+| 靶机 | 漏洞形状 | baseline | 检出（最终） | 关键修复/发现 |
+|---|---|---|---|---|
+| excel-mcp 0.1.7 | 沙箱逃逸（CVE-2026-40576） | — | prove exploited + scan 0.75/0.94 | 0.1.8 修复版 blocked（对照） |
+| DVMCP 9010 | chain/indirect | — | graph 2-3 findings（0.95） | B 阶段注入+promote 生效 |
+| vault-mcp | CWE-639 子串鉴权（unknown-shape） | 0 | **3/3 PASS**（llm 版） | 消融 D 臂 3/3 → 能力成立 |
+| delegate-mcp | CWE-639 授权作用域（泛化） | 0 | **3/3 PASS**（第 4 轮） | owner 不可猜 fixture + 卡第 6 步执行引导 |
+| fetch（真实） | SSRF（设计特性） | — | **scan 1 finding 0.75** | 信号假阳性修复 + llm 抢占 trade-off 修复（hyp budget pool） |

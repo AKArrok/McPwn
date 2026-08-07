@@ -115,10 +115,11 @@ flowchart LR
 
 分类规则:
 
-- **Tool 启发式**:
-  - `exec/execute/shell/run/command/eval/evaluate` → `command_injection` (0.9)
-  - `file/read/open/download/config` → `path_traversal` (0.8)
+- **Tool 启发式**(顺序即优先级,命中取最高分):
   - `admin/manage/token/auth/verify/remote_access` → `auth_bypass` (0.95)
+  - `exec/execute/shell/run/command/eval/evaluate` → `command_injection` (0.9)
+  - `fetch/http/url/webhook/request/endpoint` → `ssrf` (0.85)
+  - `file/read/open/download/config` → `path_traversal` (0.8)
   - `process/analyze/summarize/document/email/note` → `indirect_injection` (0.6)
 - **Resource 启发式**:
   - URI 含 `{...}` 模板 → `direct_prompt_injection` (0.85)
@@ -337,14 +338,28 @@ sequenceDiagram
   - `poc_replay_pass_rate`(最多随机抽 5 条 finding 重放,看原信号是否重新命中)
 - 输出 `eval_report.md` + 每个 port 的 `findings.md`。
 
-### 7.2 Clean Baseline 假阳率验证 — `eval/clean_baseline/runner.py`
+### 7.5 SSRF 真靶验证 — `eval/fetch_ssrf/`
+
+- GitHub 官方 `mcp-server-fetch`(真实 server,stdio → SSE 透传桥 + 本地 intranet 受害者)。
+- 标准 scan 1 finding(`ssrf/fetch 0.75`,`ssrf_internal_service` high);prove 确定性 exploit 回流 intranet secret。
+- 协议与结果见 `eval/fetch_ssrf/README.md`。
+
+### 7.6 Clean Baseline 假阳率验证 — `eval/clean_baseline/runner.py`
 
 - 启动 3 个本地 FastMCP 安全变体(noop / summarize / file_list)。
 - 每个变体跑一次真实 `scan`。
 - 期望 0 findings;只要出现 finding 就输出 `FAIL`,并区分「detector bug / recon-planner bug / legitimate FP」三类原因。
 - 产出 `eval_report.md`,是 DVMCP FPR 有意义的前提。
 
-### 7.3 真实世界目标 — `targets/`
+### 7.3 未知形状 / 泛化实验 — `eval/unknown_shape/` + `eval/generalize/`
+
+- 验证「LLM 三决策点」(假设生成 / 复盘 / 证据判定)能否补上固定信号库的**结构性漏报**:
+  - `unknown_shape`(vault-mcp,CWE-639 子串鉴权):baseline 0 findings → llm 版 3/3 PASS,提示词消融 D 臂 3/3(协议见 `eval/unknown_shape/README.md` + `ABLATION_PLAN.md`);
+  - `generalize`(delegate-mcp,CWE-639 授权作用域):换形状重跑三阶段,3/3 PASS(协议见 `eval/generalize/README.md`)。
+- 判据锁死:**baseline=0、llm 版每 run ≥1、N=3 miss 即 fail**(严格更优,不是"不劣于")。
+- 运行:`python eval/unknown_shape/run_baseline.py` / `run_llm.py` / `run_repeat.py`;generalize 同理。
+
+### 7.4 真实世界目标 — `targets/`
 
 - 仓库内 `targets/` 是外部 MCP server 的 vendored 副本/依赖,作为新的 eval 目标;
   它们不在 `mcp_redteam` 主链路内,只是被 `scan` 当作 SSE endpoint 消费。
@@ -386,7 +401,7 @@ flowchart LR
 - 触发:push 到 `main` + 所有 pull request。
 - Python 3.13,`pip install -e ".[dev]"`。
 - `ruff check mcp_redteam eval tests`。
-- `pytest tests/`(当前基线见 `tests/REPORT.md`:72 passed,2026-08-05)。
+- `pytest tests/`(当前基线见 `tests/REPORT.md`:230 passed;`tests/` 全部离线可跑,不依赖 Docker/LLM)。
 
 ---
 

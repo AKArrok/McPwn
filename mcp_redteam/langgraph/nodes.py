@@ -159,6 +159,25 @@ def execute_node(deps: GraphDeps):
         if idx >= len(planned):
             return {}
         pc = planned[idx]
+        # LLM-hypothesis pool exhausted: skip remaining LLM hypotheses so recon
+        # candidates (possibly the correct class) still get executed.
+        if (
+            pc.candidate.origin == "llm_hypothesis"
+            and deps.budget.llm_hyp_remaining is not None
+            and deps.budget.llm_hyp_remaining <= 0
+        ):
+            if deps.decisions is not None and not state.get("followup_wave", False):
+                deps.decisions.append(PlannerDecision(
+                    port=deps.port,
+                    index=idx,
+                    vuln_class=pc.candidate.vuln_class.value,
+                    target=pc.candidate.target,
+                    source=pc.source,
+                    planned=True,
+                    executed=False,
+                    skip_reason="budget_llm_hyp_pool",
+                ))
+            return {"executed_count": idx + 1}
         trace = await execute_one(
             session=deps.session,
             candidate=pc.candidate,

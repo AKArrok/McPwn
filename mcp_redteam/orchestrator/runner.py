@@ -45,6 +45,32 @@ DEFAULT_WALL_SECONDS = 240
 DEFAULT_MAX_INNER_STEPS = 12
 DEFAULT_MAX_CANDIDATES = 20
 
+# Default share of attacker budget reserved for LLM-hypothesis candidates
+# (see scan(..., llm_hyp_budget)). 40%: enough for the vault/delegate
+# unknown-shape exploit chains to produce >=1 finding, while leaving recon
+# candidates (which may be the correct classification, e.g. SSRF on fetch)
+# roughly 60% to complete their probe chains. Tuned on the fetch real target
+# (llm round: wrong lead truncated at pool, recon SSRF then executes).
+_LLM_HYP_BUDGET_FRACTION = 0.4
+
+
+def _resolve_llm_hyp_budget(max_tokens: int, override: int | None) -> int | None:
+    """LLM-hypothesis pool size.
+
+    - ``None`` (default): auto = 40% of max_tokens (protects recon candidates
+      from being starved by wrong LLM hypotheses; real-target default).
+    - ``-1``: disable the pool entirely (legacy unbounded behaviour) - used by
+      unknown-shape experiments (vault/delegate) whose recon candidates are
+      all misclassified and whose discovery REQUIRES the LLM hypothesis to
+      explore freely.
+    - any other int: explicit pool size.
+    """
+    if override == -1:
+        return None
+    if override is not None:
+        return override
+    return int(max_tokens * _LLM_HYP_BUDGET_FRACTION)
+
 _log = logging.getLogger(__name__)
 
 
@@ -110,12 +136,22 @@ async def scan(
     llm_points: bool = False,
     seed: int | None = None,
     graph: bool = False,
+    llm_hyp_budget: int | None = None,
 ) -> ScanResult:
     """Scan one MCP SSE endpoint. Write traces/findings under `out_dir`.
 
     ``graph=True`` runs the same pipeline as an explicit LangGraph state
     machine (``mcp_redteam/langgraph/``); the hand-written loop below stays
     as the default path and parity anchor (HANDOFF_LANGGRAPH §4.3).
+
+    ``llm_hyp_budget`` bounds how much attacker budget LLM-hypothesis
+    candidates may consume in total (default: 40% of ``max_tokens``). A
+    wrong LLM lead (e.g. command_injection on a tool recon already classified
+    as SSRF) must not starve the recon candidates behind it. Pass ``-1`` to
+    disable the pool (legacy unbounded behaviour - used by unknown-shape
+    experiments whose discovery requires free LLM-hypothesis exploration);
+    pass 0 to make every LLM-hypothesis candidate skip immediately; any other
+    int is an explicit pool size.
     """
     if graph:
         return await _scan_graph(
@@ -132,6 +168,7 @@ async def scan(
             decisions=decisions,
             llm_points=llm_points,
             seed=seed,
+            llm_hyp_budget=llm_hyp_budget,
         )
     out_dir.mkdir(parents=True, exist_ok=True)
     trace_dir = out_dir / "traces"
@@ -146,6 +183,7 @@ async def scan(
     wall_start = time.perf_counter()
 
     budget = TokenBudget(max_tokens_total=max_tokens)
+    budget.llm_hyp_remaining = _resolve_llm_hyp_budget(max_tokens, llm_hyp_budget)
     clock = WallClock(wall_seconds=wall_seconds)
     attacker = make_client("attacker", temperature=attacker_temperature, seed=seed)
     judge_fn = _make_judge_fn_or_none()
@@ -191,6 +229,26 @@ async def scan(
 
             port = _port_from_url(sse_url)
             for index, pc in enumerate(planned):
+                # LLM-hypothesis pool exhausted: skip remaining LLM
+                # hypotheses so recon candidates (possibly the correct class,
+                # e.g. SSRF on fetch) still get executed.
+                if (
+                    pc.candidate.origin == "llm_hypothesis"
+                    and budget.llm_hyp_remaining is not None
+                    and budget.llm_hyp_remaining <= 0
+                ):
+                    if decisions is not None:
+                        decisions.append(PlannerDecision(
+                            port=port,
+                            index=index,
+                            vuln_class=pc.candidate.vuln_class.value,
+                            target=pc.candidate.target,
+                            source=pc.source,
+                            planned=True,
+                            executed=False,
+                            skip_reason="budget_llm_hyp_pool",
+                        ))
+                    continue
                 if budget.exceeded() or clock.exceeded():
                     if decisions is not None:
                         # Record every planned-but-unexecuted candidate so the
@@ -335,6 +393,7 @@ async def _scan_graph(
     decisions: list[PlannerDecision] | None = None,
     llm_points: bool = False,
     seed: int | None = None,
+    llm_hyp_budget: int | None = None,
 ) -> ScanResult:
     """LangGraph-shaped twin of ``scan`` (grill decision 7a / graph=True).
 
@@ -361,6 +420,7 @@ async def _scan_graph(
     wall_start = time.perf_counter()
 
     budget = TokenBudget(max_tokens_total=max_tokens)
+    budget.llm_hyp_remaining = _resolve_llm_hyp_budget(max_tokens, llm_hyp_budget)
     clock = WallClock(wall_seconds=wall_seconds)
     attacker = make_client("attacker", temperature=attacker_temperature, seed=seed)
     judge_fn = _make_judge_fn_or_none()
