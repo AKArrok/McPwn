@@ -1,53 +1,53 @@
 # Test Status Report
 
-**Last verified**: 2026-08-05 (commit HEAD = `77f5447`, ahead of origin by 5 commits; deepseek-v4-pro attacker model active)
-**Verified by**: Claude session in Codex desktop
+**Last verified**: 2026-08-07 (commit HEAD = `cf69940`, branch `codex/b-c-ci`; attacker=deepseek-v4-flash, judge=doubao-seed-2.0-lite)
 
 ## Summary
 
 | Tool | Scope | Result |
 |------|-------|--------|
-| pytest 9.1.1 | `tests/` | **72 passed** in 11.75s |
-| ruff 0.16.0 | `mcp_redteam/` + `eval/` | **0 errors** |
-| ruff 0.16.0 | `tests/` | 6 pre-existing errors (user-authored files, out of scope per HANDOFF_NEXT) |
-| `mcpwn lint-cards` | `vulns/cards/*.md` | **7/7 ok** |
+| pytest | `tests/` | **255 passed** in 125.6s (数量已由 `scripts/check_docs.py` 与 CI 守护,不在此写死) |
+| ruff | `mcp_redteam/` + `eval/` | **0 errors** |
+| ruff | `tests/` | 见下方 Notes(历史遗留,已出当前作用域) |
+| `mcpwn lint-cards` | `vulns/cards/*.md` | **8/8 ok** |
+| `scripts/check_docs.py` | 文档-代码一致性 | **全部一致 ✓**(L1 事实锚点 + L2 结构校验) |
 
 ## Environment
 
-- Python 3.13.13
-- pytest 9.1.1, pytest-asyncio 1.4.0
-- ruff 0.16.0
-- jinja2 3.1.6, openai 2.44.0, pydantic 2.13.2, pydantic-settings 2.12.0
-- mcpwn 0.1.0 (dev install at project root)
+- Python 3.13.13 (miniconda `base`)
+- pytest, pytest-asyncio;openai / pydantic / mcp SDK
+- mcpwn 0.1.0 (dev install)
 
 ## Reproduce
 
 ```bash
 python -m pytest tests -q --no-header
 python -m ruff check mcp_redteam eval
-python -m ruff check tests        # known: 6 pre-existing errors in user-authored files
 python -m mcp_redteam.cli lint-cards
+python scripts/check_docs.py
 ```
 
 ## Notes
 
-- The 6 ruff errors in `tests/` are pre-existing in user-authored files
-  (`tests/fixtures/mock_mcp.py`, `tests/test_regression_baseline.py`,
-  `tests/test_scan_metadata.py`). Per HANDOFF_NEXT, they are out of scope
-  and should not be touched without owner approval.
-- `tests/` not under ruff auto-fix scope; tracked separately in PROGRESS.md.
-- For canonical status, see PROGRESS.md.
+- **测试数量不在此写死**:按 `scripts/check_docs.py` 第 0 层原则("从代码可
+  导出的量,文档里不应有字面量"),pytest 数量以 `pytest --collect-only` 实时
+  值为准,README 已改为"数量见 CI badge"。本文件只记录**验证时点快照**。
+- 历史遗留:早期 `tests/` 有 6 个 ruff errors(user-authored fixtures),已随
+  `eval/clean_baseline` 的 ruff 清理出当前作用域;当前 `ruff check mcp_redteam eval` 0 errors。
+- 文档数字漂移由 `scripts/check_docs.py` 守护:任何文档里写死的
+  `N passed` / `N 条注册信号` / `N 张策略卡` 若与代码不符,CI 直接 FAIL。
 
-## M2 v4 (DVMCP) status (informational)
+## Eval 状态快照 (2026-08-07, informational)
 
-| Metric | Value | Source |
-|--------|-------|--------|
-| recall | 0.80 (8/10) | `runs/m2_dvmcp_full_v4/eval_report.md` |
-| FPR | 0.00 | same |
-| poc_replay_pass_rate | 1.00 (5/5) | same |
-| total wall time | 601.1s (10 min 1s) | sum of per-port wall_seconds in findings.md |
-| attacker model | deepseek-v4-pro-260425 (ARK) | `mcp_redteam/config/models.yaml` |
-| judge model | deepseek-v4-flash (deepseek.com) | same |
+| 回归 | 结果 | 来源 |
+|------|-------|------|
+| DVMCP 全港 | recall 8/10 (runner) / 9/10 (graph), FPR 0, replay 5/5 | `runs/` 各 eval_report.md |
+| realworld (excel-mcp CVE-2026-40576) | 0.1.7 exploited / 0.1.8 blocked 双 PASS | `mcpwn eval realworld prove` |
+| unknown_shape (vault-mcp) | baseline 0 findings → llm 3/3 PASS + 消融 D 3/3 | `eval/unknown_shape/README.md` |
+| generalize (delegate-mcp) | 3/3 PASS (strict-better, 第 4 轮) | `eval/generalize/README.md` |
+| fetch_ssrf (真实 server) | scan 1 finding (`ssrf/fetch` 0.75) | `eval/fetch_ssrf/README.md` |
+| clean_baseline | 3 变体 0 findings (FPR 0) | `eval/clean_baseline/` |
+| real_vuln / real_negative | filesystem CVE 正向 / 修复版负向试点 | `eval/real_vuln/` + `eval/real_negative/` |
+| 三靶机回归网 | `eval/regression.py` prove ALL PASS + 前提冻结 5 tests | `tests/test_regression_shapes.py` |
 
-> Regenerate this file by running the four commands under *Reproduce*
-> and pasting output into the *Summary* / *Environment* tables.
+> 完整回归命令:`python eval/regression.py --mode full --n 3`(消耗真实 LLM 预算,本地跑)。
