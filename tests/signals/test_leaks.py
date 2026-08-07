@@ -64,6 +64,28 @@ def test_leaks_hardcoded_password():
     assert result is not None
 
 
+def test_leaks_hardcoded_password_underscore_key_still_fires():
+    """'root_passwd: x' is a real credential key - underscore before the key
+    must NOT suppress the signal."""
+    call = _mkcall("root_passwd: hunter2secret\n")
+    result = detect_leaks_hardcoded_password([call], "")
+    assert result is not None
+
+
+def test_leaks_hardcoded_password_ignores_path_fragment_in_error_echo():
+    """Regression (real fetch target): a server error echo like
+    'Failed to fetch file:///etc/passwd: UnsupportedProtocol...' contains
+    'passwd:' but is a URL path, not a credential key. Must not fire."""
+    call = _mkcall(
+        "Failed to fetch file:///etc/passwd: UnsupportedProtocol('file') - "
+        "the target may be unreachable\n"
+    )
+    result = detect_leaks_hardcoded_password([call], "")
+    assert result is None
+    url_call = _mkcall("Failed to fetch http://host/secret: 404 Not Found\n")
+    assert detect_leaks_hardcoded_password([url_call], "") is None
+
+
 def test_leaks_ignore_list_tools_descriptions():
     """Regression: leak detectors must not scan tool metadata. A tool whose
     description happens to include example secrets would otherwise trip

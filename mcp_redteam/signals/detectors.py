@@ -136,7 +136,11 @@ _API_KEY_RE = re.compile(
     r"(?:sk-[a-zA-Z0-9]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})"
 )
 _HARDCODED_PW_RE = re.compile(
-    r'(?:password|passwd|secret)\s*[:=]\s*(\S{8,})', re.IGNORECASE
+    # (?<![/a-zA-Z0-9]) guards against matching path/URL fragments: a real
+    # server error echo like "Failed to fetch file:///etc/passwd: Unsupported..."
+    # contains "passwd:" but is not a credential key. "root_passwd: x" (underscore
+    # before the key) still fires - underscore is not in the negative class.
+    r'(?<![/a-zA-Z0-9])(?:password|passwd|secret)\s*[:=]\s*(\S{8,})', re.IGNORECASE
 )
 
 
