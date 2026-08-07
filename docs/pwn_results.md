@@ -201,11 +201,14 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
    UnsupportedProtocol...` 的 `/etc/passwd:` 当密码键值（fetch 实际拒绝
    file://，无真实泄漏）。修复: `_HARDCODED_PW_RE` 加 `(?<![/a-zA-Z0-9])`
    前缀负向断言 + 3 条回归测试（`tests/signals/test_leaks.py`）。
-2. **llm_points 假设抢占 trade-off（未改核心，待决策）**: 假设生成 score=0.99
-   排最前，把 recon 已正确分类的 `SSRF@fetch`（0.85）挤出 30k 预算 → llm 轮
-   3 次 miss vs 标准 scan 一次即中。unknown-shape 场景此设计必需（vault/
-   delegate 依赖），"recon 已正确"场景会被带偏。候选修法见
-   `HANDOFF_NEXT.md` 第 9 条。
+2. **llm_points 假设抢占 trade-off（已修复）**: 假设生成 score=0.99
+   排最前，曾把 recon 已正确分类的 `SSRF@fetch`（0.85）挤出 30k 预算 → llm 轮
+   3 次 miss vs 标准 scan 一次即中。修复 = **LLM-hypothesis budget pool**
+   （`llm_hyp_budget`，默认 40% attacker 预算）: LLM 假设候选共享一个池，
+   池耗尽后剩余 LLM 假设被跳过、recon 候选照常执行；unknown-shape 实验
+   （vault/delegate）传 `-1` 关闭池保持原行为。实现见
+   `orchestrator/runner.py` + `orchestrator/budget.py`，
+   回归测试 `tests/test_llm_hyp_budget.py`。
 
 ---
 
@@ -217,4 +220,4 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
 | DVMCP 9010 | chain/indirect | — | graph 2-3 findings（0.95） | B 阶段注入+promote 生效 |
 | vault-mcp | CWE-639 子串鉴权（unknown-shape） | 0 | **3/3 PASS**（llm 版） | 消融 D 臂 3/3 → 能力成立 |
 | delegate-mcp | CWE-639 授权作用域（泛化） | 0 | **3/3 PASS**（第 4 轮） | owner 不可猜 fixture + 卡第 6 步执行引导 |
-| fetch（真实） | SSRF（设计特性） | — | **scan 1 finding 0.75** | 信号假阳性修复 + llm 抢占 trade-off 待决策 |
+| fetch（真实） | SSRF（设计特性） | — | **scan 1 finding 0.75** | 信号假阳性修复 + llm 抢占 trade-off 修复（hyp budget pool） |

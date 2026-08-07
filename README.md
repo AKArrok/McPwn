@@ -228,7 +228,9 @@ eval/
   unknown_shape/          vault-mcp 三阶段实验 + 提示词消融
   clean_baseline/         无漏洞 server 的 FPR baseline
 tests/                    单元/回归测试(pytest, 数量见 CI badge)
-docs/                     pipeline.md(端到端链路) / agent_chain.md / pwn_results.md
+docs/                     pipeline.md(端到端链路) / agent_chain.md(agent 思维链路)
+                          / anti_hallucination.md(防幻觉机制) / eval_guide.md(评估导航)
+                          / pwn_results.md(靶机结果)
 scripts/                  check_docs.py(文档 vs 代码 vs pyproject 一致性校验,CI 挂载)
 ```
 
