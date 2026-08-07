@@ -229,9 +229,9 @@ eval/
   clean_baseline/         无漏洞 server 的 FPR baseline
 tests/                    单元/回归测试(pytest, 数量见 CI badge)
 docs/                     pipeline.md(端到端链路) / agent_chain.md(agent 思维链路)
-                          / anti_hallucination.md(防幻觉机制) / eval_guide.md(评估导航)
-                          / reproducibility.md(可复现性) / experiment_methodology.md(实验方法论)
-                          / pwn_results.md(靶机结果)
+                          / mcp_attack_surface.md(打 MCP 攻击思路) / anti_hallucination.md(防幻觉机制)
+                          / eval_guide.md(评估导航) / reproducibility.md(可复现性)
+                          / experiment_methodology.md(实验方法论) / pwn_results.md(靶机结果)
 scripts/                  check_docs.py(文档 vs 代码 vs pyproject 一致性校验,CI 挂载)
 ```
 
