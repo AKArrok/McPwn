@@ -32,6 +32,7 @@ async def main() -> None:
         wall_seconds=300,
         planner_mode="hardcoded",
         llm_points=True,
+        llm_hyp_budget=-1,  # unknown-shape: LLM 假设需自由探索
     )
     print(
         f"findings={len(result.findings)} stop={result.stop_reason} "

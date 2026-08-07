@@ -135,6 +135,7 @@ def hypotheses_to_candidates(
             target_kind=kind,
             score=_LLM_HYP_SCORE,
             reason=f"[{tag}] {h.reason}",
+            origin="llm_hypothesis",
         ))
     return out
 
