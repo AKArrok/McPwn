@@ -424,12 +424,35 @@ def build_findings(
         signals = _maybe_add_l2_signal(trace, signals, judge_fn, budget)
 
         # Stage-2 LLM evidence judge: only for traces where the deterministic
-        # signal library found nothing (unknown-shape vulns). The verdict is
-        # grounding-gated - evidence must be a verbatim substring of a real
-        # call result - so it cannot fabricate findings. Runs out-of-band
-        # (judge source) via the caller-supplied closure.
+        # signal library found nothing (unknown-shape vulns). Metadata-class
+        # signals (shadow_tool_behavior_divergence etc.) are scan side-effects
+        # of the probe harness, not vuln evidence - they must NOT block the
+        # judge (real-target regression: filesystem allowlist-escape trace got
+        # one shadow medium signal, which silently skipped the judge and hid a
+        # genuine CVE-2025-53109/53110 finding). The verdict is grounding-gated
+        # - evidence must be a verbatim substring of a real call result - so it
+        # cannot fabricate findings. Runs out-of-band (judge source) via the
+        # caller-supplied closure.
+        vuln_signals = [s for s in signals if s.signal_id not in _METADATA_ONLY_SIGNALS]
         llm_verdict: LlmEvidenceVerdict | None = None
-        if not signals and evidence_judge_fn is not None:
+        if trace.llm_evidence_verdict is not None:
+            # Already judged per-trace (runner._early_evidence_judge) so the
+            # retrospective could consume the verdict; reuse it here instead of
+            # calling the judge a second time.
+            llm_verdict = trace.llm_evidence_verdict
+            all_calls = list(trace.recon_calls) + list(trace.attack_calls)
+            if (llm_verdict.is_finding
+                    and llm_verdict.confidence >= CONFIDENCE_THRESHOLD
+                    and ground_evidence_verdict(llm_verdict, all_calls)):
+                signals = [
+                    EvidenceSignal(
+                        signal_id="llm_evidence_verdict",
+                        severity="high",
+                        matched_text=llm_verdict.evidence_text,
+                        source_call_index=llm_verdict.evidence_call_index,
+                    )
+                ]
+        elif not vuln_signals and evidence_judge_fn is not None:
             verdict = evidence_judge_fn(trace)
             if verdict is not None:
                 trace.llm_evidence_verdict = verdict

@@ -336,9 +336,18 @@ def retrospective_hypotheses(
     body = tool_descriptions or _tools_fallback(tools, resources)
     transcript_parts = []
     for i, trace in enumerate(traces):
+        verdict = trace.llm_evidence_verdict
+        verdict_line = ""
+        if verdict is not None:
+            verdict_line = (
+                f"\n[evidence judge] is_finding={verdict.is_finding} "
+                f"confidence={verdict.confidence} "
+                f"reason={verdict.reason!r}"
+            )
         transcript_parts.append(
             f"--- trace {i}: vuln_class={trace.vuln_class.value} target={trace.target} ---\n"
             + "\n".join(_trace_lines(trace))
+            + verdict_line
         )
     user_message = "\n".join([
         f"MCP server: {sse_url}" if sse_url else "MCP server: (unknown)",

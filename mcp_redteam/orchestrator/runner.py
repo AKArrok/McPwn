@@ -22,7 +22,12 @@ from mcp_redteam.agent.llm_points import (
 )
 from mcp_redteam.agent.planner import PlannedCandidate, plan, plan_llm
 from mcp_redteam.agent.recon import recon
-from mcp_redteam.agent.verifier import build_findings, make_judge_fn, verify_trace
+from mcp_redteam.agent.verifier import (
+    _METADATA_ONLY_SIGNALS,
+    build_findings,
+    make_judge_fn,
+    verify_trace,
+)
 from mcp_redteam.contracts import (
     AttackTrace,
     PlannerDecision,
@@ -98,7 +103,6 @@ def _make_judge_fn_or_none():
 
 def _make_evidence_judge_fn(attacker, budget):
     """Evidence judge prefers the judge-role model (tokens stay out-of-band).
-
     Falls back to the attacker client with a loud warning when the judge role
     is unconfigured so llm_points keeps working in key-limited environments.
     Returns (callable, model_name) - the model is recorded on ScanResult so
@@ -119,6 +123,26 @@ def _make_evidence_judge_fn(attacker, budget):
     )
 
 
+def _early_evidence_judge(trace, sandbox_root, evidence_judge_fn) -> None:
+    """Judge a single trace right after it ran (decision point 3, per-trace).
+
+    Runs only when the deterministic vuln-signal set is empty (metadata-class
+    signals such as shadow/rug probes are scan side-effects and must not
+    block the judge - real-target regression: filesystem allowlist-escape).
+    The verdict lands on the trace so the retrospective can feed it back to
+    the attacker: a judge that debunks a hallucinated "I got in" gives the
+    attacker the concrete reason to retry differently.
+    """
+    if trace.llm_evidence_verdict is not None:
+        return
+    signals, _ = verify_trace(trace, sandbox_root)
+    vuln_signals = [s for s in signals if s.signal_id not in _METADATA_ONLY_SIGNALS]
+    if not vuln_signals:
+        try:
+            trace.llm_evidence_verdict = evidence_judge_fn(trace)
+        except Exception:
+            _log.warning("early evidence judge failed for %s@%s",
+                         trace.vuln_class, trace.target)
 
 
 async def scan(
@@ -187,6 +211,16 @@ async def scan(
     clock = WallClock(wall_seconds=wall_seconds)
     attacker = make_client("attacker", temperature=attacker_temperature, seed=seed)
     judge_fn = _make_judge_fn_or_none()
+    # Stage-2 evidence judge: constructed up-front so every zero-signal trace
+    # is judged IMMEDIATELY after execution (not at the end). The verdict feeds
+    # the retrospective (decision point 2): a judge that debunks a "I got in"
+    # hallucination gives the attacker the real reason to retry differently.
+    evidence_judge_fn = None
+    evidence_judge_model = ""
+    if llm_points:
+        evidence_judge_fn, evidence_judge_model = _make_evidence_judge_fn(
+            attacker, budget
+        )
 
     traces: list[AttackTrace] = []
     tools_seen: list[str] = []
@@ -280,6 +314,11 @@ async def scan(
                     sandbox_root=sandbox_root,
                 )
                 traces.append(trace)
+                # Evidence-judge THIS trace now (zero-signal only) so the
+                # retrospective below can consume the verdict and tell the
+                # attacker to retry differently when a claim was debunked.
+                if evidence_judge_fn is not None:
+                    _early_evidence_judge(trace, sandbox_root, evidence_judge_fn)
                 if decisions is not None:
                     decisions.append(PlannerDecision(
                         port=port,
@@ -335,15 +374,6 @@ async def scan(
                         traces.append(follow_trace)
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
-
-    # Stage-2 LLM decision point 3: evidence judgment. Only active under
-    # llm_points; the closure grounds every verdict on real call results.
-    evidence_judge_fn = None
-    evidence_judge_model = ""
-    if llm_points:
-        evidence_judge_fn, evidence_judge_model = _make_evidence_judge_fn(
-            attacker, budget
-        )
 
     findings, _ = build_findings(
         traces, trace_dir=trace_dir, budget=budget, judge_fn=judge_fn,

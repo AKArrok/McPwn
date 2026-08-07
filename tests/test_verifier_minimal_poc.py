@@ -5,7 +5,13 @@ call, so `findings.md`/`poc/*.py` stay noise-free.
 from __future__ import annotations
 
 from mcp_redteam.agent.verifier import build_findings
-from mcp_redteam.contracts import AttackTrace, McpCall, VulnClass
+from mcp_redteam.contracts import (
+    AttackTrace,
+    EvidenceSignal,
+    LlmEvidenceVerdict,
+    McpCall,
+    VulnClass,
+)
 
 
 def _mkcall(text: str, name: str = "run", args: dict | None = None) -> McpCall:
@@ -244,3 +250,77 @@ def test_planning_language_not_marked():
     )
     build_findings([trace], trace_dir=None)
     assert trace.suspected_hallucination is False
+
+
+def test_metadata_signal_does_not_block_evidence_judge(monkeypatch):
+    """Real-target regression (filesystem 0.6.2 allowlist-escape): the trace
+    carried one metadata-class signal (shadow_tool_behavior_divergence) which
+    used to make `not signals` false and silently skip the evidence judge -
+    hiding a genuine CVE finding. Metadata signals must not block the judge."""
+    import mcp_redteam.agent.verifier as verifier_mod
+
+    def fake_verify(trace, sandbox_root):
+        return [
+            EvidenceSignal(
+                signal_id="shadow_tool_behavior_divergence",
+                severity="medium",
+                matched_text="divergence",
+                source_call_index=0,
+            )
+        ], 0.3
+
+    monkeypatch.setattr(verifier_mod, "verify_trace", fake_verify)
+
+    def judge(trace):
+        return LlmEvidenceVerdict(
+            is_finding=True,
+            vuln_class=VulnClass.PATH_TRAVERSAL,
+            evidence_call_index=0,
+            evidence_text="FS-SECRET-OUTSIDE-2026",
+            confidence=0.9,
+            reason="read outside allowlist via junction",
+        )
+
+    trace = AttackTrace(
+        vuln_class=VulnClass.PATH_TRAVERSAL,
+        target="read_file",
+        strategy_card_slug="path_traversal",
+        recon_calls=[],
+        attack_calls=[
+            _mkcall("FS-SECRET-OUTSIDE-2026", name="read_file",
+                    args={"path": "C:/tmp/mcpwn-fs/evil-junction/secret.txt"}),
+        ],
+        final_llm_output="probed",
+    )
+    findings, _ = build_findings([trace], trace_dir=None, evidence_judge_fn=judge)
+    assert findings, "evidence judge must still run despite a metadata signal"
+    assert findings[0].confidence >= 0.6
+
+
+def test_metadata_signal_alone_still_no_finding(monkeypatch):
+    """A metadata-only signal (no judge, or judge declining) stays below the
+    0.6 threshold and must not produce a finding."""
+    import mcp_redteam.agent.verifier as verifier_mod
+
+    def fake_verify(trace, sandbox_root):
+        return [
+            EvidenceSignal(
+                signal_id="shadow_tool_behavior_divergence",
+                severity="medium",
+                matched_text="divergence",
+                source_call_index=0,
+            )
+        ], 0.3
+
+    monkeypatch.setattr(verifier_mod, "verify_trace", fake_verify)
+
+    trace = AttackTrace(
+        vuln_class=VulnClass.PATH_TRAVERSAL,
+        target="read_file",
+        strategy_card_slug="path_traversal",
+        recon_calls=[],
+        attack_calls=[_mkcall("probe")],
+        final_llm_output="probed",
+    )
+    findings, _ = build_findings([trace], trace_dir=None, evidence_judge_fn=lambda t: None)
+    assert findings == []
