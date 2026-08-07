@@ -52,13 +52,14 @@ attacker 按 ssrf 卡走完整探测链:良性确认(example.com)→ 回环端�
    密码键值对(fetch 实际拒绝 file://,无真实泄漏)。修复:
    `_HARDCODED_PW_RE` 加前缀负向断言 `(?<![/a-zA-Z0-9])`(路径/URL 片段不再
    触发;`root_passwd: x` 仍触发),新增 3 条回归测试(tests/signals/test_leaks.py)。
-2. **llm_points 假设抢占 trade-off(如实记录,未改核心)**:llm 轮连续 3 次
+2. **llm_points 假设抢占 trade-off(已修复,2026-08)**:llm 轮曾连续 3 次
    **miss** SSRF(1 次误报 + 2 次 0 findings),标准 scan 却一次即中。机制:
    三决策点的假设生成给新假设 score=0.99 排最前,而 recon 已正确分类
    `SSRF@fetch`(0.85);LLM 假设(cmd_injection / indirect_injection /
-   path_traversal)错误时把正确候选挤出 30k 预算。这是 unknown-shape 场景的
-   **必要设计**(vault/delegate 靠它把逻辑型假设排前),代价是"recon 已正确"
-   的场景会被带偏。是否调整排序策略是核心设计决策,留给用户拍板(见 HANDOFF)。
+   path_traversal)错误时把正确候选挤出 30k 预算。**修复 = LLM 假设预算池**
+   (`scan(llm_hyp_budget=...)`,默认 `max_tokens*0.4`;`Candidate.origin` 标记
+   假设来源,池尽截断/跳过,runner + langgraph 双路径;unknown-shape 实验
+   显式传 -1 禁用)。**修复后 fetch llm 轮命中 SSRF 0.75**。详见 HANDOFF_NEXT 第 9 条。
 
 ### 确定性证明
 `prove.py`:fetch("http://127.0.0.1:9211/") 返回 `TOP-SECRET-INTRANET-2026` +
