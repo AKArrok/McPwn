@@ -116,3 +116,25 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
 5. 注意：llm-points 组 9010 仅 1 个 candidate 即烧穿 40k 预算（假设生成 2 采样 +
    首个 trace 50 calls）→ 0 findings；与非 llm-points 组的 2-3 findings 差异是
    预算分配现实，非回归；judge 判定诚实否定未产生假阳性。
+
+---
+
+## 6. DVMCP 全 10 港 graph-vs-runner 对比（2026-08-06）
+
+> 方法: `eval/dvmcp/runner.py` 的 `run_all` 加 `graph` 参数后跑两轮（runner →
+> reset DVMCP → graph），预算 max_tokens=20000 / wall=300s。脚本与产物:
+> `runs/lg_b_dvmcp_full/{compare.py, COMPARE.md, runner/, graph/}`（runs/ 忽略区）。
+
+| 指标 | runner | graph |
+|---|---|---|
+| recall | 0.80 (8/10) | **0.90 (9/10)** |
+| FPR | 0.00 | 0.00 |
+| poc_replay_pass_rate | 1.00 (5/5) | 1.00 (5/5) |
+| avg_findings/port | 1.2 | 0.9 |
+
+逐港: 9001/9002/9003/9005/9007/9008/9009/9010 两版一致命中; 9006 两版都 miss
+(indirect 弱港); **9004 (Rug Pull) runner miss、graph hit** —— 唯一差异。
+
+对照 HANDOFF §10 验收（≥8/10 recall / 0 FPR / 5/5 replay）: **graph 9/10 满足
+且严格更优; FPR 0; replay 5/5**。9004 差异可能含 LLM 漂移(N=1), 但方向是
+"graph 不劣于 runner" 且额外命中一港。
