@@ -34,11 +34,12 @@
 - **prove(确定性)**:PASS——(a) sibling 前缀碰撞、(b) 沙箱内 junction 指向外部,
   均越权读到 `FS-SECRET-OUTSIDE-2026`(CVE-2025-53110/53109 本体)。
 - **标准 scan(3 次)**:0 findings(无 judge 通道,确定性信号全静默——预期,不判失败)。
-- **llm_points 轮(4 次)**:2/4 命中——`path_traversal@search_files 0.75` 与
-  `path_traversal@move_file 0.85`。命中形态:attacker `list_directory(evil-junction)`
-  返回外部目录内容(`[FILE] secret.txt`),judge 认账("junction point inside the
-  allowed directory that points outside returned content of the external
-  directory")。
+- **llm_points 轮**:引导前 2/4 命中(`search_files 0.75` / `move_file 0.85`);
+  **"先阅读后动手"引导后 2/3**(`create_directory 0.75` / `move_file 0.75`)。
+  命中形态:attacker 先 `list_directory` 发现沙箱内 junction → `get_file_info`
+  确认 → 沿 junction 越权读/写/列举(6 calls 即中),judge 认账("junction point
+  inside the allowed directory that points outside returned content of the
+  external directory")。
 - **判定机制(2026-08 增强)**:evidence judge 提前到每 trace 后判定 + 判定喂回
   复盘(attacker 幻觉自认打进去 → judge 揭穿 is_finding=false + reason → 复盘
   修正方向重试)。命中率仍受 attacker 探索路径随机性限制(试 move_file/read_file

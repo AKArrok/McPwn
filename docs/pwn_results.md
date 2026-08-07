@@ -222,4 +222,24 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
 | delegate-mcp | CWE-639 授权作用域（泛化） | 0 | **3/3 PASS**（第 4 轮） | owner 不可猜 fixture + 卡第 6 步执行引导 |
 | fetch（真实） | SSRF（设计特性） | — | **scan 1 finding 0.75** | 信号假阳性修复 + llm 抢占 trade-off 修复（hyp budget pool） |
 | git（真实，修复版） | 参数注入/路径校验（CVE 已修） | — | **0 findings（FPR ✓）** | std + llm 双配置 0 误报 |
-| filesystem（真实，修复版） | allowlist 绕过（CVE 已修） | — | **0 findings（FPR ✓）** | std + llm 双配置 0 误报;漏洞版 schema 不兼容未做 |
+| filesystem（真实，修复版） | allowlist 绕过（CVE 已修） | — | **0 findings（FPR ✓）** | std + llm 双配置 0 误报;漏洞版验证见下 |
+| filesystem 0.6.2（真实，漏洞版） | allowlist 绕过（CVE-2025-53109/53110） | — | **prove PASS + llm 2/3**（path_traversal 0.75/0.85） | sibling 前缀碰撞 + junction 越权,judge 认账 |
+
+---
+
+## 11. 机制改进（2026-08, 由真实靶机验证驱动）
+
+1. **evidence judge 提前 + 判定喂回复盘**（`dd5f13f` 之前的 `d7b7d92`）:
+   attacker 幻觉自认"打进去了"时, judge 立即揭穿（is_finding=false + reason）,
+   复盘把判定喂回 attacker, 依据真实失败原因重试而非重复相同动作。
+2. **metadata 弱信号不阻塞 judge**（`d7b7d92`）: shadow/rug/drift 等探测副作用
+   不再让 0 信号 trace 跳过 judge（filesystem 0.6.2 回归暴露: 一个 shadow
+   medium 信号曾藏掉真实 CVE finding）。
+3. **attacker "先阅读后动手"**（`dd5f13f`）: 通读工具面判断最可能漏洞方向后
+   再打（allowlist 沙箱 → 先查 junction/symlink/前缀碰撞）, 第一波从该方向
+   开始; path_traversal 卡同步补链接面/前缀碰撞绕过条目。filesystem 0.6.2
+   命中率 1/3 → 2/3, 命中 run 仅 6 calls（先 list 发现 junction → 沿 junction
+   越权写, judge 0.85 认账）。
+4. **桥通用化**（`8b3b605`）: stdio→SSE 透传桥支持任意 stdio 命令 +
+   tolerant list_tools（旧版缺 inputSchema.type 时补 type, adapter-only）。
+5. **SSRF 信号变体修复**（`ade6ca2`）: hex-encoded IP / IPv6 回环 / IIS banner。
