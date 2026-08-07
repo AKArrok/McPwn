@@ -62,11 +62,23 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=9210)
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--stdio", default=None,
+        help="stdio command + args to bridge (single string, shlex-split). "
+             "Default: the mcp-server-fetch console script next to this venv.",
+    )
     args = parser.parse_args()
 
     global _tools, _session
-    cmd = _fetch_command()
-    params = StdioServerParameters(command=cmd[0], args=cmd[1:])
+    if args.stdio:
+        import shlex
+
+        # posix=False: keep backslashes in Windows paths intact
+        parts = shlex.split(args.stdio, posix=False)
+        params = StdioServerParameters(command=parts[0], args=parts[1:])
+    else:
+        cmd = _fetch_command()
+        params = StdioServerParameters(command=cmd[0], args=cmd[1:])
     async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
         await session.initialize()
         res = await session.list_tools()
