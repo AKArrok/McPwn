@@ -78,3 +78,14 @@ def test_origin_llm_hypothesis_marks_hypotheses():
     assert len(cands) == 1
     assert cands[0].origin == "llm_hypothesis"
     assert cands[0].score == 0.99
+
+
+def test_resolve_llm_hyp_budget_semantics():
+    from mcp_redteam.orchestrator.runner import _resolve_llm_hyp_budget
+
+    # default: 40% of max_tokens
+    assert _resolve_llm_hyp_budget(30000, None) == 12000
+    # -1 disables the pool (legacy unbounded, unknown-shape experiments)
+    assert _resolve_llm_hyp_budget(30000, -1) is None
+    # explicit override wins
+    assert _resolve_llm_hyp_budget(30000, 5000) == 5000
