@@ -85,10 +85,14 @@ MCP server 都有效。
 - **verifier 只判"是否可疑 + 属于哪一类"**,不判成功/失败;最终是否是真漏洞由人类阅读 `findings.md` 决定。
 - **Finding 置信度**由信号加权合成:`confidence = 1 - prod(1 - w_i)`
   (critical=0.95 / high=0.75 / medium=0.5 / low=0.3),LLM 二审同意 +0.1、反对 -0.2;
-  `confidence >= 0.6` 才进 `findings.md`,否则只留在 `traces` 里。
+  `confidence >= 0.6` 才进 `findings.md`,否则只留在 `traces` 里。计权前先去重:
+  同 `signal_id` 取最高严重度;同一调用返回文本命中的多条泄露类信号
+  (`leaks_*` / `sandbox_escape_*` / `ssrf_*`) 视为同一证据事件只计最高权重,
+  防同一份泄露被反复计权导致置信度虚高。
 - **L2 judge 窄覆盖**:judge LLM 只在 `indirect_injection` / `chain_composition`
   两类 trace 上二审,且单条 medium 信号不过 0.6 阈值,必须与确定性 L1 信号
-  同 trace 共现才成 finding——把 judge 幻觉的爆炸半径封顶。
+  同 trace 共现才成 finding——把 judge 幻觉的爆炸半径封顶;judge 引用的
+  `evidence_call_index` 越界时降级为 not-steered,不产出信号。
 
 ## 快速开始
 
@@ -223,16 +227,18 @@ eval/
   realworld/              excel-mcp CVE 回归(prove.py 双版本对照)
   unknown_shape/          vault-mcp 三阶段实验 + 提示词消融
   clean_baseline/         无漏洞 server 的 FPR baseline
-tests/                    单元/回归测试(pytest, 209 passed)
+tests/                    单元/回归测试(pytest, 数量见 CI badge)
 docs/                     pipeline.md(端到端链路) / agent_chain.md / pwn_results.md
+scripts/                  check_docs.py(文档 vs 代码 vs pyproject 一致性校验,CI 挂载)
 ```
 
 ## 开发
 
 ```bash
-pytest                       # 全部测试(209 passed)
+pytest                       # 全部测试(数量见 CI badge)
 ruff check mcp_redteam eval  # lint(0 errors)
 mcpwn lint-cards             # 策略卡校验
+python scripts/check_docs.py # 文档 vs 代码 vs pyproject 一致性校验
 ```
 
 设计规约与增量施工见:

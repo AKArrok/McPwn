@@ -5,7 +5,11 @@
   ``EvidenceSignal.source_call_index`` 就是这个合并列表的下标(见 contracts.py)。
 - **输出**: `list[EvidenceSignal]`。 ``compute_confidence`` 用
   `1 - prod(1 - w_i)` 汇总,权重表来自 `contracts.SEVERITY_WEIGHT`,
-  重复 signal_id 会先按最高 severity 去重再乘,避免同证据被反复计入。
+  去重分两层:同 `signal_id` 按最高 severity 去重;内容族 (`leaks_*` /
+  `sandbox_escape_*` / `ssrf_*`) 命中同一 `source_call_index` 的信号视为
+  同一证据事件只留最高 severity,避免同一份返回文本被多条正则反复计权、
+  置信度虚高。跨族信号保持独立(如 L1 `stored_injection_roundtrip` +
+  L2 `llm_judged_injection` 同 call 仍相乘,维持 L1 锚定 L2 的组合语义)。
 - **状态**: 无。每个 detector 是纯函数。
 - **变换**: `detectors.py` 每条信号一个 `detect_<id>` 函数,`SIGNAL_META`
   是唯一元数据源(id → severity),`DETECTORS` 是唯一注册表。
@@ -43,5 +47,7 @@ judge twin (``make_judge_fn``) 在 indirect/chain trace 上合成;L2 单独不�
 0.6 阈值,须 L1 锚定才成 finding。v2 在 M2 扩展下加入了 ``stored_injection_roundtrip``
 (medium),用于 prompt-injection 类 L0/L1 判据。当前 ``DETECTORS`` 挂
 ``11 (base) + 2 (M2 扩展: shadow_tool_behavior_divergence,
-rug_pull_response_flip) + 1 (stored_injection_roundtrip)`` + 3 (M2.5 真实世界扩展: sandbox_escape_write, sandbox_escape_read, sandbox_escape_traversal)`` = 17 条;
+rug_pull_response_flip) + 1 (suspicious_error_pitch) + 1 (stored_injection_roundtrip)``
+``+ 3 (M2.5 真实世界扩展: sandbox_escape_write, sandbox_escape_read, sandbox_escape_traversal)``
+``+ 2 (SSRF: ssrf_cloud_metadata, ssrf_internal_service)`` = 20 条;
 ``llm_judged_injection`` 不在 ``DETECTORS`` 中 (verifier 合成)。
