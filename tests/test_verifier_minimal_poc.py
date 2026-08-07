@@ -192,3 +192,55 @@ def test_evidence_judge_ungrounded_verdict_is_ignored():
 
     findings, _ = build_findings([trace], trace_dir=None, evidence_judge_fn=lying_judge)
     assert not findings, "ungrounded verdict must not become a finding"
+
+
+def test_claim_mismatch_marks_trace_not_finding():
+    """Attacker claims to have exfiltrated /etc/passwd but no call returned
+    it: the trace is flagged suspected_hallucination (diagnostic only) yet
+    yields no finding (grounding gate still holds)."""
+    trace = AttackTrace(
+        vuln_class=VulnClass.PATH_TRAVERSAL,
+        target="read_file",
+        strategy_card_slug="path_traversal",
+        recon_calls=[],
+        attack_calls=[_mkcall("recon result"), _mkcall("permission denied")],
+        final_llm_output="I successfully leaked root:x:0:0:root:/root:/bin/bash",
+    )
+    findings, _ = build_findings([trace], trace_dir=None)
+    assert not findings, "hallucinated claim must not become a finding"
+    assert trace.suspected_hallucination is True
+
+
+def test_grounded_claim_not_marked():
+    """The same claim backed by a real call result (passwd line actually
+    returned) fires a leak signal, so the claim is grounded - not a suspected
+    hallucination."""
+    trace = AttackTrace(
+        vuln_class=VulnClass.PATH_TRAVERSAL,
+        target="read_file",
+        strategy_card_slug="path_traversal",
+        recon_calls=[],
+        attack_calls=[
+            _mkcall("root:x:0:0:root:/root:/bin/bash\n", name="read_file",
+                    args={"path": "/etc/passwd"}),
+        ],
+        final_llm_output="I successfully leaked root:x:0:0:root:/root:/bin/bash",
+    )
+    findings, _ = build_findings([trace], trace_dir=None)
+    assert findings, "grounded leak must still produce a finding"
+    assert trace.suspected_hallucination is False
+
+
+def test_planning_language_not_marked():
+    """'I will try to read /etc/passwd' is planning, not a claim of success:
+    must not be flagged as a suspected hallucination."""
+    trace = AttackTrace(
+        vuln_class=VulnClass.PATH_TRAVERSAL,
+        target="read_file",
+        strategy_card_slug="path_traversal",
+        recon_calls=[],
+        attack_calls=[_mkcall("recon result")],
+        final_llm_output="I will try to read /etc/passwd next",
+    )
+    build_findings([trace], trace_dir=None)
+    assert trace.suspected_hallucination is False

@@ -1152,22 +1152,60 @@ def run_all_signals(
     return results
 
 
+# Content-signal families: detectors within one family inspect the same call
+# result (e.g. one leaked blob tripping leaks_etc_passwd AND
+# leaks_shadow_hash). Same-family signals on the same call are one evidence
+# event and must not multiply their weights. Cross-family signals (e.g. an L1
+# stored_injection_roundtrip plus an L2 llm_judged_injection that both cite the
+# same call) remain independent - they are different evidence events.
+_CONTENT_FAMILIES = frozenset({"leaks", "sandbox", "ssrf"})
+
+
+def _signal_family(signal_id: str) -> str:
+    return signal_id.split("_", 1)[0] if "_" in signal_id else signal_id
+
+
 def _dedup_signals(signals: list[EvidenceSignal]) -> list[EvidenceSignal]:
-    """Keep the highest-severity signal per ``signal_id``.
+    """Keep the highest-severity signal per ``signal_id``, then collapse
+    same-source content signals.
 
     Callers that aggregate signals across multiple traces or across calls to
     ``run_all_signals`` must not double-count the same id; the
     ``1 - prod(1 - w_i)`` combiner assumes independent evidence.
+
+    Second pass: content-family signals (``leaks_*``, ``sandbox_escape_*``,
+    ``ssrf_*``) that cite the *same* call are the same evidence event, not
+    independent ones - one leaked blob can trip ``leaks_etc_passwd`` AND
+    ``leaks_shadow_hash`` in a single ``call_tool`` result. Multiplying their
+    weights would inflate confidence toward 1.0 for what is one leak.
+    Same-family signals on the same call are grouped and only the highest-
+    severity member survives. Signals without a call index, signals from other
+    families (behavioural cross-call detectors, the L2 judge twin) stay
+    independent.
     """
-    best: dict[str, EvidenceSignal] = {}
+    best_by_id: dict[str, EvidenceSignal] = {}
     for s in signals:
-        cur = best.get(s.signal_id)
+        cur = best_by_id.get(s.signal_id)
         if cur is None:
-            best[s.signal_id] = s
+            best_by_id[s.signal_id] = s
             continue
         if SEVERITY_ORDER.index(s.severity) > SEVERITY_ORDER.index(cur.severity):
-            best[s.signal_id] = s
-    return list(best.values())
+            best_by_id[s.signal_id] = s
+    best_by_family_source: dict[tuple[str, int], EvidenceSignal] = {}
+    independent: list[EvidenceSignal] = []
+    for s in best_by_id.values():
+        family = _signal_family(s.signal_id)
+        if s.source_call_index is not None and family in _CONTENT_FAMILIES:
+            key = (family, s.source_call_index)
+            cur = best_by_family_source.get(key)
+            if cur is None:
+                best_by_family_source[key] = s
+                continue
+            if SEVERITY_ORDER.index(s.severity) > SEVERITY_ORDER.index(cur.severity):
+                best_by_family_source[key] = s
+        else:
+            independent.append(s)
+    return independent + list(best_by_family_source.values())
 
 
 def compute_confidence(

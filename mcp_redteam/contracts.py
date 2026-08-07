@@ -111,6 +111,13 @@ class AttackTrace(BaseModel):
     # signal library structurally misses a flaw, this LLM decision point may
     # still ground a finding on a real call result. None = not run / nothing.
     llm_evidence_verdict: LlmEvidenceVerdict | None = None
+    # Trace-level hallucination marker (diagnostic only, never a finding):
+    # the attacker's final_llm_output claimed to have exfiltrated a sensitive
+    # artifact (e.g. /etc/passwd, an API key) but NO signal found that content
+    # in any real call result. Set by verifier.build_findings; persisted with
+    # the trace so calibration runs can quantify attacker hallucination
+    # without polluting findings.
+    suspected_hallucination: bool = False
 
     @model_validator(mode="after")
     def _slug_matches_vuln_class(self) -> AttackTrace:

@@ -94,6 +94,24 @@ def test_e_non_l2_class_judge_not_called():
     assert j.calls == 0, "judge must not run for non-L2 classes"
 
 
+def test_j_steered_out_of_range_index_downgraded():
+    """Anti-hallucination gate: a steered verdict citing a call index that
+    does not exist must NOT add an L2 signal (the judge LLM may fabricate an
+    anchor). The verdict is still persisted on the trace for debugging, but
+    it cannot contribute confidence to a finding."""
+    j = FakeJudge(JudgeVerdict(steered=True, evidence_call_index=999, reason="r"))
+    trace = _indirect(_BENIGN_CALLS)
+    f, per = build_findings([trace], trace_dir=None, judge_fn=j)
+    assert not f
+    sigs = per["indirect_injection::notes://x"]
+    assert not any(
+        s.signal_id == "llm_judged_injection" for s in sigs
+    ), "out-of-range citation must not become a signal"
+    assert trace.judge_verdict is not None, "verdict still persisted for debugging"
+    assert trace.judge_verdict.steered is True
+    assert trace.judge_verdict.evidence_call_index == 999
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
