@@ -166,7 +166,7 @@ def ping_models(
 
 @app.command("lint-cards")
 def lint_cards() -> None:
-    """Load and lint all 7 vuln-class strategy cards."""
+    """Load and lint all 8 vuln-class strategy cards."""
     from mcp_redteam.vulns.registry import VULN_SLUGS, lint_all_cards
 
     errors = lint_all_cards()

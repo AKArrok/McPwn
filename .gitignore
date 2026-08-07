@@ -21,6 +21,9 @@ runs/*
 .mypy_cache/
 .idea/
 .vscode/
+# Reasonix local session/permission files — 本机工具状态, 不推远端
+.reasonix/
+reasonix.toml
 # Local real-world target scratch (not part of repo fixtures)
 eval_real_world/
 targets/excel-mcp-server/
