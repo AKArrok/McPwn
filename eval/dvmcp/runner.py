@@ -74,6 +74,7 @@ async def run_all(
     max_tokens: int = 30000,
     wall_seconds: int = 240,
     planner_mode: str = "hardcoded",
+    graph: bool = False,
 ) -> Path:
     expected_data = _load_expected()
     expected_by_port: dict[int, dict] = {
@@ -98,6 +99,7 @@ async def run_all(
                 wall_seconds=wall_seconds,
                 planner_mode=planner_mode,
                 decisions=decisions,
+                graph=graph,
             )
             write_findings(result, port_dir)
         except Exception as exc:
