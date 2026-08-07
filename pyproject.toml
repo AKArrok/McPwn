@@ -1,7 +1,7 @@
 [project]
 name = "mcpwn"
 version = "0.1.0"
-description = "MCP red-team benchmark against Damn Vulnerable MCP Server (DVMCP)"
+description = "MCP red-team agent: autonomous vulnerability discovery for MCP servers (agent-first; DVMCP as regression fixture)"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

@@ -141,6 +141,60 @@ _REMEDIATION: dict[str, str] = {
 _L2_CLASSES = frozenset({VulnClass.INDIRECT_INJECTION, VulnClass.CHAIN_COMPOSITION})
 
 
+# ── trace-level hallucination marker (diagnostic, never a finding) ──────────
+
+# Signal families that prove the server actually returned sensitive content.
+# When any of these fired, a claim in final_llm_output is grounded; when none
+# fired, the same claim is a suspected fabrication.
+_CONTENT_SIGNAL_PREFIXES = (
+    "leaks_",
+    "sandbox_escape_read",
+    "ssrf_",
+    "llm_evidence_verdict",
+)
+
+# Sensitive artifacts the attacker might claim to have exfiltrated. Deliberately
+# narrow: we flag concrete claims (passwd/shadow shapes, private keys, API-key
+# shapes, flags), not generic "I read a file" language.
+_LEAK_CLAIM_RE = re.compile(
+    r"(?:root:x:0:0|daemon:x:1:1|\$[156y]\$|"
+    r"BEGIN (?:OPENSSH|RSA|EC|DSA) PRIVATE KEY|"
+    r"sk-[a-zA-Z0-9]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|"
+    r"flag\{)",
+    re.IGNORECASE,
+)
+
+# Success-assertion words; the claim must be stated as accomplished, not as a
+# plan ("I will try to read /etc/passwd" is planning, not hallucination).
+_SUCCESS_CLAIM_RE = re.compile(
+    r"\b(successfully|leaked|obtained|extracted|exfiltrated|retrieved|got)\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_claim_mismatch(
+    trace: AttackTrace, signals: list[EvidenceSignal]
+) -> bool:
+    """Flag traces whose final LLM output claims a leak no signal supports.
+
+    The attacker's ``final_llm_output`` is never evidence (grounding
+    invariant), but a confident claim of having exfiltrated a sensitive
+    artifact that NO signal found in any real call result is itself a
+    diagnostic: the model likely fabricated the outcome. This is recorded on
+    the trace (``suspected_hallucination``) for calibration and debugging; it
+    never creates or inflates a finding.
+    """
+    if not trace.final_llm_output:
+        return False
+    if not _LEAK_CLAIM_RE.search(trace.final_llm_output):
+        return False
+    if not _SUCCESS_CLAIM_RE.search(trace.final_llm_output):
+        return False
+    return not any(
+        s.signal_id.startswith(_CONTENT_SIGNAL_PREFIXES) for s in signals
+    )
+
+
 # Re-export JudgeVerdict from contracts for backward compat. Canonical
 # type lives in mcp_redteam.contracts (pydantic) so it can be a field on
 # AttackTrace. Tests and external consumers can still import from here.
@@ -264,12 +318,27 @@ def _maybe_add_l2_signal(
         trace.judge_verdict = verdict
     if verdict is None or not verdict.steered:
         return signals
+    idx = verdict.evidence_call_index
+    all_calls = list(trace.recon_calls) + list(trace.attack_calls)
+    if idx is not None and not (0 <= idx < len(all_calls)):
+        # Anti-hallucination gate: the judge LLM may invent a call index that
+        # points nowhere. An out-of-range citation is not evidence of
+        # anything - downgrade to not-steered rather than emit a signal that
+        # anchors on a non-existent call.
+        _log.warning(
+            "L2 judge cited out-of-range evidence_call_index=%r on %s/%s; "
+            "downgraded to not-steered",
+            idx,
+            trace.vuln_class.value,
+            trace.target,
+        )
+        return signals
     return signals + [
         EvidenceSignal(
             signal_id="llm_judged_injection",
             severity="medium",
-            matched_text=f"judge:steered evidence_call_index={verdict.evidence_call_index}",
-            source_call_index=verdict.evidence_call_index,
+            matched_text=f"judge:steered evidence_call_index={idx}",
+            source_call_index=idx,
         )
     ]
 
@@ -381,6 +450,7 @@ def build_findings(
                     llm_verdict = verdict
 
         confidence = compute_confidence(signals) if signals else 0.0
+        trace.suspected_hallucination = _detect_claim_mismatch(trace, signals)
         trace_key = f"{trace.vuln_class.value}::{trace.target}"
         per_trace[trace_key] = signals
 

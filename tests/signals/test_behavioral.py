@@ -128,6 +128,54 @@ def test_compute_confidence():
     assert compute_confidence([med_a], llm_agrees=False) < 0.5
 
 
+def test_compute_confidence_same_source_collapsed():
+    """Two leak ids citing the SAME call are one evidence event, not two
+    independent ones: confidence must be 0.95 (one critical), not 0.9975."""
+    from mcp_redteam.contracts import EvidenceSignal
+
+    leak_a = EvidenceSignal(
+        signal_id="leaks_etc_passwd", severity="critical",
+        matched_text="root:x:0:0", source_call_index=3,
+    )
+    leak_b = EvidenceSignal(
+        signal_id="leaks_shadow_hash", severity="critical",
+        matched_text="$6$abc", source_call_index=3,
+    )
+    assert abs(compute_confidence([leak_a, leak_b]) - 0.95) < 1e-6
+
+
+def test_compute_confidence_different_sources_stay_independent():
+    """Same two leak ids on DIFFERENT calls remain independent: two leaks."""
+    from mcp_redteam.contracts import EvidenceSignal
+
+    leak_a = EvidenceSignal(
+        signal_id="leaks_etc_passwd", severity="critical",
+        matched_text="root:x:0:0", source_call_index=3,
+    )
+    leak_b = EvidenceSignal(
+        signal_id="leaks_shadow_hash", severity="critical",
+        matched_text="$6$abc", source_call_index=7,
+    )
+    assert abs(compute_confidence([leak_a, leak_b]) - 0.9975) < 1e-6
+
+
+def test_compute_confidence_cross_family_stays_independent():
+    """L1 stored_injection_roundtrip + L2 llm_judged_injection may cite the
+    same call but are different evidence events (carrier exists vs behaviour
+    steered): they must multiply, not collapse."""
+    from mcp_redteam.contracts import EvidenceSignal
+
+    s1 = EvidenceSignal(
+        signal_id="stored_injection_roundtrip", severity="medium",
+        matched_text="x", source_call_index=1,
+    )
+    s2 = EvidenceSignal(
+        signal_id="llm_judged_injection", severity="medium",
+        matched_text="y", source_call_index=1,
+    )
+    assert abs(compute_confidence([s1, s2]) - 0.75) < 1e-6
+
+
 def test_stored_injection_roundtrip_fires_on_read_resource_uri_reflection():
     """Reflected canary placed in a read_resource URI must count as a
     roundtrip: the marker is user-controlled input even though McpCall keeps

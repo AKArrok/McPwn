@@ -47,6 +47,13 @@ jobs:
         # than the editable install.
         run: pytest tests/ -v
 
+      - name: Check docs facts vs code
+        # Locks doc/code consistency: test counts, signal counts, strategy
+        # card counts, package-data globs, cli command names. When adding a
+        # machine-checkable claim to any doc, add a rule in
+        # scripts/check_docs.py instead of hand-syncing the number.
+        run: python scripts/check_docs.py
+
       - name: Fail loudly on any stale baseline drift
         if: always()
         run: |
