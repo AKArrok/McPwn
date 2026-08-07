@@ -92,6 +92,27 @@ def test_private_range_probe_fires_on_banner():
     assert detect_ssrf_internal_service([call], "") is not None
 
 
+def test_hex_encoded_loopback_fires_on_banner():
+    """Regression (real fetch target): attacker used 0x7f000001 (hex-encoded
+    127.0.0.1) per the ssrf card and hit a real IIS banner, but the arg gate
+    did not recognize hex-encoded IPv4 -> missed. Now must fire."""
+    call = _mk(
+        "<p>IIS Windows</p>",
+        args={"url": "http://0x7f000001/"},
+    )
+    sig = detect_ssrf_internal_service([call], "")
+    assert sig is not None
+    assert sig.signal_id == "ssrf_internal_service"
+
+
+def test_ipv6_loopback_fires_on_banner():
+    call = _mk(
+        "Welcome to nginx!",
+        args={"url": "http://[::1]:80/"},
+    )
+    assert detect_ssrf_internal_service([call], "") is not None
+
+
 def test_internal_gate_requires_target_in_args():
     call = _mk("Welcome to nginx!", args={"url": "http://example.com/"})
     assert detect_ssrf_internal_service([call], "") is None

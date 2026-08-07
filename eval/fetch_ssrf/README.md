@@ -52,6 +52,11 @@ attacker 按 ssrf 卡走完整探测链:良性确认(example.com)→ 回环端�
    密码键值对(fetch 实际拒绝 file://,无真实泄漏)。修复:
    `_HARDCODED_PW_RE` 加前缀负向断言 `(?<![/a-zA-Z0-9])`(路径/URL 片段不再
    触发;`root_passwd: x` 仍触发),新增 3 条回归测试(tests/signals/test_leaks.py)。
+1b. **信号漏报(已修复)**:ssrf 卡模板教的十六进制 IP(`0x7f000001`)与 IPv6
+   回环(`[::1]`)命中真实 IIS banner 时 `ssrf_internal_service` 不触发——
+   `_INTERNAL_ARG_RE` 缺 hex/IPv6 变体、`_INTERNAL_BANNER_RE` 缺 `IIS` 变体
+   (真实 HTTP.sys 默认页是 "IIS Windows" 而非 "Microsoft-IIS")。修复两个
+   正则 + 2 条测试(tests/signals/test_ssrf.py)。
 2. **llm_points 假设抢占 trade-off(已修复,2026-08)**:llm 轮曾连续 3 次
    **miss** SSRF(1 次误报 + 2 次 0 findings),标准 scan 却一次即中。机制:
    三决策点的假设生成给新假设 score=0.99 排最前,而 recon 已正确分类

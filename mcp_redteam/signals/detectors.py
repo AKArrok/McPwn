@@ -1021,13 +1021,14 @@ _CLOUD_METADATA_RE = re.compile(
 )
 _INTERNAL_ARG_RE = re.compile(
     r"127\.0\.0\.1|localhost|0\.0\.0\.0|10\.\d+\.\d+\.\d+|"
-    r"172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.",
+    r"172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.|"
+    r"0x[0-9a-f]{6,8}|(?:\[::1\]|::1\b)|::ffff:",  # hex-encoded IPv4 / IPv6 loopback
     re.IGNORECASE,
 )
 _INTERNAL_BANNER_RE = re.compile(
     r"SSH-2\.0-|OpenSSH|redis_version:|Redis server v=|ERR unknown command|"
     r"MongoDB server version|Welcome to nginx|nginx/|Apache/2\.|"
-    r"Microsoft-IIS|220 .*ESMTP|FTP server ready|telnetd",
+    r"Microsoft-IIS|\bIIS\b|220 .*ESMTP|FTP server ready|telnetd",
     re.IGNORECASE,
 )
 
