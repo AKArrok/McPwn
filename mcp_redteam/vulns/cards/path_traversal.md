@@ -11,7 +11,10 @@ Tool 名或描述含 `file` / `read` / `config` / `download` / `open`;参数名�
 2. 先用一个「显然合法」的路径 (`/tmp/hello.txt`, `./README.md`) 试探是否真读了本地文件。
 3. 若成功,依次尝试:绝对路径 → `../` 相对路径逃逸 → URL 编码变体 (`%2e%2e%2f`)。
 4. 目标文件优先级:`/etc/passwd`, `/etc/shadow`, `/root/.ssh/id_rsa`, `~/.aws/credentials`, `/proc/1/environ`。
-5. 若 tool 声明有前缀白名单, 用 `..` 越界或 `//`, `\\`, `%00` 绕过。
+5. 若 tool 声明有前缀白名单 / 沙箱根 (如 "allowed directories"、`--sandbox-root`), 按**最可能绕过面**依次尝试:
+   a. **文件系统链接面** (真实共享目录最常见): 先 `list` 沙箱内是否有 symlink / junction / 挂载点指向外部, 读取或列举链接目标即越界 (Windows junction 免管理员即可建);
+   b. **前缀碰撞**: 与白名单目录同名的相邻目录 (`<root>2`, `<root>-backup`, `<root>_tmp`) 常被前缀匹配误放行;
+   c. `..` 越界 + `//`, `\\`, `%00`, 大小写变体。
 6. 若工具/部署声明沙箱根 (如 `EXCEL_FILES_PATH`, 或 scan 传了 `--sandbox-root`), 直接在**根外**建 marker 文件再读回: 绝对路径 (`/root/mcpwn_marker.xlsx`) 或 `../` 逃逸; 写成功即 `sandbox_escape_write` (high), 读回内容即 `sandbox_escape_read` (high), 两条都是独立判定依据。
 
 ## Templates
