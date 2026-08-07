@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "MCP red-team agent: autonomous vulnerability discovery for MCP servers (agent-first; DVMCP as regression fixture)"
 readme = "README.md"
 requires-python = ">=3.13"
+license = { text = "MIT" }
 dependencies = [
     "mcp[cli]>=1.2",
     "openai>=1.40",
