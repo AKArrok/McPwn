@@ -37,6 +37,7 @@ admin 的 secret。这是服务端特定的访问控制逻辑错误：
 | 1 baseline | 当前 agent 扫 vault（hardcoded planner + 固定信号库） | 0 findings（结构性漏） | ✅ 0 findings |
 | 2 LLM 增量 | LLM 三决策点：假设生成 / 复盘 / 证据判定 | ≥1 finding（读到他人 secret） | ✅ 2 findings |
 | 3 重复 | 同 budget、记录 seed、每 run 全新 server N=3 | 每 run ≥1 finding，miss 即 fail（严格更优） | ✅ 3/3 PASS |
+| 4 提示词消融 | 剥掉答案模式重跑判据（2×2 预注册，协议见 ABLATION_PLAN.md） | D(3) 3/3 = 能力成立 | ✅ A 3/3 + D 3/3 |
 
 ## Stage 1 结果（2026-08-06，hardcoded planner，30k tokens）
 
@@ -122,6 +123,51 @@ python eval/unknown_shape/run_repeat.py 3   # 期望 3/3 PASS
 3. **证据判定模型**：证据判定默认用 `judge` 角色模型（doubao），judge 未配置时
    退回 attacker 模型并 loud warning；实际模型记录到 `ScanResult.evidence_judge_model`
    （token 无论哪种都记 judge，带外不占 attacker 预算）。
+## Stage 4: 提示词消融（能力 vs 提示词，2026-08-06）
+
+**要回答的问题**：Stage-3 的 3/3 PASS 里，LLM 的价值到底是「发现」还是「执行」？
+提示词里明写着答案（"子串匹配 / 空 owner / CWE-639"）时，3/3 只能证明"提示词
+给模式时 LLM 能执行"。消融把答案模式从 LLM 可见提示词里剥掉，重跑同样判据。
+协议权威：`eval/unknown_shape/ABLATION_PLAN.md`（判据跑前锁死、预注册）。
+
+**设计**：2×2 四臂。X 轴 = 三决策点提示词（hypothesis / retrospective /
+evidence_judge），Y 轴 = `auth_bypass` 策略卡；HINTED = 生产版，STRIPPED = 剥离版
+（去掉全部"子串匹配 / 空值 / 前缀 / owner='' / CWE-639 / 非属主"文字，保留类级
+框架与 grounding 规则）。主设计**串行 gate**：A(3) 先跑验证新配置，过 gate 才烧
+D(3)。防泄漏预检**双向锁死**：残留 grep + 逐行 diff vs manifest（防剥过头→假阴性）。
+
+| 臂 | X | Y | 结果 | 作用 |
+|---|---|---|---|---|
+| A | HINTED | HINTED | **3/3 PASS** | 新配置回归（doubao judge + 每 run fresh server）——历史 3/3 跑在两处修复之前，A 是必需基线 |
+| D | STRIPPED | STRIPPED | **3/3 PASS** | **主问题**：全剥离后三决策点仍能发现并确认漏洞 |
+
+D 臂 6 个 finding 分布：read_vault×2 / grant_access×2 / list_vaults×1 /
+create_vault×1（全是 auth_bypass 0.75）。
+
+**结论（能力成立，限定表述）**：三决策点能在**不给具体答案模式**（子串匹配 /
+空值绕过 / CWE-639 / owner=''）的前提下，从保留的**类级框架**（"owner 语义但
+schema 无约束"）里发现子串鉴权缺陷并确认——LLM 的价值包含「发现」，不只是
+「执行提示词里的答案」。B/C 臂按预注册规则不跑（D 3/3 时为可选项）。
+
+**审计**：6 runs 全记录于 `runs/unknown_shape_ablation/summary.json`（arm / port /
+findings / confidence / attacker+judge tokens / stop_reason / attack_messages_sha1 /
+evidence_judge_model / override env / git_sha=ae6ff076）。judge 全程
+doubao-seed-2.0-lite（带外计数）；seed=None（DeepSeek 不支持，漂移由 sha1 度量）。
+
+**诚实边界**（ABLATION_PLAN.md §7）：
+1. D 3/3 限定"类级框架提示下"——剥离版保留"owner/user/role 语义但 schema 无
+   约束"类级推理提示，不是零引导冷启动发现。
+2. 只证 vault 一种形状；换形状（非子串鉴权 / delegate / SSRF）是下一个实验。
+3. N=3 小样本；D 3/3 可选扩 N=5 复核（加分项，未跑）。
+4. judge 环节（剥离版 evidence_judge 须不带例子认出越权）也是被测对象，已通过。
+
+**用法**：
+```bash
+python eval/unknown_shape/ablation/run_ablation.py --preflight-only  # 双向防泄漏预检
+python eval/unknown_shape/ablation/run_ablation.py --arm A --n 3      # 单臂
+python eval/unknown_shape/ablation/run_ablation.py --all              # 自动串行 gate: A→D→(B+C if D miss)
+```
+
 ## 增量判定标准（已通过，2026-08-06）
 
 与 M3 相反——**必须严格更优**：

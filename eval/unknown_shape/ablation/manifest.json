@@ -1,0 +1,37 @@
+{
+  "forbidden_tokens": [
+    "子串匹配", "前缀", "空值", "空 owner", "空串", "空 token",
+    "owner=''", "CWE-639", "非属主"
+  ],
+  "files": {
+    "prompts/hypothesis_system.md": {
+      "delete_substrings": [
+        "read_vault 的 owner",
+        "子串匹配, 试 owner='' 或非属主名字",
+        "子串、前缀、默认值、空值绕过 (CWE-639)"
+      ]
+    },
+    "prompts/retrospective_system.md": {
+      "delete_substrings": [
+        "下一步试 owner='' 或非属主 owner",
+        "空值 / 默认值 / 子串 / 前缀"
+      ]
+    },
+    "prompts/evidence_judge_system.md": {
+      "delete_substrings": [
+        "例如本应被拒绝的越权读取却返回了 secret",
+        "空 owner / 非属主 owner 读到了他人数据 (CWE-639)",
+        "如 `owner=\"\"` 或",
+        "空 token / 越界路径"
+      ]
+    },
+    "cards/auth_bypass.md": {
+      "delete_substrings": [
+        "空 / 伪造 / 弱结构",
+        "空 token",
+        "空串",
+        "{\"auth_token\": \"\", ...}"
+      ]
+    }
+  }
+}

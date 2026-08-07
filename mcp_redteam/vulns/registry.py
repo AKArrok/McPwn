@@ -15,10 +15,15 @@ The registry does the following:
 
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 from importlib.resources import files
+from pathlib import Path
 
 from mcp_redteam.contracts import VulnClass
+
+_log = logging.getLogger(__name__)
 
 VULN_SLUGS: list[str] = [v.value for v in VulnClass]
 
@@ -47,8 +52,29 @@ class StrategyCard:
     templates: list[str]
 
 
+_CARDS_OVERRIDE_DIR = os.environ.get("MCPWN_CARDS_OVERRIDE_DIR")
+
+
 def _load_card_text(slug: str) -> str:
-    """Load a strategy card Markdown file from the vulns package resources."""
+    """Load a strategy card Markdown file, preferring MCPWN_CARDS_OVERRIDE_DIR.
+
+    Unlike prompts (fail-fast), a missing override card falls back to the
+    packaged card with a loud warning: the ablation only overrides
+    auth_bypass.md, and the other 7 cards must keep loading from the package.
+    The ablation preflight asserts the critical card exists in the override
+    dir before any run (ABLATION_PLAN.md §5).
+    """
+    if _CARDS_OVERRIDE_DIR:
+        p = Path(_CARDS_OVERRIDE_DIR) / f"{slug}.md"
+        if not p.exists():
+            _log.warning(
+                "override card %s.md missing in MCPWN_CARDS_OVERRIDE_DIR=%s; "
+                "falling back to packaged card",
+                slug,
+                _CARDS_OVERRIDE_DIR,
+            )
+        else:
+            return p.read_text(encoding="utf-8")
     return (
         files("mcp_redteam.vulns")
         .joinpath("cards")

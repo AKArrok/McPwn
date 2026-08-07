@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from importlib.resources import files
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from jinja2 import Template
@@ -37,18 +39,34 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger(__name__)
 
-_HYPOTHESIS_TMPL = Template(
-    files("mcp_redteam.attackers.agents").joinpath("hypothesis_system.md")
-    .read_text(encoding="utf-8")
-)
-_RETROSPECTIVE_TMPL = Template(
-    files("mcp_redteam.attackers.agents").joinpath("retrospective_system.md")
-    .read_text(encoding="utf-8")
-)
-_EVIDENCE_JUDGE_TMPL = Template(
-    files("mcp_redteam.attackers.agents").joinpath("evidence_judge_system.md")
-    .read_text(encoding="utf-8")
-)
+_AGENTS_OVERRIDE_DIR = os.environ.get("MCPWN_AGENTS_OVERRIDE_DIR")
+
+
+def _load_agents_prompt(name: str) -> str:
+    """Load an agent system prompt, preferring MCPWN_AGENTS_OVERRIDE_DIR.
+
+    Fail-fast: when the override dir is set but the file is missing, raise -
+    a silent fallback would quietly run a STRIPPED arm with HINTED prompts,
+    invalidating the prompt ablation (ABLATION_PLAN.md §5).
+    """
+    if _AGENTS_OVERRIDE_DIR:
+        p = Path(_AGENTS_OVERRIDE_DIR) / name
+        if not p.exists():
+            raise FileNotFoundError(
+                f"override prompt {name!r} missing in "
+                f"MCPWN_AGENTS_OVERRIDE_DIR={_AGENTS_OVERRIDE_DIR}"
+            )
+        return p.read_text(encoding="utf-8")
+    return (
+        files("mcp_redteam.attackers.agents")
+        .joinpath(name)
+        .read_text(encoding="utf-8")
+    )
+
+
+_HYPOTHESIS_TMPL = Template(_load_agents_prompt("hypothesis_system.md"))
+_RETROSPECTIVE_TMPL = Template(_load_agents_prompt("retrospective_system.md"))
+_EVIDENCE_JUDGE_TMPL = Template(_load_agents_prompt("evidence_judge_system.md"))
 
 # LLM-proposed candidates outrank every recon regex hit so the novel lead is
 # probed before budget pressure starves it (baseline showed recon's wrong
