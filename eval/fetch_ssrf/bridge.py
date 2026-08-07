@@ -24,12 +24,18 @@ from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
+from pydantic import RootModel
 from starlette.applications import Starlette
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 HERE = Path(__file__).resolve().parent
 VENV_BIN = Path(sys.executable).resolve().parent
+
+
+class _RawDict(RootModel[dict]):
+    """Pass-through JSON-RPC result container (avoids SDK 1.29's strict Tool
+    validation on old servers that omit inputSchema's top-level ``type``)."""
 
 server = Server("fetch-bridge")
 _tools: list[types.Tool] = []
@@ -81,9 +87,18 @@ async def main() -> None:
         params = StdioServerParameters(command=cmd[0], args=cmd[1:])
     async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
         await session.initialize()
-        res = await session.list_tools()
         _session = session
-        _tools = list(res.tools)
+        # Tolerant list_tools: fetch the raw JSON-RPC result and patch missing
+        # top-level inputSchema "type" (old server-filesystem versions omit it,
+        # which SDK 1.29's strict Tool model rejects). Patch is adapter-only -
+        # the upstream server's behaviour is untouched.
+        raw = await session.send_request(types.ListToolsRequest(), _RawDict)
+        raw_tools = raw.root.get("tools", [])
+        for t in raw_tools:
+            schema = t.get("inputSchema") or {}
+            schema.setdefault("type", "object")
+            t["inputSchema"] = schema
+        _tools = [types.Tool.model_validate(t) for t in raw_tools]
 
         sse = SseServerTransport("/messages/")
 
