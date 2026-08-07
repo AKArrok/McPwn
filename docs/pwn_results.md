@@ -221,3 +221,5 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
 | vault-mcp | CWE-639 子串鉴权（unknown-shape） | 0 | **3/3 PASS**（llm 版） | 消融 D 臂 3/3 → 能力成立 |
 | delegate-mcp | CWE-639 授权作用域（泛化） | 0 | **3/3 PASS**（第 4 轮） | owner 不可猜 fixture + 卡第 6 步执行引导 |
 | fetch（真实） | SSRF（设计特性） | — | **scan 1 finding 0.75** | 信号假阳性修复 + llm 抢占 trade-off 修复（hyp budget pool） |
+| git（真实，修复版） | 参数注入/路径校验（CVE 已修） | — | **0 findings（FPR ✓）** | std + llm 双配置 0 误报 |
+| filesystem（真实，修复版） | allowlist 绕过（CVE 已修） | — | **0 findings（FPR ✓）** | std + llm 双配置 0 误报;漏洞版 schema 不兼容未做 |
