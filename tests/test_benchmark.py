@@ -135,6 +135,28 @@ def test_write_benchmark_creates_file(tmp_path: Path):
     assert path.read_text(encoding="utf-8").startswith("# Benchmark —")
 
 
+def test_benchmark_shows_budget_overshoot():
+    md = build_benchmark(_result(), max_tokens=30000, wall_seconds=300)
+    assert "tokens 超调 | — (未超)" in md
+    assert "wall 超调 | — (未超)" in md
+    over = _result()
+    over.attacker_tokens = 34000
+    md2 = build_benchmark(over, max_tokens=30000, wall_seconds=300)
+    assert "tokens 超调 | +13% (超 4,000)" in md2
+
+
+def test_benchmark_flags_judge_fallback():
+    r = _result()
+    r.evidence_judge_model = "deepseek-test"  # same as attacker model
+    assert "独立性降级" in build_benchmark(r, max_tokens=30000)
+
+    r2 = _result()
+    r2.evidence_judge_model = "doubao-judge"
+    assert "独立性降级" not in build_benchmark(r2, max_tokens=30000)
+    # no evidence judge ran (empty model + zero judge tokens) -> no row at all
+    assert "evidence judge 模型" not in build_benchmark(_result(), max_tokens=30000)
+
+
 # ── manifest matching (scan auto-attach) ────────────────────────────────────
 
 

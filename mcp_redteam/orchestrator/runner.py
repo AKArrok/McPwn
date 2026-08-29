@@ -14,6 +14,7 @@ import logging
 import re
 import time
 import uuid
+import zlib
 from pathlib import Path
 from typing import Any, Literal
 
@@ -103,16 +104,19 @@ def _normalize_target(
 
 
 def _port_from_spec(spec: TargetSpec) -> int:
-    """Extract the port from an HTTP target URL like http://127.0.0.1:9010/sse.
+    """Port for decisions bookkeeping / run identification.
 
-    stdio targets have no port; runs key off the command instead (0 here,
-    callers that need a stable per-target number hash the display string).
+    HTTP targets use their real URL port (DVMCP 9001-9010 semantics, M3
+    judge keys on it). stdio targets have no port; a STABLE pseudo-port is
+    derived from the command string so several stdio targets produce
+    distinguishable decisions files (port 0 would collide). Values are
+    kept in the 50000+ range to stay clear of real listening ports.
     """
     if spec.url:
         m = re.search(r":(\d+)/", spec.url)
         if m:
             return int(m.group(1))
-    return 0
+    return 50000 + zlib.crc32(spec.display.encode()) % 40000
 
 
 def _make_judge_fn_or_none():

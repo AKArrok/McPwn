@@ -21,6 +21,8 @@
 #   llm_expect      llm_points 轮期望: 0 | >=1 | info
 #   llm_hyp_budget  传给 scan 的 LLM 假设预算池: -1=禁用 (unknown-shape), 省略=默认 40%
 #   env             spawner/stdio 子进程需要的环境变量 (键 -> 说明; runner 缺失时警告/跳过)
+#                   注意: stdio 直连的 env 值会明文写进 scan_result.json 与 PoC 脚本
+#                   (回放需要), 不要在 env 里放密钥类变量
 
 targets:
   - name: vault

@@ -124,7 +124,9 @@ def scan_cmd(
         None,
         "--env",
         help="Comma-separated k=v env vars for a --command stdio child, "
-        "e.g. EXCEL_FILES_PATH=/tmp/sandbox.",
+        "e.g. EXCEL_FILES_PATH=/tmp/sandbox. WARNING: values are stored "
+        "in PLAINTEXT in scan_result.json and the generated PoC scripts "
+        "(needed for replay) - never pass secrets here.",
     ),
     out: Path = typer.Option(
         Path("runs/scan_latest"),

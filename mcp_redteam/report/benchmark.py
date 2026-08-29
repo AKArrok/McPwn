@@ -145,15 +145,46 @@ def build_benchmark(
     lines.append("")
     lines.append("| 指标 | 值 |")
     lines.append("|---|---|")
-    lines.append(f"| attacker tokens | {_fmt_ratio(result.attacker_tokens, max_tokens)}"
-                 + (f" (上限 {max_tokens:,}) |" if max_tokens else " |"))
+    if max_tokens:
+        over_tokens = result.attacker_tokens - max_tokens
+        lines.append(
+            f"| attacker tokens | {_fmt_ratio(result.attacker_tokens, max_tokens)}"
+            f" (上限 {max_tokens:,}) |"
+        )
+        # Overshoot is first-class: the budget gate only checks BETWEEN llm
+        # turns, so an in-flight call always overshoots. Cross-model
+        # comparisons must treat the overshoot rate as variance, not noise.
+        lines.append(
+            f"| tokens 超调 | +{over_tokens / max_tokens:.0%} (超 {over_tokens:,}) |"
+            if over_tokens > 0
+            else "| tokens 超调 | — (未超) |"
+        )
+    else:
+        lines.append(f"| attacker tokens | {result.attacker_tokens:,} |")
     lines.append(f"| judge tokens (独立计数) | {result.judge_tokens:,} |")
-    lines.append(f"| wall time | {_fmt_ratio(result.wall_seconds, wall_seconds)}"
-                 + (f" (上限 {wall_seconds}s) |" if wall_seconds else " |"))
+    if wall_seconds:
+        over_wall = result.wall_seconds - wall_seconds
+        lines.append(
+            f"| wall time | {_fmt_ratio(result.wall_seconds, wall_seconds)}"
+            f" (上限 {wall_seconds}s) |"
+        )
+        lines.append(
+            f"| wall 超调 | +{over_wall:.0f}s ({over_wall / wall_seconds:.0%}) |"
+            if over_wall > 0
+            else "| wall 超调 | — (未超) |"
+        )
+    else:
+        lines.append(f"| wall time | {result.wall_seconds:.1f} s |")
     lines.append(f"| tokens / trace | {result.attacker_tokens / n_traces:,.0f} |"
                  if n_traces else "| tokens / trace | — |")
     lines.append(f"| tokens / finding | {result.attacker_tokens / len(findings):,.0f} |"
                  if findings else "| tokens / finding | — |")
+    # Judge independence (#6): evidence judge falls back to the attacker
+    # model when the judge role is unconfigured - comparisons must know.
+    if result.evidence_judge_model:
+        independent = result.evidence_judge_model != result.attacker_model
+        note = "" if independent else " (与 attacker 同模型, 独立性降级)"
+        lines.append(f"| evidence judge 模型 | {result.evidence_judge_model}{note} |")
     lines.append("")
 
     # ── findings summary (id + class + title) ───────────────────────────────

@@ -127,7 +127,8 @@ $ mcpwn scan http://127.0.0.1:9001/sse --out runs/demo_9001
 
 ┌──────────────┬─────────────────────────────┐
 │ run_id       │ 20260807T123456-abc123       │
-│ sse_url      │ http://127.0.0.1:9001/sse   │
+│ transport    │ sse                          │
+│ target       │ http://127.0.0.1:9001/sse   │
 │ stop_reason  │ completed                   │
 │ tools_seen   │ 2                           │
 │ resources_seen│ 1                          │
@@ -137,11 +138,13 @@ $ mcpwn scan http://127.0.0.1:9001/sse --out runs/demo_9001
 │ wall_seconds │ 23.4                        │
 └──────────────┴─────────────────────────────┘
 wrote runs/demo_9001/findings.md
+wrote runs/demo_9001/benchmark.md
 ```
 
 ```text
 runs/demo_9001/
   findings.md             # 人类可读报告:1 条 Finding (direct_prompt_injection, 0.97)
+  benchmark.md            # 靶场评分卡:manifest 判定 + 覆盖面 + 预算效率
   poc/F-xxx.py            # 可重放 PoC:read_resource("internal://credentials")
   traces/trace_*.json     # 完整 AttackTrace (attacker 每一步决策 + 真实返回)
   scan_result.json        # ScanResult + 可复现元数据 (git_sha/model/seed/...)

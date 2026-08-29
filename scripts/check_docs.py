@@ -99,6 +99,15 @@ FACT_RULES: list[FactRule] = [
 def run_fact_rules() -> None:
     actual: dict[str, int] = {}
     for rule in FACT_RULES:
+        path = ROOT / rule.doc
+        if not path.exists():
+            # HANDOFF*/PROGRESS 是 gitignore 的本地文档 (见 .gitignore):本地守护
+            # 照常生效,但 CI checkout 里不存在,跳过并大声标注,而不是整个 CI 必红。
+            print(
+                f"[SKIP] L1 {rule.doc}: 文件不在工作区 (本地保留文档, 未随 repo 分发);"
+                f"规则保留,本地存在时仍会校验"
+            )
+            continue
         key = rule.real
         if key not in actual:
             actual[key] = {"pytest": pytest_collected_count,
@@ -106,7 +115,6 @@ def run_fact_rules() -> None:
                            "cards": vuln_cards}[key]()
             print(f"    (真实值 {REAL_SOURCES[key]}: {actual[key]})")
 
-        path = ROOT / rule.doc
         lines = path.read_text(encoding="utf-8").splitlines()
         lo, hi = (1, len(lines)) if rule.scope == ("all",) else (rule.scope[1], rule.scope[2])
         for lineno, line in enumerate(lines, 1):

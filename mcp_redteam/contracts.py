@@ -427,6 +427,9 @@ class PlannerDecision(BaseModel):
     ``planned`` / ``executed`` / ``skip_reason``. ``planned``+``executed``
     separate intent from execution so the judge can distinguish "never
     planned" from "planned but starved by budget" on port 9010.
+    ``port`` semantics: real URL port for HTTP targets (DVMCP 9001-9010);
+    stable pseudo-port 50000+crc32(display)%40000 for stdio targets so
+    their decisions files stay distinguishable (never 0).
     """
 
     model_config = ConfigDict(extra="forbid")
