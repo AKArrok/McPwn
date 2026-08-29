@@ -20,6 +20,10 @@ jobs:
         # subprocess 语义都以 Windows 为一等公民, 双平台同守)
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.13"]
+    env:
+      # windows runner 默认 cp1252 控制台, 输出中文的子进程会 UnicodeEncodeError;
+      # 强制 Python 全链路 UTF-8 (与主开发机一致)
+      PYTHONUTF8: "1"
 
     steps:
       - name: Check out repository
