@@ -1,4 +1,8 @@
-"""Top-level scan driver: `scan(sse_url)` -> `ScanResult`.
+"""Top-level scan driver: `scan(target)` -> `ScanResult`.
+
+``target`` is a URL (SSE or streamable HTTP), a stdio launch command, or an
+already-built ``TargetSpec`` - see ``contracts.TargetSpec``. Downstream stages
+only see the transport-neutral endpoint display string.
 
 Wires together agent stages (recon -> planner -> executor -> verifier), owns the
 shared TokenBudget + WallClock, and writes trace/finding artefacts to disk.
@@ -32,6 +36,7 @@ from mcp_redteam.contracts import (
     AttackTrace,
     PlannerDecision,
     ScanResult,
+    TargetSpec,
 )
 from mcp_redteam.models.chat import make_client
 from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
@@ -83,10 +88,31 @@ def _new_run_id() -> str:
     return f"scan-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
 
-def _port_from_url(sse_url: str) -> int:
-    """Extract the port from an SSE URL like http://127.0.0.1:9010/sse."""
-    m = re.search(r":(\d+)/", sse_url)
-    return int(m.group(1)) if m else 0
+def _normalize_target(
+    target: str | TargetSpec, sse_headers: dict[str, str] | None
+) -> TargetSpec:
+    """Accept a URL / stdio command string or a ready ``TargetSpec``.
+
+    ``sse_headers`` (legacy CLI ``--headers``) overrides the spec's own
+    headers when both are given.
+    """
+    spec = target if isinstance(target, TargetSpec) else TargetSpec.parse(target)
+    if sse_headers:
+        spec = spec.model_copy(update={"headers": sse_headers})
+    return spec
+
+
+def _port_from_spec(spec: TargetSpec) -> int:
+    """Extract the port from an HTTP target URL like http://127.0.0.1:9010/sse.
+
+    stdio targets have no port; runs key off the command instead (0 here,
+    callers that need a stable per-target number hash the display string).
+    """
+    if spec.url:
+        m = re.search(r":(\d+)/", spec.url)
+        if m:
+            return int(m.group(1))
+    return 0
 
 
 def _make_judge_fn_or_none():
@@ -146,7 +172,7 @@ def _early_evidence_judge(trace, sandbox_root, evidence_judge_fn) -> None:
 
 
 async def scan(
-    sse_url: str,
+    sse_url: str | TargetSpec,
     out_dir: Path,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     wall_seconds: int = DEFAULT_WALL_SECONDS,
@@ -162,7 +188,8 @@ async def scan(
     graph: bool = False,
     llm_hyp_budget: int | None = None,
 ) -> ScanResult:
-    """Scan one MCP SSE endpoint. Write traces/findings under `out_dir`.
+    """Scan one MCP target (SSE / streamable HTTP URL, stdio command, or
+    ``TargetSpec``). Write traces/findings under `out_dir`.
 
     ``graph=True`` runs the same pipeline as an explicit LangGraph state
     machine (``mcp_redteam/langgraph/``); the hand-written loop below stays
@@ -179,7 +206,7 @@ async def scan(
     """
     if graph:
         return await _scan_graph(
-            sse_url=sse_url,
+            sse_url,  # raw str | TargetSpec; _scan_graph normalizes
             out_dir=out_dir,
             max_tokens=max_tokens,
             wall_seconds=wall_seconds,
@@ -197,6 +224,9 @@ async def scan(
     out_dir.mkdir(parents=True, exist_ok=True)
     trace_dir = out_dir / "traces"
     trace_dir.mkdir(exist_ok=True)
+
+    spec = _normalize_target(sse_url, sse_headers)
+    endpoint = spec.display
 
     lint_errors = lint_all_cards()
     if lint_errors:
@@ -228,7 +258,7 @@ async def scan(
     error: str | None = None
 
     try:
-        async with McpSession(sse_url, headers=sse_headers) as session:
+        async with McpSession(spec) as session:
             recon_calls, candidates, tools_seen, resources_seen = await recon(session)
 
             # Stage-2 LLM decision point 1: hypothesis generation. Additive
@@ -242,7 +272,7 @@ async def scan(
                     attacker[1],
                     budget=budget,
                     tool_descriptions=tool_summary(recon_calls),
-                    sse_url=sse_url,
+                    sse_url=endpoint,
                 )
                 candidates = candidates + extra
 
@@ -253,7 +283,7 @@ async def scan(
                     resources_seen,
                     attacker[0],
                     attacker[1],
-                    sse_url=sse_url,
+                    sse_url=endpoint,
                 )
             else:
                 planned = [
@@ -261,7 +291,7 @@ async def scan(
                     for c in plan(candidates, max_candidates=max_candidates)
                 ]
 
-            port = _port_from_url(sse_url)
+            port = _port_from_spec(spec)
             for index, pc in enumerate(planned):
                 # LLM-hypothesis pool exhausted: skip remaining LLM
                 # hypotheses so recon candidates (possibly the correct class,
@@ -308,7 +338,7 @@ async def scan(
                     attacker=attacker,
                     budget=budget,
                     clock=clock,
-                    sse_url=sse_url,
+                    sse_url=endpoint,
                     recon_calls=recon_calls,
                     max_inner_steps=max_inner_steps,
                     sandbox_root=sandbox_root,
@@ -355,7 +385,7 @@ async def scan(
                         attacker[1],
                         budget=budget,
                         tool_descriptions=tool_summary(recon_calls),
-                        sse_url=sse_url,
+                        sse_url=endpoint,
                     )
                     for fc in plan(followups, max_candidates=max_candidates):
                         if budget.exceeded() or clock.exceeded():
@@ -366,7 +396,7 @@ async def scan(
                             attacker=attacker,
                             budget=budget,
                             clock=clock,
-                            sse_url=sse_url,
+                            sse_url=endpoint,
                             recon_calls=recon_calls,
                             max_inner_steps=max_inner_steps,
                             sandbox_root=sandbox_root,
@@ -383,7 +413,9 @@ async def scan(
 
     result = ScanResult(
         run_id=run_id,
-        sse_url=sse_url,
+        sse_url=endpoint,
+        transport=spec.transport.value,
+        target_spec=spec.model_dump(mode="json"),
         started_at=started_at,
         wall_seconds=wall_elapsed,
         attacker_tokens=budget.attacker_tokens,
@@ -410,7 +442,7 @@ async def scan(
 
 
 async def _scan_graph(
-    sse_url: str,
+    sse_url: str | TargetSpec,
     out_dir: Path,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     wall_seconds: int = DEFAULT_WALL_SECONDS,
@@ -441,6 +473,9 @@ async def _scan_graph(
     trace_dir = out_dir / "traces"
     trace_dir.mkdir(exist_ok=True)
 
+    spec = _normalize_target(sse_url, sse_headers)
+    endpoint = spec.display
+
     lint_errors = lint_all_cards()
     if lint_errors:
         raise RuntimeError("Strategy card lint failed:\n  " + "\n  ".join(lint_errors))
@@ -469,19 +504,20 @@ async def _scan_graph(
         attacker=attacker,
         budget=budget,
         clock=clock,
-        sse_url=sse_url,
+        sse_url=endpoint,
         sandbox_root=sandbox_root,
         judge_fn=judge_fn,
         evidence_judge_fn=evidence_judge_fn,
         evidence_judge_model=evidence_judge_model,
         decisions=decisions,
-        port=_port_from_url(sse_url),
+        port=_port_from_spec(spec),
         seed=seed,
         llm_points=llm_points,
+        spec=spec,
     )
 
     initial_state: McPwnState = {
-        "sse_url": sse_url,
+        "sse_url": endpoint,
         "out_dir": str(out_dir),
         "planner_mode": planner_mode,
         "max_candidates": max_candidates,
@@ -498,7 +534,7 @@ async def _scan_graph(
     config: dict[str, Any] = {"configurable": {"thread_id": run_id}}
     app = None
     try:
-        async with McpSession(sse_url, headers=sse_headers) as session:
+        async with McpSession(spec) as session:
             deps.session = session
             app = build_graph(deps)
             await app.ainvoke(initial_state, config)

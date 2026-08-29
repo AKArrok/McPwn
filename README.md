@@ -50,7 +50,7 @@ MCP (Model Context Protocol) 正在成为 LLM 应用的"USB-C 接口"——但�
 下游 LLM 消费。**McPwn 把"人工审一个陌生 MCP server"变成一条自动流水线**:
 
 ```text
-mcpwn scan <sse-url>
+mcpwn scan <target>
   → list_tools + list_resources          # 侦察:建攻击面地图
   → 按 8 类漏洞分类打标                   # 假设:工具/资源形状 → 候选
   → LLM 按策略卡出 payload 探测           # 攻击:function-calling 循环
@@ -108,7 +108,14 @@ mcpwn lint-cards                           # 校验策略卡格式与禁词
 ### 单目标扫描
 
 ```bash
+# SSE 端点 (DVMCP 靶场)
 mcpwn scan http://127.0.0.1:9001/sse --out runs/m0_smoke
+
+# streamable HTTP 端点 (现代远程 server;auto 会先试 streamable 再回退 SSE)
+mcpwn scan http://127.0.0.1:9000/mcp --out runs/streamable_demo
+
+# stdio 本地 server (每轮拉起子进程, 退出即回收)
+mcpwn scan --command "uvx mcp-server-fetch" --out runs/fetch_demo
 ```
 
 ## Demo
@@ -224,9 +231,9 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
 
 ## 命令行参考
 
-### `mcpwn scan <sse-url>`
+### `mcpwn scan <target>`
 
-对单个 MCP server 执行完整扫描。
+对单个 MCP server 执行完整扫描。`<target>` 是 HTTP 端点 URL(SSE 或 streamable HTTP),配 `--command` 时为 stdio 启动命令。
 
 | 选项 | 默认 | 说明 |
 |---|---|---|
@@ -236,10 +243,29 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
 | `--max-candidates` | 20 | 最多探测的 (vuln_class, target) 候选数 |
 | `--max-inner-steps` | 12 | 每个候选的 attacker 工具调用轮数上限 |
 | `--attacker-temperature` | models.yaml | 覆盖 attacker 温度;用 0 得到可复现扫描 |
-| `--headers` | — | SSE 请求头,如 `x-user-id=mcpwn,x-chat-id=scan1` (真实世界 MCP server 常用) |
+| `--transport` | `auto` | 传输选择:`auto`(默认,`/sse` 结尾走 SSE,其余先试 streamable HTTP 再回退)、`sse`、`streamable-http`、`stdio` |
+| `--command` | — | stdio 目标启动命令,如 `uvx mcp-server-fetch`(每轮拉起子进程,退出即回收) |
+| `--env` | — | stdio 子进程环境变量,如 `EXCEL_FILES_PATH=/tmp/sandbox` |
+| `--headers` | — | HTTP 请求头,如 `x-user-id=mcpwn,x-chat-id=scan1` (真实世界 MCP server 常用) |
 | `--sandbox-root` | — | 声明的沙箱根 (部署元数据),启用 sandbox-escape 判据 |
 | `--graph` | false | 以显式 LangGraph 状态机跑流水线 (与默认手写循环等价) |
 | `--llm-points` | false | 启用三 LLM 决策点:假设生成 / 零发现复盘 / grounded 证据判定 (unknown-shape 覆盖) |
+
+### `mcpwn benchmark <target> [--mode std|llm]`
+
+对 manifest 清单 (`eval/targets/manifest.yaml`) 中的单个靶场执行一次扫描,
+并产出该靶场的 benchmark 报告 `<out>/<target>/benchmark.md`:漏洞类覆盖、
+信号/finding 统计、预算与效率,以及按 `baseline_expect` / `llm_expect`
+给出的 PASS/FAIL/INFO 判定。每次 `mcpwn scan` 也会自动附带一份
+benchmark.md(能匹配 manifest 靶场时含判定,否则仅自评指标)。
+
+| 选项 | 默认 | 说明 |
+|---|---|---|
+| `--mode` | `std` | `std` 用 baseline_expect 判定;`llm` 开启 llm_points 并用 llm_expect |
+| `--out`, `-o` | `runs/benchmark` | 输出根目录 |
+| `--max-tokens` | 30000 | attacker token 预算 |
+| `--wall-seconds` | 300 | 墙钟预算 (秒) |
+| `--seed` | — | LLM 采样种子 (provider-dependent) |
 
 ### `mcpwn ping-models [--roles ...]`
 

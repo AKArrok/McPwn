@@ -12,7 +12,7 @@
 - 假设的漏洞类别: `{{ vuln_class }}`
 - 目标: `{{ target_kind }} = {{ target }}`
 - 命中理由: {{ target_reason }}
-- 靶子 SSE (框架已代连): `{{ sse_url }}`
+- 靶子端点 (框架已代连, SSE/stdio/streamable HTTP 之一): `{{ sse_url }}`
 - 沙箱根 (部署元数据, 可能未知): {{ sandbox_root }}
 
 **规则**

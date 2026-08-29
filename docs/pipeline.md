@@ -1,7 +1,7 @@
 # McPwn 链路文档
 
 > 本文描述 **当前代码** 的端到端运行链路:用户执行 `mcpwn scan` 后,系统
-> 如何从陌生 MCP SSE 端点出发,完成侦察、规划、攻击、验证、报告,以及
+> 如何从陌生 MCP 端点(SSE / streamable HTTP / stdio)出发,完成侦察、规划、攻击、验证、报告,以及
 > 这套链路如何被 eval、离线回归和 CI 守护。
 > 唯一权威设计规约仍是 `HANDOFF.md` 与顶层 `AGENTS.md`;本文是运行视图。
 
@@ -18,7 +18,7 @@ flowchart LR
     EXEC --> VERIF[verifier]
     VERIF --> REPORT[report.findings]
 
-    MCP[MCP server<br/>SSE endpoint] -.-> RECON
+    MCP[MCP server<br/>SSE / streamable / stdio] -.-> RECON
     MCP -.-> EXEC
     LLM[attacker LLM<br/>chat.completions] -.-> EXEC
     CARD[vulns/cards/*.md] -.-> EXEC
@@ -48,10 +48,10 @@ flowchart LR
 
 | 字段 | 内容 |
 |---|---|
-| 输入 | 命令行参数:`sse_url`、`--out`、`--max-tokens`、`--wall-seconds`、`--max-candidates`、`--max-inner-steps`、`--attacker-temperature` |
+| 输入 | 命令行参数:`target`(URL 或配 `--command`)、`--transport`、`--env`、`--out`、`--max-tokens`、`--wall-seconds`、`--max-candidates`、`--max-inner-steps`、`--attacker-temperature` |
 | 输出 | 调用 `runner.scan()`,随后调用 `report.findings.write_findings()`,在终端打印 Rich 汇总表;无 finding 时 `typer.Exit(code=1)` |
 | 状态 | 无持久状态;只做参数解析、`.env` 加载、异步入口 |
-| 变换 | typer 参数 → `scan(sse_url, out_dir, ...)` → ScanResult → findings.md |
+| 变换 | typer 参数 → `TargetSpec` → `scan(spec, out_dir, ...)` → ScanResult → findings.md + benchmark.md |
 | 边界 | 不直接连接 MCP/LLM;所有业务逻辑都在 runner 之下 |
 
 `--attacker-temperature` 可覆盖 `config/models.yaml` 的 `attacker.temperature`;
@@ -61,7 +61,7 @@ flowchart LR
 
 | 字段 | 内容 |
 |---|---|
-| 输入 | `sse_url`、`out_dir`、预算参数、可选的 `attacker_temperature` |
+| 输入 | `target: str | TargetSpec`(参数名 sse_url 兼容保留)、`out_dir`、预算参数、可选的 `attacker_temperature` |
 | 输出 | `ScanResult`(同时把 `scan_result.json` 写盘) |
 | 状态 | 新建 `TokenBudget` 与 `WallClock`,两者贯穿整次 scan |
 | 变换 | lint 策略卡 → 建 run_id/时间 → 连接 McpSession → `recon` → `plan` → 循环 `execute_one` → `build_findings` → 填充可复现元数据 → 写盘 |
@@ -75,7 +75,7 @@ flowchart LR
    - `TokenBudget(max_tokens_total)`:只计 attacker token;judge token 独立。
    - `WallClock(wall_seconds)`:monotonic 计墙钟。
 4. `make_client("attacker", temperature=...)`;judge 是 best-effort,失败则 `judge_fn=None`。
-5. 进入 `async with McpSession(sse_url)` 后调用 `recon()`。
+5. 进入 `async with McpSession(spec)` 后调用 `recon()`;spec 按 transport 分发 SSE / streamable HTTP / stdio。
 6. 对每个按 score 排序后的 candidate:
    - 每次循环前检查 `budget.exceeded()` / `clock.exceeded()`。
    - 调用 `execute_one()`,得到一条 `AttackTrace`。
@@ -91,7 +91,7 @@ flowchart LR
 
 | 字段 | 内容 |
 |---|---|
-| 输入 | SSE URL |
+| 输入 | `TargetSpec`(contracts.py;URL 或 stdio command,`transport=auto` 自动判定) |
 | 输出 | 六类方法:`list_tools`、`list_resources`、`raw_list_tools`、`raw_list_resources`、`call_tool`、`read_resource` |
 | 状态 | `ClientSession` 生命周期由 async context manager 管理 |
 | 变换 | MCP SDK 响应 → `McpCall`(统一 kind/name/args/result_text/elapsed_ms) |
@@ -294,10 +294,10 @@ sequenceDiagram
     participant VERIF as agent.verifier
     participant REP as report.findings
 
-    U->>CLI: mcpwn scan <sse-url> --out runs/x
+    U->>CLI: mcpwn scan <target> --out runs/x
     CLI->>RUN: scan(...)
     RUN->>RUN: lint cards, run_id, budget/clock, make_client
-    RUN->>MCP: open SSE session
+    RUN->>MCP: open transport session (SSE / streamable / stdio)
     RUN->>RECON: recon(session)
     RECON->>MCP: list_tools + list_resources (+ raw_*)
     RECON-->>RUN: recon_calls + candidates

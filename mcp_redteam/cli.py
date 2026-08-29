@@ -1,7 +1,9 @@
 """mcpwn CLI - Typer app.
 
-Primary command: `mcpwn scan <sse-url>` runs a full agent-first scan and writes
+Primary command: `mcpwn scan <target>` runs a full agent-first scan and writes
 findings.md + poc/*.py + traces/*.json + scan_result.json under --out.
+<target> is an HTTP endpoint URL (SSE or streamable HTTP) or, with --command,
+a stdio launch command.
 
 Support commands: `ping-models`, `lint-cards`.
 DVMCP-specific helpers live under `mcpwn eval dvmcp ...` (HANDOFF paragraph 2).
@@ -10,6 +12,7 @@ DVMCP-specific helpers live under `mcpwn eval dvmcp ...` (HANDOFF paragraph 2).
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from pathlib import Path
 
@@ -64,9 +67,65 @@ def _build_m3_judge_fn(judge_model: str | None):
         return None, ""
 
 
+def _match_manifest_entry(spec):
+    """Best-effort match of a scan spec against eval/targets/manifest.yaml.
+
+    Returns a ManifestVerdict when the URL/transport or stdio command equals a
+    manifest entry's connection spec, else None (report renders self-eval
+    only). Never raises - benchmark extras must not break a scan.
+    """
+    try:
+        from eval.targets.run import load_manifest
+        from mcp_redteam.report.benchmark import ManifestVerdict
+
+        for t in load_manifest():
+            tspec = t.spec()
+            if tspec is None:
+                continue
+            same_http = tspec.url and tspec.url == spec.url and tspec.transport == spec.transport
+            same_stdio = tspec.command and tspec.command == spec.command
+            if same_http or same_stdio:
+                return ManifestVerdict(
+                    name=t.name,
+                    label=t.label,
+                    baseline_expect=t.baseline_expect,
+                    llm_expect=t.llm_expect,
+                    prove=t.prove,
+                    prove_script=str(t.prove_script) if t.prove_script else "",
+                )
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "manifest match skipped (no manifest / eval unavailable)", exc_info=True
+        )
+        return None
+    return None
+
+
 @app.command("scan")
 def scan_cmd(
-    sse_url: str = typer.Argument(..., help="MCP SSE endpoint, e.g. http://127.0.0.1:9001/sse"),
+    target: str = typer.Argument(
+        "",
+        help="MCP target: HTTP endpoint URL (SSE or streamable HTTP). "
+        "Optional when --command launches a stdio server.",
+    ),
+    command: str | None = typer.Option(
+        None,
+        "--command",
+        help="stdio target launch command, e.g. 'uvx mcp-server-fetch' "
+        "(implies transport=stdio; the child is spawned per scan).",
+    ),
+    transport: str = typer.Option(
+        "auto",
+        "--transport",
+        help="auto (default: /sse URLs -> SSE, other URLs -> streamable "
+        "HTTP with SSE fallback), sse, streamable-http, or stdio.",
+    ),
+    env: str | None = typer.Option(
+        None,
+        "--env",
+        help="Comma-separated k=v env vars for a --command stdio child, "
+        "e.g. EXCEL_FILES_PATH=/tmp/sandbox.",
+    ),
     out: Path = typer.Option(
         Path("runs/scan_latest"),
         "--out",
@@ -111,11 +170,22 @@ def scan_cmd(
     ),
 ) -> None:
     """Scan one MCP server. Produces findings.md + poc scripts + traces."""
+    from mcp_redteam.contracts import TargetSpec
     from mcp_redteam.orchestrator.runner import scan
     from mcp_redteam.report.findings import write_findings
 
+    if not command and not target:
+        console.print("[red]FAIL[/red] mcpwn scan needs a target URL or --command")
+        raise typer.Exit(code=2)
+    spec = TargetSpec.parse(
+        None if command else target,
+        transport=transport.replace("-", "_"),
+        command=command,
+        env=_parse_headers(env),
+        headers=_parse_headers(headers),
+    )
     result = asyncio.run(scan(
-        sse_url=sse_url,
+        sse_url=spec,
         out_dir=out,
         max_tokens=max_tokens,
         wall_seconds=wall_seconds,
@@ -128,10 +198,17 @@ def scan_cmd(
         llm_points=llm_points,
     ))
     md_path = write_findings(result, out)
+    from mcp_redteam.report.benchmark import write_benchmark
+
+    entry = _match_manifest_entry(spec)
+    benchmark_path = write_benchmark(result, out, entry=entry, max_tokens=max_tokens,
+                                     wall_seconds=wall_seconds,
+                                     mode="llm" if llm_points else "std")
 
     table = Table("field", "value")
     table.add_row("run_id", result.run_id)
-    table.add_row("sse_url", result.sse_url)
+    table.add_row("transport", result.transport)
+    table.add_row("target", result.sse_url)
     table.add_row("stop_reason", result.stop_reason)
     table.add_row("tools_seen", str(len(result.tools_seen)))
     table.add_row("resources_seen", str(len(result.resources_seen)))
@@ -141,8 +218,98 @@ def scan_cmd(
     table.add_row("wall_seconds", f"{result.wall_seconds:.1f}")
     console.print(table)
     console.print(f"[dim]wrote {md_path}[/dim]")
+    console.print(f"[dim]wrote {benchmark_path}[/dim]")
     if not result.findings:
         raise typer.Exit(code=1)
+
+
+@app.command("benchmark")
+def benchmark_cmd(
+    name: str = typer.Argument(
+        ...,
+        help="Target name from eval/targets/manifest.yaml (vault/fetch/git/...).",
+    ),
+    mode: str = typer.Option(
+        "std",
+        "--mode",
+        help="std (hardcoded planner, baseline_expect) or llm (llm_points on, llm_expect).",
+    ),
+    out: Path = typer.Option(
+        Path("runs/benchmark"),
+        "--out",
+        "-o",
+        help="Output root; writes <out>/<name>/{findings.md, benchmark.md, poc/, traces/}.",
+    ),
+    max_tokens: int = typer.Option(30000, help="Attacker token budget."),
+    wall_seconds: int = typer.Option(300, help="Wall-clock budget in seconds."),
+    seed: int | None = typer.Option(None, help="LLM sampling seed (provider-dependent)."),
+) -> None:
+    """Benchmark one manifest target: scan it, then emit benchmark.md.
+
+    The report combines scan self-metrics (coverage / signals / budget) with
+    the manifest expectation verdict for the chosen mode.
+    """
+    import asyncio
+
+    from eval.targets.run import load_manifest
+    from mcp_redteam.orchestrator.runner import scan
+    from mcp_redteam.report.benchmark import write_benchmark
+    from mcp_redteam.report.findings import write_findings
+
+    if mode not in ("std", "llm"):
+        console.print("[red]FAIL[/red] --mode must be std or llm")
+        raise typer.Exit(code=2)
+    matches = [t for t in load_manifest() if t.name == name]
+    if not matches:
+        console.print(f"[red]FAIL[/red] unknown target {name!r}; see: mcpwn eval targets --list")
+        raise typer.Exit(code=2)
+    t = matches[0]
+
+    from mcp_redteam.report.benchmark import ManifestVerdict
+
+    entry = ManifestVerdict(
+        name=t.name,
+        label=t.label,
+        baseline_expect=t.baseline_expect,
+        llm_expect=t.llm_expect,
+        prove=t.prove,
+        prove_script=str(t.prove_script) if t.prove_script else "",
+    )
+    out_dir = out / name
+    llm_points = mode == "llm"
+
+    async def _run() -> None:
+        spec = t.spec()
+        if spec is not None:
+            result = await scan(
+                sse_url=spec, out_dir=out_dir, max_tokens=max_tokens,
+                wall_seconds=wall_seconds, llm_points=llm_points, seed=seed,
+            )
+        else:  # spawner-based target: borrow its lifecycle context
+            from eval.targets.spawners import get_spawner
+
+            async with get_spawner(t.spawn, t.sse_url) as sse_url:
+                result = await scan(
+                    sse_url=sse_url, out_dir=out_dir, max_tokens=max_tokens,
+                    wall_seconds=wall_seconds, llm_points=llm_points, seed=seed,
+                )
+        write_findings(result, out_dir)
+        path = write_benchmark(
+            result, out_dir, entry=entry,
+            max_tokens=max_tokens, wall_seconds=wall_seconds, mode=mode,
+        )
+        table = Table("field", "value")
+        table.add_row("target", f"{t.name} ({t.label})")
+        table.add_row("transport", result.transport)
+        table.add_row("mode", mode)
+        table.add_row("expect", entry.expect_for(mode))
+        table.add_row("findings", str(len(result.findings)))
+        table.add_row("total_tokens", str(result.total_tokens))
+        table.add_row("wall_seconds", f"{result.wall_seconds:.1f}")
+        console.print(table)
+        console.print(f"[dim]wrote {path}[/dim]")
+
+    asyncio.run(_run())
 
 
 @app.command("ping-models")

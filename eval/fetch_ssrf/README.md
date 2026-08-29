@@ -17,7 +17,7 @@
 | 组件 | 说明 |
 |---|---|
 | `mcp-server-fetch`(官方,真实 server) | GitHub `modelcontextprotocol/servers/src/fetch`,pip 包 `mcp-server-fetch` 2026.7.10 + `mcp<2`(项目内 venv `eval/fetch_ssrf/.venv`)。**stdio** transport。SSRF 面是**设计特性**:README 自认 "can access local/internal IP addresses and may represent a security risk",无 private-IP 拦截——所以"只测漏洞版"= 最新版即是漏洞版(无 patch 可修,不是 CVE 型漏洞)。 |
-| `bridge.py`(stdio→SSE 桥) | 官方 mcp SDK 组件(stdio_client + 低级 Server + SseServerTransport)拼的 ~60 行透传桥:工具 schema 逐字透传,不做任何加工。McPwn 只连 SSE,官方 server 只讲 stdio,桥是唯一适配层,不改 McPwn 核心。 |
+| `bridge.py`(stdio→SSE 桥) | 官方 mcp SDK 组件(stdio_client + 低级 Server + SseServerTransport)拼的 ~60 行透传桥:工具 schema 逐字透传,不做任何加工。官方 server 只讲 stdio,桥把工具面原样抬到 SSE。注:McPwn 连接层现已原生支持 stdio(`mcpwn scan --command ...`),桥仅为保持既有跑法/对照保留。 |
 | `intranet_server.py`(受害者) | 本地假内网服务,监听 8000/8080/9211,返回 nginx banner + `TOP-SECRET-INTRANET-2026`。模拟"只有 server 侧能访问的内网目标"。 |
 
 ## 判据(锁死)

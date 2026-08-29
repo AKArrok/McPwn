@@ -35,3 +35,6 @@ attic/handoffs/
 attic/benchmark-v0/HANDOFF.benchmark-v0.md
 
 eval/fetch_ssrf/.venv/
+
+# ZCode session-local artifacts
+.zcode/

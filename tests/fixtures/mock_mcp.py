@@ -56,8 +56,8 @@ class FakeMcpSession:
     branching for tests.
     """
 
-    def __init__(self, sse_url: str, **_: Any) -> None:
-        self.sse_url = sse_url
+    def __init__(self, target: str | Any = "", **_: Any) -> None:
+        self.sse_url = target
         self.call_log: list[dict[str, Any]] = []
 
     async def __aenter__(self) -> Self:

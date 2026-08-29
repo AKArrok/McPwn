@@ -11,8 +11,10 @@ locally.
 from __future__ import annotations
 
 import hashlib
+import shlex
 from enum import Enum
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
@@ -250,8 +252,107 @@ ScanStopReason = Literal[
 ]
 
 
+class Transport(str, Enum):
+    """MCP transports the connection layer speaks (mcp SDK client side)."""
+
+    SSE = "sse"
+    STREAMABLE_HTTP = "streamable_http"
+    STDIO = "stdio"
+
+
+class TargetSpec(BaseModel):
+    """How to reach one MCP target - the single cross-module connection input.
+
+    Built by :meth:`parse` (URL / CLI flags) and consumed by
+    ``targets/mcp_client.McpSession``; reports and prompts only ever see
+    :attr:`display`, so no downstream code branches on transport.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    transport: Transport
+    url: str | None = None
+    command: list[str] | None = None
+    cwd: str | None = None
+    env: dict[str, str] | None = None
+    headers: dict[str, str] | None = None
+
+    @property
+    def display(self) -> str:
+        """Human-facing endpoint string (report table, prompts, metadata)."""
+        if self.command:
+            return "stdio: " + " ".join(self.command)
+        return self.url or ""
+
+    @model_validator(mode="after")
+    def _fields_match_transport(self) -> TargetSpec:
+        if self.transport is Transport.STDIO:
+            if not self.command:
+                raise ValueError("stdio target requires command")
+        else:
+            if not self.url:
+                raise ValueError(f"{self.transport.value} target requires url")
+        return self
+
+    @classmethod
+    def parse(
+        cls,
+        raw: str | None = None,
+        *,
+        transport: Transport | str = "auto",
+        command: str | list[str] | None = None,
+        env: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> TargetSpec:
+        """Build a spec from CLI-style inputs.
+
+        ``transport="auto"`` dispatches: explicit ``command`` -> stdio; a URL
+        whose path ends in ``/sse`` -> SSE (all legacy DVMCP-style targets);
+        any other URL -> streamable HTTP (the current MCP standard).
+        """
+        if isinstance(command, str):
+            command = shlex.split(command)
+        if command:
+            if isinstance(transport, Transport) or transport not in ("auto", "stdio"):
+                raise ValueError("--command implies transport=stdio")
+            return cls(
+                transport=Transport.STDIO,
+                command=command,
+                cwd=cwd,
+                env=env,
+            )
+        if not raw:
+            raise ValueError("target requires a url or a command")
+        if isinstance(transport, Transport):
+            chosen = transport
+        elif transport == "stdio":
+            raise ValueError("stdio transport requires --command")
+        elif transport == "sse":
+            chosen = Transport.SSE
+        elif transport == "streamable_http":
+            chosen = Transport.STREAMABLE_HTTP
+        elif transport == "auto":
+            path = urlsplit(raw).path.lower()
+            chosen = Transport.SSE if path.endswith("/sse") else Transport.STREAMABLE_HTTP
+        else:
+            raise ValueError(f"unknown transport {transport!r}")
+        return cls(
+            transport=chosen,
+            url=raw,
+            headers=headers,
+            env=env,
+            cwd=cwd,
+        )
+
+
 class ScanResult(BaseModel):
-    """Top-level output of one ``mcpwn scan <url>`` run.
+    """Top-level output of one ``mcpwn scan <target>`` run.
+
+    ``sse_url`` is the transport-neutral endpoint display string
+    (:attr:`TargetSpec.display`) - a URL for HTTP transports, or
+    ``"stdio: <command>"`` for stdio targets; ``transport`` names the
+    actual wire transport used.
 
     Token accounting is split three ways per HANDOFF §6 / §9:
     attacker tokens share the ``max_tokens_total`` budget;
@@ -266,6 +367,11 @@ class ScanResult(BaseModel):
 
     run_id: str
     sse_url: str
+    transport: str = "sse"
+    # Full connection spec (transport/url/command/env/cwd/headers) as a JSON
+    # dict, so generated PoC replay scripts can reconnect to stdio targets
+    # too. None on results produced before this field existed.
+    target_spec: dict[str, Any] | None = None
     started_at: str
     wall_seconds: float
     attacker_tokens: int = 0

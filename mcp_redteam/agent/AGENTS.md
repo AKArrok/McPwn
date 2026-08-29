@@ -1,6 +1,6 @@
 # agent/ — agent loop (recon → planner → executor → verifier)
 
-- 输入: `sse_url: str`
+- 输入: 传输中立的端点 display 字符串 (由 `TargetSpec.display` 提供;SSE / streamable HTTP / stdio 统一为只读字符串,本层不感知传输)
 - 输出: `ScanResult` (含 findings + traces)
 - 状态: TokenBudget + WallClock 跨所有 trace 共享; 每个 trace 独立计时.
 - 变换:

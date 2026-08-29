@@ -32,6 +32,7 @@ from mcp_redteam.contracts import (
     AttackTrace,
     PlannerDecision,
     ScanResult,
+    TargetSpec,
     VulnClass,
 )
 from mcp_redteam.langgraph.state import McPwnState
@@ -67,6 +68,9 @@ class GraphDeps:
     port: int
     seed: int | None
     llm_points: bool = False
+    # Connection spec (transport/url/command/env); None keeps legacy parity
+    # with tests that construct GraphDeps by hand without a spec.
+    spec: TargetSpec | None = None
     result: ScanResult | None = field(default=None)
 
 
@@ -373,6 +377,8 @@ def assemble_result(
     return ScanResult(
         run_id=state["run_id"],
         sse_url=deps.sse_url,
+        transport=deps.spec.transport.value if deps.spec else "sse",
+        target_spec=deps.spec.model_dump(mode="json") if deps.spec else None,
         started_at=state["started_at"],
         wall_seconds=time.perf_counter() - state["wall_start"],
         attacker_tokens=deps.budget.attacker_tokens,
