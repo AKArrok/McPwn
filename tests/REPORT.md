@@ -6,7 +6,7 @@
 
 | Tool | Scope | Result |
 |------|-------|--------|
-| pytest | `tests/` | **274 passed** in 127.9s (数量已由 `scripts/check_docs.py` 与 CI 守护,不在此写死) |
+| pytest | `tests/` | **280 passed** in 127.9s (数量已由 `scripts/check_docs.py` 与 CI 守护,不在此写死) |
 | ruff | `mcp_redteam/` + `eval/` | **0 errors** |
 | ruff | `tests/` | 见下方 Notes(历史遗留,已出当前作用域) |
 | `mcpwn lint-cards` | `vulns/cards/*.md` | **8/8 ok** |

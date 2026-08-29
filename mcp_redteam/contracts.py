@@ -16,7 +16,7 @@ from enum import Enum
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class VulnClass(str, Enum):
@@ -372,6 +372,11 @@ class ScanResult(BaseModel):
     # dict, so generated PoC replay scripts can reconnect to stdio targets
     # too. None on results produced before this field existed.
     target_spec: dict[str, Any] | None = None
+    # Derived sum (attacker + judge). Kept as a stored field auto-derived by
+    # model_validator so scan_result.json round-trips: model_dump_json writes
+    # it, model_validate accepts it (a computed_field would break re-load
+    # under extra="forbid").
+    total_tokens: int = 0
     started_at: str
     wall_seconds: float
     attacker_tokens: int = 0
@@ -406,10 +411,11 @@ class ScanResult(BaseModel):
     # claim: tokens count as judge either way, model is recorded here.
     evidence_judge_model: str = ""
 
-    @computed_field  # type: ignore[misc]
-    @property
-    def total_tokens(self) -> int:
-        return self.attacker_tokens + self.judge_tokens
+    @model_validator(mode="after")
+    def _derive_total_tokens(self) -> ScanResult:
+        self.total_tokens = self.attacker_tokens + self.judge_tokens
+        return self
+
 
 class PlannerDecision(BaseModel):
     """One entry in the M3 planner's complete ordered plan (HANDOFF_M3 section 2).

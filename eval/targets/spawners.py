@@ -7,6 +7,7 @@ fresh function here (or write one) and reference its name in manifest.yaml.
 
 from __future__ import annotations
 
+import socket
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -17,6 +18,20 @@ from eval.real_vuln._fresh import fresh_fs_vuln_target
 from eval.unknown_shape._fresh_server import fresh_vault_server
 
 
+def _free_port(preferred: int) -> int:
+    """Use ``preferred`` when free, else grab an ephemeral free port.
+
+    Concurrent spawner runs (benchmark + e2e) or leftovers from a crashed
+    run no longer collide on the historical fixed ports.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", preferred))
+        except OSError:
+            s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 @asynccontextmanager
 async def sse(url: str) -> AsyncIterator[str]:
     """Static SSE endpoint (server expected to already be running)."""
@@ -24,11 +39,15 @@ async def sse(url: str) -> AsyncIterator[str]:
 
 
 def _port_aware(fresh, base: int):
-    """Wrap a port-parameterised fresh spawner with a per-call port."""
+    """Wrap a port-parameterised fresh spawner with a free port.
+
+    Tries the historical fixed base first (compat with docs/scripts that
+    reference it), falling back to an ephemeral port when occupied.
+    """
 
     @asynccontextmanager
     async def wrapped() -> AsyncIterator[str]:
-        async with fresh(base) as url:
+        async with fresh(_free_port(base)) as url:
             yield url
 
     return wrapped
@@ -40,10 +59,10 @@ def _port_aware(fresh, base: int):
 SPAWNERS: dict[str, object] = {
     "vault": _port_aware(fresh_vault_server, 19205),
     "delegate": _port_aware(fresh_delegate_server, 20105),
-    "fetch": fresh_fetch_target,
-    "git": fresh_git_target,
-    "filesystem": fresh_fs_target,
-    "filesystem_vuln": fresh_fs_vuln_target,
+    "fetch": fresh_fetch_target,  # dynamic bridge port handled in _fresh.py
+    "git": _port_aware(fresh_git_target, 9330),
+    "filesystem": _port_aware(fresh_fs_target, 9340),
+    "filesystem_vuln": _port_aware(fresh_fs_vuln_target, 9350),
 }
 
 

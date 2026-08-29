@@ -48,19 +48,56 @@ def _check_venv() -> None:
         )
 
 
+def _port_busy(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((_HOST, port)) == 0
+
+
+def _free_port(preferred: int) -> int:
+    """Use ``preferred`` when free, else grab an ephemeral free port.
+
+    Keeps the historical default (9210, what standalone prove.py expects)
+    while a leftover process from a crashed run can no longer silently
+    hang the next one.
+    """
+    import socket
+
+    if not _port_busy(preferred):
+        return preferred
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((_HOST, 0))
+        return s.getsockname()[1]
+
+
 @asynccontextmanager
-async def fresh_fetch_target() -> AsyncIterator[str]:
-    """Spawn intranet victim + bridge; yield http://127.0.0.1:9210/sse."""
+async def fresh_fetch_target(bridge_port: int | None = None) -> AsyncIterator[str]:
+    """Spawn intranet victim + bridge; yield the bridge SSE URL.
+
+    ``bridge_port`` defaults to the historical 9210 unless occupied (leftover
+    process from a crashed run) in which case an ephemeral port is used.
+    The intranet port (9211) is part of the SSRF signal contract and stays
+    fixed: if it is busy we fail FAST instead of hanging on readiness.
+    """
     _check_venv()
+    if _port_busy(_INTRANET_PORT):
+        raise RuntimeError(
+            f"intranet port {_INTRANET_PORT} already in use - a previous "
+            f"fetch target run probably leaked processes; kill them first "
+            f"(Windows: `netstat -ano | findstr {_INTRANET_PORT}`)"
+        )
+    port = bridge_port or _free_port(_BRIDGE_PORT)
     intranet = await asyncio.create_subprocess_exec(
         str(_BASE_PY), str(_INTRA_NET), "--host", _HOST, "--port", str(_INTRANET_PORT),
         stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
     )
     bridge = await asyncio.create_subprocess_exec(
-        str(_VENV_PY), str(_BRIDGE), "--host", _HOST, "--port", str(_BRIDGE_PORT),
+        str(_VENV_PY), str(_BRIDGE), "--host", _HOST, "--port", str(port),
         stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
     )
-    sse_url = f"http://{_HOST}:{_BRIDGE_PORT}/sse"
+    sse_url = f"http://{_HOST}:{port}/sse"
     procs = (intranet, bridge)
     try:
         ready = False
