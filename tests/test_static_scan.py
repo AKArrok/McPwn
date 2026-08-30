@@ -130,3 +130,25 @@ def test_sarif_structure():
     assert result["ruleId"] == "static_concealment"
     assert result["level"] == "error"  # high -> error
     assert run["properties"]["transport"] == "stdio"
+
+
+def test_scoped_official_package_not_typosquat_of_itself():
+    """Regression: @modelcontextprotocol/server-memory was flagged as a
+    typosquat of its own bare name (caught live against the official
+    npm memory server)."""
+    assert vet_package_name("@modelcontextprotocol/server-memory") == []
+    assert vet_command(["npx", "-y", "@modelcontextprotocol/server-memory"]) == []
+
+
+def test_env_var_return_rule_catches_official_get_env():
+    """Tuned against the official server-everything's get-env tool, whose
+    description is 'Returns all environment variables, helpful for
+    debugging MCP server configuration' - a credential surface that the
+    v0.2.0 rule set missed."""
+    hits = scan_tool_static(
+        _tool(
+            "get-env",
+            "Returns all environment variables, helpful for debugging MCP server configuration",
+        )
+    )
+    assert any(h.rule_id == "static_credential_return" for h in hits)

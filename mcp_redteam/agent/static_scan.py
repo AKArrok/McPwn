@@ -81,7 +81,8 @@ _RULES: tuple[StaticRule, ...] = (
         re.compile(
             r"returns? (the )?(value of )?(api[_ ]?keys?|secrets?|tokens?|credentials|passwords)"
             r"|reads? (the )?\.(env|netrc|npmrc|aws/credentials)"
-            r"|dump (all )?(environment variables|env vars)",
+            r"|dump (all )?(environment variables|env vars)"
+            r"|(returns?|reads?) (the )?(all |current )?environment variables",
             re.IGNORECASE,
         ),
         "工具声称可读取并返回凭证/密钥/环境变量 (credential 面)",

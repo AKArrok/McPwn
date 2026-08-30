@@ -84,7 +84,7 @@ def vet_package_name(name: str) -> list[StaticHit]:
     if not name:
         return []
     hits: list[StaticHit] = []
-    bare = name.lstrip("@").split("/", 1)[-1]  # strip npm scope
+    bare = name.lstrip("@").split("/", 1)[-1].lower()  # strip npm scope
     if bare.lower() in KNOWN_MALICIOUS or name.lower() in KNOWN_MALICIOUS:
         reason = KNOWN_MALICIOUS.get(name.lower()) or KNOWN_MALICIOUS[bare.lower()]
         hits.append(
@@ -98,7 +98,11 @@ def vet_package_name(name: str) -> list[StaticHit]:
             )
         )
         return hits
-    if name in WELL_KNOWN_PACKAGES:
+    # Scoped packages (@scope/name) and case variants must match their own
+    # bare name BEFORE typosquatting: "@modelcontextprotocol/server-memory"
+    # IS server-memory - flagging it against itself is a false positive
+    # (caught live against the official npm memory server, v0.2.0).
+    if name.lower() in WELL_KNOWN_PACKAGES or bare in WELL_KNOWN_PACKAGES:
         return hits
     matches = difflib.get_close_matches(bare, sorted(WELL_KNOWN_PACKAGES), n=2, cutoff=0.84)
     legit = {m for m in matches if m != name and abs(len(m) - len(bare)) <= 3}
