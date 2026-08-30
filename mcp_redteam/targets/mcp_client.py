@@ -20,6 +20,7 @@ Design:
 
 from __future__ import annotations
 
+import logging
 import time
 from types import TracebackType
 from typing import Any
@@ -44,6 +45,8 @@ except ImportError:  # mcp 1.x
     _SDK_V2 = False
 
 from mcp.shared._httpx_utils import create_mcp_http_client
+
+_log = logging.getLogger(__name__)
 
 
 def _stdio_env(extra: dict[str, str] | None) -> dict[str, str] | None:
@@ -132,6 +135,16 @@ class McpSession:
         self.headers = headers
         self._session: ClientSession | None = None
 
+    def _http_client_factory_kwargs(self) -> dict[str, Any]:
+        """Per-request HTTP timeouts shared by every HTTP transport branch.
+
+        ``sse_read_timeout`` governs waiting for the FIRST event on the SSE
+        stream - i.e. a TCP-accepting-but-silent server. Without wiring it,
+        that phase hangs for the SDK default (60*5 = 300s) and our
+        ``read_timeout`` never even comes into play.
+        """
+        return {"sse_read_timeout": self.read_timeout}
+
     def _transport_ctx(self, spec: TargetSpec) -> Any:
         effective_headers = self.headers if self.headers else spec.headers
         if spec.transport is Transport.STDIO:
@@ -145,58 +158,113 @@ class McpSession:
             )
         if spec.transport is Transport.STREAMABLE_HTTP:
             if _SDK_V2:
-                # 2.0 drops headers/timeout kwargs; headers go via a custom
-                # httpx client, timeouts use the SDK's recommended defaults.
-                return streamable_http_client(
-                    spec.url,  # type: ignore[arg-type]
-                    http_client=create_mcp_http_client(headers=effective_headers)
-                    if effective_headers
-                    else None,
-                )
+                # 2.0 drops headers/timeout kwargs; headers + timeouts go via
+                # a custom httpx client.
+                if effective_headers or self.read_timeout:
+                    import httpx2
+
+                    timeout = httpx2.Timeout(
+                        self.connect_timeout, read=self.read_timeout or None
+                    )
+                    return streamable_http_client(
+                        spec.url,  # type: ignore[arg-type]
+                        http_client=create_mcp_http_client(
+                            headers=effective_headers, timeout=timeout
+                        ),
+                    )
+                return streamable_http_client(spec.url)  # type: ignore[arg-type]
             return streamable_http_client(
                 spec.url,  # type: ignore[arg-type]
                 headers=effective_headers,
                 timeout=self.connect_timeout,
+                **self._http_client_factory_kwargs(),
             )
         return sse_client(
             spec.url,  # type: ignore[arg-type]
             headers=effective_headers,
             timeout=self.connect_timeout,
+            **self._http_client_factory_kwargs(),
+        )
+
+    def _connect_msg(self, exc: Exception, *, fell_back: bool) -> str:
+        hint = " (streamable 与 legacy SSE 均尝试失败)" if fell_back else ""
+        return (
+            f"无法连接 MCP 目标 {self.spec.display} "
+            f"[transport={self.spec.transport.value}]{hint}: "
+            f"{type(exc).__name__}: {exc}"
         )
 
     async def __aenter__(self) -> McpSession:
         # The transport ctx and ClientSession are both async context managers;
         # we enter them manually so the session survives beyond a single
-        # `async with`.
-        ctx = self._transport_ctx(self.spec)
-        try:
-            streams = await ctx.__aenter__()
-        except BaseException:
-            if not self._allow_sse_fallback:
-                raise
-            ctx = sse_client(
-                self.spec.url,
-                headers=self.headers if self.headers else self.spec.headers,
-                timeout=self.connect_timeout,
+        # `async with`. Two attempts max: the spec's transport, then (auto +
+        # non-/sse URL only) legacy SSE. Any failure rolls back partially
+        # entered context managers and re-raises WITH the target identity -
+        # a bare "ConnectError: All connection attempts failed" from httpx
+        # is useless to someone scanning five targets in a loop.
+        attempts: list[tuple[Any, TargetSpec]] = [(self._transport_ctx(self.spec), self.spec)]
+        if self._allow_sse_fallback:
+            fallback_spec = self.spec.model_copy(update={"transport": Transport.SSE})
+            attempts.append(
+                (
+                    sse_client(
+                        fallback_spec.url,
+                        headers=self.headers if self.headers else self.spec.headers,
+                        timeout=self.connect_timeout,
+                        **self._http_client_factory_kwargs(),
+                    ),
+                    fallback_spec,
+                )
             )
-            streams = await ctx.__aenter__()
-            self.spec = self.spec.model_copy(update={"transport": Transport.SSE})
-        # streamablehttp_client yields (read, write, get_session_id); the
-        # others yield pairs - we only ever need the first two streams.
-        read_stream, write_stream = streams[0], streams[1]
-        self._transport_ctx_obj = ctx
-        session_kwargs: dict[str, Any] = {}
-        if self.read_timeout:
-            if _SDK_V2:  # 2.0 takes float seconds
-                session_kwargs["read_timeout_seconds"] = self.read_timeout
-            else:  # 1.x takes timedelta
-                from datetime import timedelta
 
-                session_kwargs["read_timeout_seconds"] = timedelta(seconds=self.read_timeout)
-        self._sess_ctx = ClientSession(read_stream, write_stream, **session_kwargs)
-        self._session = await self._sess_ctx.__aenter__()
-        await self._session.initialize()
-        return self
+        last_exc: Exception | None = None
+        for index, (ctx, attempt_spec) in enumerate(attempts):
+            try:
+                streams = await ctx.__aenter__()
+            except Exception as exc:  # noqa: BLE001 - retried/final-raised below
+                # transport never entered; nothing to roll back
+                last_exc = exc
+                continue
+            # streamablehttp_client yields (read, write, get_session_id); the
+            # others yield pairs - we only ever need the first two streams.
+            read_stream, write_stream = streams[0], streams[1]
+            session_kwargs: dict[str, Any] = {}
+            if self.read_timeout:
+                if _SDK_V2:  # 2.0 takes float seconds
+                    session_kwargs["read_timeout_seconds"] = self.read_timeout
+                else:  # 1.x takes timedelta
+                    from datetime import timedelta
+
+                    session_kwargs["read_timeout_seconds"] = timedelta(
+                        seconds=self.read_timeout
+                    )
+            sess_ctx = ClientSession(read_stream, write_stream, **session_kwargs)
+            try:
+                session = await sess_ctx.__aenter__()
+                await session.initialize()
+            except Exception as exc:
+                # Roll back whatever entered so a failed connect cannot leak
+                # sockets/child processes behind our back. Cleanup failures
+                # are logged but never mask the original connect error.
+                for rollback in (sess_ctx, ctx):
+                    try:
+                        await rollback.__aexit__(type(exc), exc, None)
+                    except Exception as cleanup_exc:  # noqa: BLE001
+                        _log.debug(
+                            "rollback after failed connect raised: %s", cleanup_exc
+                        )
+                raise RuntimeError(
+                    self._connect_msg(exc, fell_back=index > 0)
+                ) from exc
+            self._transport_ctx_obj = ctx
+            self._sess_ctx = sess_ctx
+            self._session = session
+            self.spec = attempt_spec
+            return self
+        assert last_exc is not None
+        raise RuntimeError(
+            self._connect_msg(last_exc, fell_back=len(attempts) > 1)
+        ) from last_exc
 
     async def __aexit__(
         self,

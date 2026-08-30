@@ -179,6 +179,9 @@ def scan_cmd(
     if not command and not target:
         console.print("[red]FAIL[/red] mcpwn scan needs a target URL or --command")
         raise typer.Exit(code=2)
+    if command and target:
+        console.print("[red]FAIL[/red] give either a target URL or --command, not both")
+        raise typer.Exit(code=2)
     spec = TargetSpec.parse(
         None if command else target,
         transport=transport.replace("-", "_"),

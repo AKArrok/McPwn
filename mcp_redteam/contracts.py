@@ -314,6 +314,8 @@ class TargetSpec(BaseModel):
         if isinstance(command, str):
             command = shlex.split(command)
         if command:
+            if raw and raw.strip():
+                raise ValueError("cannot give both a target URL and --command; pick one")
             if isinstance(transport, Transport) or transport not in ("auto", "stdio"):
                 raise ValueError("--command implies transport=stdio")
             return cls(
@@ -324,6 +326,12 @@ class TargetSpec(BaseModel):
             )
         if not raw:
             raise ValueError("target requires a url or a command")
+        raw = raw.strip()
+        scheme = urlsplit(raw).scheme.lower()
+        if scheme not in ("http", "https"):
+            raise ValueError(
+                f"target URL must start with http:// or https:// (got {raw[:40]!r})"
+            )
         if isinstance(transport, Transport):
             chosen = transport
         elif transport == "stdio":
@@ -333,7 +341,7 @@ class TargetSpec(BaseModel):
         elif transport == "streamable_http":
             chosen = Transport.STREAMABLE_HTTP
         elif transport == "auto":
-            path = urlsplit(raw).path.lower()
+            path = urlsplit(raw).path.rstrip("/").lower()
             chosen = Transport.SSE if path.endswith("/sse") else Transport.STREAMABLE_HTTP
         else:
             raise ValueError(f"unknown transport {transport!r}")
