@@ -47,6 +47,27 @@ class McpCall(BaseModel):
     elapsed_ms: int
 
 
+class StaticHit(BaseModel):
+    """One static (zero-LLM) screening hit on the tool/resource surface.
+
+    Produced by ``agent/static_scan`` regex rules over tool/resource
+    metadata BEFORE any attack traffic - the cheap layer that peers like
+    mcp-scan lead with. ``subject`` is the tool/resource/package name the
+    hit belongs to; ``where`` says which metadata field matched
+    (description / arg:<name> / package). ``matched_text`` is a redacted
+    excerpt, never the full description.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str
+    severity: Severity
+    subject: str
+    where: str
+    matched_text: str = Field(max_length=512)
+    summary: str
+
+
 Severity = Literal["info", "low", "medium", "high", "critical"]
 FindingSeverity = Literal["low", "medium", "high", "critical"]
 
@@ -393,6 +414,8 @@ class ScanResult(BaseModel):
     resources_seen: list[str] = Field(default_factory=list)
     traces: list[AttackTrace] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
+    # Static (zero-LLM) screening hits on the tool/resource surface.
+    static_hits: list[StaticHit] = Field(default_factory=list)
     stop_reason: ScanStopReason
 
     # Reproducibility metadata (point-in-time reproducible scans).

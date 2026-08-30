@@ -27,6 +27,7 @@ from mcp_redteam.agent.llm_points import (
 )
 from mcp_redteam.agent.planner import PlannedCandidate, plan, plan_llm
 from mcp_redteam.agent.recon import recon
+from mcp_redteam.agent.supplychain import vet_target_spec
 from mcp_redteam.agent.verifier import (
     _METADATA_ONLY_SIGNALS,
     build_findings,
@@ -263,7 +264,10 @@ async def scan(
 
     try:
         async with McpSession(spec) as session:
-            recon_calls, candidates, tools_seen, resources_seen = await recon(session)
+            recon_calls, candidates, tools_seen, resources_seen, static_hits = await recon(session)
+            # Supply-chain vetting of the target identity (stdio package /
+            # plaintext remote URL) joins the surface hits.
+            static_hits = static_hits + vet_target_spec(spec)
 
             # Stage-2 LLM decision point 1: hypothesis generation. Additive
             # only - never reorders candidates (M3 permutation lesson).
@@ -427,6 +431,7 @@ async def scan(
         tools_seen=tools_seen,
         resources_seen=resources_seen,
         traces=traces,
+        static_hits=static_hits,
         findings=findings,
         stop_reason=stop_reason(budget, clock, error),
         git_sha=safe_git_sha(),

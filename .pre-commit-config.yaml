@@ -1,0 +1,18 @@
+# See https://pre-commit.com for more information
+# 本地纪律闸门: 与 CI 同源的检查前移到提交时刻, 低级错误进不了仓库。
+# 启用: pip install -e ".[dev]" && pre-commit install
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix, mcp_redteam, eval, tests, scripts]

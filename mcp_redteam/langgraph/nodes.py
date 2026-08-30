@@ -78,14 +78,19 @@ def recon_node(deps: GraphDeps):
     """``agent/recon.recon``: list tools + resources, classify candidates."""
 
     async def node(state: McPwnState) -> dict[str, Any]:
-        recon_calls, candidates, tools_seen, resources_seen = await recon(
+        recon_calls, candidates, tools_seen, resources_seen, static_hits = await recon(
             deps.session
         )
+        from mcp_redteam.agent.supplychain import vet_target_spec
+
+        if deps.spec is not None:
+            static_hits = static_hits + vet_target_spec(deps.spec)
         return {
             "recon_calls": recon_calls,
             "candidates": candidates,
             "tools_seen": tools_seen,
             "resources_seen": resources_seen,
+            "static_hits": static_hits,
         }
 
     return node
@@ -386,6 +391,7 @@ def assemble_result(
         tools_seen=state.get("tools_seen", []),
         resources_seen=state.get("resources_seen", []),
         traces=state.get("traces", []),
+        static_hits=state.get("static_hits", []),
         findings=state.get("findings", []),
         stop_reason=stop_reason(deps.budget, deps.clock, error),
         git_sha=safe_git_sha(),

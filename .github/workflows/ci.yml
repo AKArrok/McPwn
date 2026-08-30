@@ -42,11 +42,12 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Lint (ruff)
-        run: ruff check mcp_redteam eval tests
+        run: ruff check mcp_redteam eval tests scripts
 
-      - name: Test (pytest)
-        # 全套 hermetic 回归: 无 DVMCP、无 LLM API、无网络, 不需要任何 key
-        run: pytest -q
+      - name: Test (pytest) + coverage gate
+        # 全套 hermetic 回归: 无 DVMCP、无 LLM API、无网络, 不需要任何 key。
+        # 覆盖率门禁 75% (pyproject [tool.coverage.report] fail_under)。
+        run: pytest -q --cov=mcp_redteam --cov-report=term-missing
 
       - name: Check docs facts vs code
         # 文档/代码一致性: 测试数、信号数、策略卡数、package-data glob、cli 命令名。

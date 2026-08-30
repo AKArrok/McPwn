@@ -22,6 +22,7 @@ from mcp_redteam.contracts import (
     Finding,
     McpCall,
     ScanStopReason,
+    StaticHit,
 )
 
 
@@ -45,6 +46,7 @@ class McPwnState(TypedDict, total=False):
     candidates: list[Candidate]
     tools_seen: list[str]
     resources_seen: list[str]
+    static_hits: list[StaticHit]  # zero-LLM surface screening + supplychain
 
     # ── plan output + execution cursor ─────────────────────────────────
     planned: list[PlannedCandidate]

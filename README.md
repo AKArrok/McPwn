@@ -1,5 +1,10 @@
 # McPwn
 
+[![CI](https://github.com/AKArrok/McPwn/actions/workflows/ci.yml/badge.svg)](https://github.com/AKArrok/McPwn/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.13%2B-blue)
+![coverage](https://img.shields.io/badge/coverage-78%25-brightgreen)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 > **合规声明 (P4)**:本项目仅用于评估**本机 Docker 容器**上的隔离靶机:Damn Vulnerable MCP Server
 > (`dvmcp`, 127.0.0.1:9001-9010)与真实世界靶机(`excel-mcp-server` 0.1.7/0.1.8, 127.0.0.1:9203/9204,
 > 由 `targets/realworld/deploy.ps1` 管理)等。**禁止**将本项目及其攻击 payload
@@ -253,6 +258,25 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
 | `--sandbox-root` | — | 声明的沙箱根 (部署元数据),启用 sandbox-escape 判据 |
 | `--graph` | false | 以显式 LangGraph 状态机跑流水线 (与默认手写循环等价) |
 | `--llm-points` | false | 启用三 LLM 决策点:假设生成 / 零发现复盘 / grounded 证据判定 (unknown-shape 覆盖) |
+
+### `mcpwn static-scan <target>` / `mcpwn vet-package <name>`
+
+**零 LLM 静态预筛**——攻击前的廉价第一层(与 mcp-scan 同哲学):
+
+- 工具/资源描述与参数 schema 的正则启发式:指令覆盖、对用户隐藏行为、
+  外传数据、跨 server 调用、凭证面、任意执行、路径逃逸、内网端点
+- 供应链核查:stdio 启动命令中的包名做 **typosquat 检测**(与知名 MCP
+  server 包名比对)+ 已知恶意包名单 + 明文 http 远程告警
+- 无攻击流量、无 token 消耗,结果进 SARIF(`--out`)
+
+```bash
+mcpwn static-scan http://127.0.0.1:9001/sse
+mcpwn static-scan --command "uvx mcp-server-fetch" -o static.sarif
+mcpwn vet-package postmark-mcp-official   # -> critical: 已知冒名包
+```
+
+`mcpwn scan` 每次也会自动运行静态预筛 + 供应链核查,命中写入
+`findings.md` 的"静态预筛"节与 `findings.sarif`。
 
 ### `mcpwn benchmark <target> [--mode std|llm]`
 

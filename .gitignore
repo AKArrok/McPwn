@@ -38,3 +38,8 @@ eval/fetch_ssrf/.venv/
 
 # ZCode session-local artifacts
 .zcode/
+
+# Coverage artifacts
+.coverage
+coverage.xml
+htmlcov/

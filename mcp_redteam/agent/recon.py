@@ -10,7 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from mcp_redteam.contracts import McpCall, VulnClass
+from mcp_redteam.agent.static_scan import scan_surface_static
+from mcp_redteam.contracts import McpCall, StaticHit, VulnClass
 from mcp_redteam.targets.mcp_client import McpSession
 
 
@@ -120,8 +121,13 @@ def _parse_list_resources_text(text: str) -> list[str]:
 
 async def recon(
     session: McpSession,
-) -> tuple[list[McpCall], list[Candidate], list[str], list[str]]:
+) -> tuple[list[McpCall], list[Candidate], list[str], list[str], list[StaticHit]]:
     """Perform recon: list tools + list resources; classify each into candidates.
+
+    Returns ``(recon_calls, candidates, tools_seen, resource_uris,
+    static_hits)`` - the last element is the zero-LLM static screening of
+    the tool/resource metadata surface (see ``agent/static_scan``), riding
+    recon so callers get it without an extra round-trip.
 
     Uses ``raw_list_tools``/``raw_list_resources`` for structured input so
     descriptions containing colons or newlines don't corrupt classification.
@@ -230,4 +236,7 @@ async def recon(
         ))
 
     tools_seen = [name for name, _ in tool_pairs]
-    return recon_calls, candidates, tools_seen, resource_uris
+    # Zero-LLM static screening rides recon: every caller gets the surface
+    # hits for free (reporting/SARIF), no extra round-trip to the target.
+    static_hits = scan_surface_static(tools, resources)
+    return recon_calls, candidates, tools_seen, resource_uris, static_hits

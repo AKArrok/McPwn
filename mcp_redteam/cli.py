@@ -228,6 +228,112 @@ def scan_cmd(
         raise typer.Exit(code=1)
 
 
+@app.command("static-scan")
+def static_scan_cmd(
+    target: str = typer.Argument(
+        "", help="MCP target: HTTP endpoint URL. Optional when --command is given."
+    ),
+    command: str | None = typer.Option(
+        None, "--command", help="stdio target launch command (implies stdio transport)."
+    ),
+    transport: str = typer.Option(
+        "auto",
+        "--transport",
+        help="auto (default), sse, streamable-http, or stdio.",
+    ),
+    out: Path | None = typer.Option(
+        None, "--out", "-o", help="Optional output file for the SARIF report."
+    ),
+) -> None:
+    """Zero-LLM static screening: tool/resource metadata + supply-chain vet.
+
+    The cheap first layer: regex heuristics over descriptions/arg schemas
+    (injection phrasing, exfiltration semantics, credential surfaces, ...)
+    plus package typosquat/known-malicious checks for stdio targets. No
+    attack traffic, no tokens - safe against ANY server.
+    """
+    import asyncio
+
+    from mcp_redteam.agent.static_scan import scan_surface_static
+    from mcp_redteam.agent.supplychain import vet_target_spec
+    from mcp_redteam.contracts import StaticHit, TargetSpec
+    from mcp_redteam.targets.mcp_client import McpSession
+
+    if not command and not target:
+        console.print("[red]FAIL[/red] static-scan needs a target URL or --command")
+        raise typer.Exit(code=2)
+    spec = TargetSpec.parse(
+        None if command else target,
+        transport=transport.replace("-", "_"),
+        command=command,
+    )
+
+    # Supplychain vetting is offline - report it even if the target is down.
+    hits: list[StaticHit] = vet_target_spec(spec)
+
+    async def _surface() -> list[StaticHit]:
+        async with McpSession(spec) as s:
+            tools = await s.raw_list_tools()
+            resources = await s.raw_list_resources()
+        return scan_surface_static(tools, resources)
+
+    try:
+        hits = hits + asyncio.run(_surface())
+    except RuntimeError as exc:
+        # McpSession already names target/transport; keep it friendly.
+        console.print(f"[red]FAIL[/red] {exc}")
+        for h in hits:
+            console.print(f"[{h.severity}] {h.rule_id}: {h.summary}")
+        raise typer.Exit(code=2) from exc
+
+    table = Table("severity", "rule", "subject", "where", "summary")
+    order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    for h in sorted(hits, key=lambda x: order.get(x.severity, 9)):
+        table.add_row(h.severity, h.rule_id, h.subject, h.where, h.summary)
+    if hits:
+        console.print(table)
+    console.print(f"[green]{len(hits)}[/green] static hit(s) on {spec.display}")
+    if out:
+        import json as _json
+
+        from mcp_redteam.report.sarif import to_sarif
+
+        pseudo = _StaticScanResult(target=spec.display, transport=spec.transport.value, hits=hits)
+        out.write_text(
+            _json.dumps(to_sarif(pseudo), indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        console.print(f"[dim]wrote {out}[/dim]")
+    if hits:
+        raise typer.Exit(code=1)
+
+
+class _StaticScanResult:
+    """Minimal duck-type for to_sarif() on standalone static scans."""
+
+    def __init__(self, target: str, transport: str, hits: list) -> None:
+        self.run_id = "static-scan"
+        self.sse_url = target
+        self.transport = transport
+        self.findings = []
+        self.static_hits = hits
+
+
+@app.command("vet-package")
+def vet_package_cmd(
+    name: str = typer.Argument(..., help="MCP server package name, e.g. mcp-server-fetch."),
+) -> None:
+    """Vet one package name: typosquat distance + known-malicious list."""
+    from mcp_redteam.agent.supplychain import vet_package_name
+
+    hits = vet_package_name(name)
+    if not hits:
+        console.print(f"[green]ok[/green] {name}: 无已知风险 (本地知识库范围内)")
+        return
+    for h in hits:
+        console.print(f"[{h.severity}] {h.rule_id}: {h.summary} (match: {h.matched_text})")
+    raise typer.Exit(code=1)
+
+
 @app.command("benchmark")
 def benchmark_cmd(
     name: str = typer.Argument(

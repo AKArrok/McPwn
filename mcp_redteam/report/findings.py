@@ -161,6 +161,19 @@ def write_findings(result: ScanResult, out_dir: Path) -> Path:
     lines.append(f"- **findings**: **{len(result.findings)}**")
     lines.append("")
 
+    if result.static_hits:
+        lines.append("---")
+        lines.append("")
+        lines.append("## 静态预筛 (zero-LLM, 扫描前命中)")
+        lines.append("")
+        lines.append("| 严重级 | 规则 | 对象 | 位置 | 摘要 |")
+        lines.append("|---|---|---|---|---|")
+        for h in result.static_hits:
+            lines.append(
+                f"| {h.severity} | `{h.rule_id}` | {h.subject} | {h.where} | {h.summary} |"
+            )
+        lines.append("")
+
     if not result.findings:
         lines.append("_No findings above confidence threshold._")
     else:
@@ -175,4 +188,7 @@ def write_findings(result: ScanResult, out_dir: Path) -> Path:
 
     md_path = out_dir / "findings.md"
     md_path.write_text("\n".join(lines), encoding="utf-8")
+    from mcp_redteam.report.sarif import write_sarif
+
+    write_sarif(result, out_dir)
     return md_path

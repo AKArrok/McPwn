@@ -9,6 +9,9 @@
   3. executor × N -> `list[AttackTrace]` (每候选一个, 遇 budget 停)
   4. verifier -> `list[Finding]` (confidence >= 0.6)
 - 边界: 不直接调用 MCP server (委托给 mcp_client); 不直接调用 LLM (委托给 models/chat).
+- 静态层: `static_scan.py` (工具/资源元数据正则启发式) 与 `supplychain.py`
+  (包名 typosquat + 已知恶意名单) 是零 LLM 廉价层, 规则只允许通用公开
+  知识, 禁止针对具体靶场 (顶层规则 4); recon 返回的第 5 元素即静态命中.
   executor 内嵌标准 openai function-calling 循环.
 
 从 `cli.py` 的 `scan` 命令进入; 由 `agent/__init__.py` 暴露统一入口.
