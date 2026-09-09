@@ -6,8 +6,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "MIT" }
 dependencies = [
-    # 靶场 fixture (vault_server 等) 用 2.0 的 mcp.server.mcpserver API,
-    # 测试套件仅在 mcp>=2.0 下全绿; 连接层另做了 1.x 兼容分支但 floor 以 2.0 为准。
+    # MCP SDK server-side import paths shift across releases; local fixtures
+    # use compatibility imports, while the package floor follows the supported
+    # client/runtime stack.
     "mcp[cli]>=2.0",
     "openai>=1.40",
     "pydantic>=2.7",
@@ -16,6 +17,7 @@ dependencies = [
     "jinja2",
     "rich",
     "python-dotenv",
+    "jsonschema>=4",
     "pandas>=2.2",
     "matplotlib>=3.8",
     "typer>=0.12",
@@ -47,6 +49,7 @@ include = ["mcp_redteam*", "eval*"]
     "config/*.yaml",
     "**/agents/*.md",
     "**/agents/**/*.md",
+    "schemas/*.json",
     "vulns/cards/*.md",
 ]
 

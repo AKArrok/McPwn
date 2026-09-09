@@ -28,7 +28,13 @@ def main() -> None:
     def echo(text: str) -> str:
         return f"echo:{text}"
 
-    server.run(transport=transport, host="127.0.0.1", port=port)
+    settings_fields = getattr(type(getattr(server, "settings", None)), "model_fields", {})
+    if {"host", "port"}.issubset(settings_fields):
+        server.settings.host = "127.0.0.1"
+        server.settings.port = port
+        server.run(transport=transport)
+    else:
+        server.run(transport=transport, host="127.0.0.1", port=port)
 
 
 if __name__ == "__main__":

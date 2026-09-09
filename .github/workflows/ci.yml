@@ -44,6 +44,16 @@ jobs:
       - name: Lint (ruff)
         run: ruff check mcp_redteam eval tests scripts
 
+      - name: Smoke CLI artifact gate
+        # Exercises the installed CLI's deterministic CI gate on synthetic
+        # findings.json artifacts. No MCP server, Docker, network, or LLM keys.
+        run: python scripts/ci_artifact_smoke.py
+
+      - name: Smoke wheel package
+        # Builds the wheel, checks packaged schemas/prompts/cards, installs it
+        # into a temporary venv, then runs the generated mcpwn entrypoint.
+        run: python scripts/package_smoke.py
+
       - name: Test (pytest) + coverage gate
         # 全套 hermetic 回归: 无 DVMCP、无 LLM API、无网络, 不需要任何 key。
         # 覆盖率门禁 75% (pyproject [tool.coverage.report] fail_under)。
@@ -53,3 +63,7 @@ jobs:
         # 文档/代码一致性: 测试数、信号数、策略卡数、package-data glob、cli 命令名。
         # gitignore 的本地文档 (HANDOFF*/PROGRESS) 在 CI 中自动跳过并标注。
         run: python scripts/check_docs.py
+
+      - name: Check live demo assets
+        # Offline-only check: no Docker, MCP target, network, or LLM credentials.
+        run: python scripts/check_demo_assets.py

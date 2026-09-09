@@ -1,5 +1,8 @@
 # McPwn
 
+McPwn is a CI-integrable MCP red-team agent that turns an unknown MCP server into
+grounded findings, replayable PoCs, machine-readable artifacts, and severity gates.
+
 [![CI](https://github.com/AKArrok/McPwn/actions/workflows/ci.yml/badge.svg)](https://github.com/AKArrok/McPwn/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
 ![coverage](https://img.shields.io/badge/coverage-78%25-brightgreen)
@@ -12,9 +15,9 @@
 > 由本机 `reset_hook` / `deploy.ps1 -Clean` 负责状态回收。若你不在本地运行这些容器,请立即停止使用。
 
 <p align="center">
-  <strong>一个通用 MCP 红队 agent——给一个陌生 MCP server 的 SSE 端点,
+  <strong>一个通用 MCP 红队 agent——给一个陌生 MCP server 的 MCP transport 端点,
   自主完成侦察 → 假设 → 攻击 → 验证 → 报告的完整闭环。</strong><br/>
-  产出人类可读的 <code>findings.md</code> 与可重放的 PoC 脚本。
+  产出人类可读的 <code>findings.md</code>、机器可读的 <code>findings.json</code> 与可重放的 PoC 脚本。
 </p>
 
 <p align="center">
@@ -25,7 +28,7 @@
 </p>
 
 <p align="center">
-  <b>不针对任何具体 challenge</b> · 同一套信号库 + 策略卡,跑任何 MCP server 都有效 ·
+  <b>不针对任何具体 challenge</b> · 同一套信号库 + 策略卡,按统一协议扫描 MCP server ·
   <b>证据只信真实调用返回</b> · 防 LLM 幻觉假阳
 </p>
 
@@ -34,6 +37,7 @@
 ## 目录
 
 - [为什么是 McPwn](#为什么是-mcpwn)
+- [Engineering credibility](#engineering-credibility)
 - [特性](#特性)
 - [快速开始](#快速开始)
 - [Demo](#demo)
@@ -60,12 +64,37 @@ mcpwn scan <target>
   → 按 8 类漏洞分类打标                   # 假设:工具/资源形状 → 候选
   → LLM 按策略卡出 payload 探测           # 攻击:function-calling 循环
   → 信号库 + 置信度判 Finding             # 验证:证据只来自真实返回
-  → findings.md + poc/*.py                # 报告:人类可读 + 可重放
+  → findings.md + findings.json + poc/*.py # 报告:人类可读 + 机器可读 + 可重放
 ```
 
 DVMCP、excel-mcp-server、vault-mcp 等靶机**只是验证 agent 有效性的 fixture,
-不是评测目标**——agent 的通用性体现在:同一套漏洞信号库与策略卡,跑任何
-MCP server 都有效。
+不是产品本身**。尤其是 DVMCP:它可以称为 **DVMCP regression test set**,
+但必须带限定——这是**已见过、已反复调参的回归测试集**,不是能证明泛化能力的
+独立测试集。
+
+### Engineering credibility
+
+McPwn's delivery claim is intentionally narrower than a benchmark headline: a
+target config drives a bounded scan, grounded evidence is persisted, the artifact
+has a versioned schema, and CI can make a deterministic severity decision. The
+reviewer-facing evidence and boundaries are collected here:
+
+- [`docs/demo_3min.md`](docs/demo_3min.md) — three-minute command path and CI shape
+- [`docs/demo_evidence_runbook.md`](docs/demo_evidence_runbook.md) — real local demo evidence collection and redaction checklist
+- [`docs/evidence_matrix.md`](docs/evidence_matrix.md) — what each evidence layer does and does not prove
+- [`docs/threat_model.md`](docs/threat_model.md) — supported targets, non-goals, and gate semantics
+- [`docs/comparison.md`](docs/comparison.md) — position against adjacent approaches
+- [`docs/release.md`](docs/release.md) — release checks and artifact compatibility
+- [`docs/case_study_excel.md`](docs/case_study_excel.md) — one grounded vulnerable/fixed case
+
+```mermaid
+flowchart LR
+    TARGET[Target MCP] --> RECON[Recon]
+    RECON --> PLAN[Planner / Attacker]
+    PLAN --> VERIFY[Grounded Verifier]
+    VERIFY --> ARTIFACT[findings.md / findings.json / SARIF / PoC]
+    ARTIFACT --> GATE[CI gate]
+```
 
 ## 特性
 
@@ -110,6 +139,30 @@ mcpwn ping-models --roles attacker,judge   # 自测各 role 端点连通性
 mcpwn lint-cards                           # 校验策略卡格式与禁词
 ```
 
+### 接入自己的 MCP server
+
+```bash
+mcpwn init --kind stdio --out mcpwn.yaml
+# 编辑 mcpwn.yaml: command / env / sandbox_root / headers
+mcpwn scan --target-config mcpwn.yaml --out runs/my_server
+mcpwn ci runs/my_server --fail-on high
+```
+
+`mcpwn.yaml` 是面向真实接入的稳定入口:它把 `name`、`transport`、`url` 或
+`command`、`headers`、`env`、`sandbox_root`、`llm_points` 固化下来,避免每次
+扫描靠一长串 CLI 参数手输。DVMCP/holdout 仍是评估层;真实使用从 target config
+开始。
+
+`mcpwn ci` 不重跑扫描,只读取 `findings.json`,因此适合放进 CI/CD:
+
+```yaml
+- run: mcpwn scan --target-config mcpwn.yaml --out runs/mcpwn_scan
+- run: mcpwn ci runs/mcpwn_scan --fail-on high
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: runs/mcpwn_scan/findings.sarif
+```
+
 ### 单目标扫描
 
 ```bash
@@ -121,6 +174,9 @@ mcpwn scan http://127.0.0.1:9000/mcp --out runs/streamable_demo
 
 # stdio 本地 server (每轮拉起子进程, 退出即回收)
 mcpwn scan --command "uvx mcp-server-fetch" --out runs/fetch_demo
+
+# 可提交、可复用的 target config
+mcpwn scan --target-config mcpwn.yaml --out runs/config_demo
 ```
 
 ## Demo
@@ -143,12 +199,14 @@ $ mcpwn scan http://127.0.0.1:9001/sse --out runs/demo_9001
 │ wall_seconds │ 23.4                        │
 └──────────────┴─────────────────────────────┘
 wrote runs/demo_9001/findings.md
+wrote runs/demo_9001/findings.json
 wrote runs/demo_9001/benchmark.md
 ```
 
 ```text
 runs/demo_9001/
   findings.md             # 人类可读报告:1 条 Finding (direct_prompt_injection, 0.97)
+  findings.json           # 轻量机器可读 Finding 列表 (schema_version=1)
   benchmark.md            # 靶场评分卡:manifest 判定 + 覆盖面 + 预算效率
   poc/F-xxx.py            # 可重放 PoC:read_resource("internal://credentials")
   traces/trace_*.json     # 完整 AttackTrace (attacker 每一步决策 + 真实返回)
@@ -159,16 +217,28 @@ runs/demo_9001/
 
 ## 评估结果
 
-McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 pass@k 主表):
+McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 pass@k 主表)。
+证据口径先分清:
+
+| 证据层 | 用途 | 能说明什么 | 不能说明什么 |
+|---|---|---|---|
+| **DVMCP regression test set** | 开发/回归集 | 当前版本没有破坏这些已知案例 | 陌生 MCP 上的真实召回率 |
+| **漏洞版/修复版配对** | 因果验证集 | finding 来自漏洞差异,不是项目特征或脚本误报 | 独立泛化 |
+| **冻结 holdout** | 独立测试集 | 从未调参样本上的外推证据 | 失败后调参仍沿用同一 lock |
+| **N≥5 重复** | 同目标运行方差 | LLM 在同一目标上的稳定性 | 样本量增加 |
+
+因此 `8/10`、`9/10`、`FPR 0`、`replay 5/5` 只证明当前版本没有破坏这些
+已知回归案例,不能外推为"面对陌生 MCP 有 80%-90% 召回"。
 
 | 评估 | 靶机 | 结果 |
 |---|---|---|
-| **DVMCP 全港** | 10 个漏洞端口 (9001-9010) | recall **8/10** (runner) / **9/10** (graph), FPR **0.00**, replay **5/5** |
+| **DVMCP 回归测试集(已见/反复调参)** | 10 个漏洞端口 (9001-9010) | recall **8/10** (runner) / **9/10** (graph), FPR **0.00**, replay **5/5** |
 | **真实世界** | excel-mcp-server CVE-2026-40576 | 0.1.7 **exploited** / 0.1.8 **blocked** 双 PASS (docker 双核对) |
 | **未知形状** | vault-mcp (CWE-639 子串鉴权) | baseline 0 findings → LLM 版 **3/3 PASS** + 提示词消融 **D 3/3** |
-| **泛化验证** | delegate-mcp (CWE-639 授权作用域) | **3/3 PASS** (strict-better, 换形状仍成立) |
+| **跨形状开发验证** | delegate-mcp (CWE-639 授权作用域) | **3/3 PASS** (strict-better, 但已经历调参,不作独立泛化结论) |
 | **SSRF 真靶** | 官方 mcp-server-fetch | scan **1 finding** (`ssrf/fetch` 0.75, 真实内网服务命中) |
 | **干净基线** | 无漏洞 server 变体 | 3 变体 **0 findings** (FPR 可信度) |
+| **冻结 holdout** | cache-mcp 配对 | 协议/fixture 已冻结; LLM N≥5 待跑 |
 
 > 判据设计:提能实验一律"**严格更优**" (baseline=0、每 run ≥1、N=3 miss 即 fail),
 > 拒绝"不劣于"自欺——M3 的负面结果教训见 [`docs/experiment_methodology.md`](docs/experiment_methodology.md)。
@@ -213,7 +283,14 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
                                           v
                               +-----------+-----------+
                               |   report.findings     |
-                              |  findings.md + poc/*  |
+                              | findings.md + findings.json + |
+                              | findings.sarif + poc/*         |
+                              +-----------------------+
+                                          |
+                                          v
+                              +-----------------------+
+                              |       mcpwn ci        |
+                              |   deterministic gate  |
                               +-----------------------+
 ```
 
@@ -222,6 +299,8 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
 ```text
 <out_dir>/
   findings.md             # 人类可读报告,只含 confidence >= 0.6 的 Finding
+  findings.json           # CI/平台消费的结构化 Finding 列表
+  findings.sarif          # SARIF 2.1.0 导出,供兼容的 code-scanning 平台消费
   poc/<finding_id>.py     # 每个 Finding 一个可重放 PoC
   traces/trace_*.json     # 每个 candidate 的 AttackTrace 全量落盘
   scan_result.json        # 完整 ScanResult + 可复现元数据
@@ -249,6 +328,7 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
 
 | 选项 | 默认 | 说明 |
 |---|---|---|
+| `--target-config` | — | 读取 `mcpwn.yaml` target config;与 positional target / `--command` 互斥 |
 | `--out`, `-o` | `runs/scan_latest` | 产物输出目录 |
 | `--max-tokens` | 30000 | attacker token 预算 |
 | `--wall-seconds` | 240 | 墙钟时间预算 (秒) |
@@ -262,6 +342,66 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
 | `--sandbox-root` | — | 声明的沙箱根 (部署元数据),启用 sandbox-escape 判据 |
 | `--graph` | false | 以显式 LangGraph 状态机跑流水线 (与默认手写循环等价) |
 | `--llm-points` | false | 启用三 LLM 决策点:假设生成 / 零发现复盘 / grounded 证据判定 (unknown-shape 覆盖) |
+
+### `mcpwn init`
+
+生成真实接入用的 `mcpwn.yaml` 模板。
+
+```bash
+mcpwn init --kind stdio --out mcpwn.yaml
+mcpwn init --kind url --out mcpwn.yaml --force
+```
+
+最小 stdio 配置:
+
+```yaml
+name: local-stdio-mcp
+transport: stdio
+command: python path/to/server.py
+cwd: null
+env: {}
+sandbox_root: null
+llm_points: false
+```
+
+### `mcpwn ci <out_dir|findings.json>`
+
+对已有扫描产物做流水线 gate。它只读取 `findings.json`,不重跑扫描;这样 CI
+判定与 LLM 采样方差解耦。执行 gate 前会先按
+`mcp_redteam/schemas/findings-v1.schema.json` 校验 artifact。
+
+```bash
+mcpwn ci runs/my_server --fail-on high
+mcpwn ci runs/my_server/findings.json --fail-on critical --ignore-static
+```
+
+| 选项 | 默认 | 说明 |
+|---|---|---|
+| `--fail-on` | `high` | 达到该严重级及以上即失败:`info` / `low` / `medium` / `high` / `critical` |
+| `--allow-inconclusive` | false | 即使 `stop_reason != completed` 也按 findings 判定 |
+| `--ignore-static` | false | 不把 `static_hits` 纳入 gate |
+
+退出码:
+
+| 退出码 | 含义 |
+|---|---|
+| 0 | scan completed,且没有达到阈值的 finding/static hit |
+| 1 | 至少一个 finding/static hit 达到阈值 |
+| 2 | `findings.json` 缺失、损坏或阈值非法 |
+| 3 | scan 未完成 (`budget_*` / `error`),默认视为 inconclusive |
+
+### `mcpwn validate-artifact <out_dir|findings.json>`
+
+只校验 `findings.json` 是否符合已提交的 JSON Schema,不做严重级门禁:
+
+```bash
+mcpwn validate-artifact runs/my_server
+mcpwn validate-artifact runs/my_server/findings.json
+```
+
+这条命令给外部平台/脚本一个明确契约:它们可以依赖
+`schema_version=1` 的顶层字段、`counts`、`findings` 与 `static_hits` 结构,
+而不是反向阅读 Python 实现。
 
 ### `mcpwn static-scan <target>` / `mcpwn vet-package <name>`
 
@@ -320,10 +460,17 @@ benchmark.md(能匹配 manifest 靶场时含判定,否则仅自评指标)。
 | [`docs/agent_chain.md`](docs/agent_chain.md) | agent 思维与行动链路 (双路径) |
 | [`docs/mcp_attack_surface.md`](docs/mcp_attack_surface.md) | 打 MCP 的攻击思路与入手面 |
 | [`docs/anti_hallucination.md`](docs/anti_hallucination.md) | 防幻觉机制全集 (Grounding 闸门 / 指纹化 / claim mismatch) |
-| [`docs/eval_guide.md`](docs/eval_guide.md) | 评估体系导航 (6 个 eval 怎么跑) |
+| [`docs/eval_guide.md`](docs/eval_guide.md) | 评估体系导航 (7 个 eval 怎么跑, 含冻结 holdout 协议) |
 | [`docs/reproducibility.md`](docs/reproducibility.md) | 可复现性设计 (seed / attack_messages_sha1) |
 | [`docs/experiment_methodology.md`](docs/experiment_methodology.md) | 可证伪实验方法论 (strict-better 判据) |
 | [`docs/pwn_results.md`](docs/pwn_results.md) | 各靶机攻击成果与结果记录 |
+| [`docs/demo_3min.md`](docs/demo_3min.md) | 三分钟工程化 demo 与 CI 接入 |
+| [`docs/demo_evidence_runbook.md`](docs/demo_evidence_runbook.md) | 真实本地 demo 证据采集与脱敏清单 |
+| [`docs/evidence_matrix.md`](docs/evidence_matrix.md) | 证据层级、证明范围与边界 |
+| [`docs/threat_model.md`](docs/threat_model.md) | 威胁模型、非目标与 CI 语义 |
+| [`docs/comparison.md`](docs/comparison.md) | 与静态扫描、DAST、人工红队等的定位对比 |
+| [`docs/release.md`](docs/release.md) | SemVer、发布前检查与 artifact 兼容策略 |
+| [`docs/case_study_excel.md`](docs/case_study_excel.md) | excel-mcp 漏洞版/修复版配对案例 |
 
 设计规约 (项目内部):`HANDOFF.md` (唯一权威) / `AGENTS.md` (顶层规约) /
 `PROGRESS.md` (状态快照)。
@@ -348,26 +495,32 @@ mcp_redteam/
   targets/mcp_client.py   MCP SDK 薄封装
   models/chat.py          OpenAI-compat 工厂 + retry-with-backoff + 限流
   judge/                  L2 judge (prompt 外置 + JSON 解析)
-  report/findings.py      ScanResult -> findings.md + poc/*.py
+  report/findings.py      ScanResult -> findings.md + findings.json + poc/*.py
 eval/
   dvmcp/                  DVMCP fixture + expected.yaml + runner + m3_judge
   realworld/              excel-mcp CVE 回归 (prove.py 双版本对照)
   unknown_shape/          vault-mcp 三阶段实验 + 提示词消融
-  generalize/             delegate-mcp 跨形状验证
+  generalize/             delegate-mcp 跨形状开发验证(非独立 holdout)
   fetch_ssrf/             官方 mcp-server-fetch SSRF 真靶
   clean_baseline/         无漏洞 server 的 FPR baseline
+  holdout/                冻结 holdout 协议 (配对 + sha256 lock + N≥5 + 对照回放)
   regression.py           三靶机聚合回归 (prove/baseline/llm/full)
 tests/                    单元/回归测试 (pytest, 数量见 CI badge)
-docs/                     8 篇文档 (见上表)
-scripts/                  check_docs.py (文档 vs 代码 vs pyproject 一致性校验,CI 挂载)
+docs/                     文档集与交互式结构图 (见上表)
+  mcpwn-architecture.html  可交互项目结构图
+  mcpwn-architecture.architecture.json  结构图源规格
+examples/                 无密钥的本地 demo target config 示例
+scripts/                  CI/打包/文档/demo 资产检查脚本 (`ci_artifact_smoke.py`, `package_smoke.py`, `check_docs.py`, `check_demo_assets.py`)
 ```
 
 ## 开发
 
 ```bash
 pytest                       # 全部测试 (数量见 CI badge)
-ruff check mcp_redteam eval  # lint (0 errors)
+ruff check mcp_redteam eval tests scripts  # lint (0 errors)
 mcpwn lint-cards             # 策略卡校验
+python scripts/ci_artifact_smoke.py # CLI artifact gate 冒烟
+python scripts/package_smoke.py # wheel 资源 + installed entrypoint 冒烟
 python scripts/check_docs.py # 文档 vs 代码 vs pyproject 一致性校验
 python eval/regression.py    # 三靶机聚合回归 (默认 prove, 无 LLM ~30s)
 ```

@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 from eval.fetch_ssrf._fresh import fresh_fetch_target
 from eval.generalize._fresh_server import fresh_delegate_server
+from eval.holdout.fixtures._fresh import fresh_cache_target
 from eval.real_negative._fresh import fresh_fs_target, fresh_git_target
 from eval.real_vuln._fresh import fresh_fs_vuln_target
 from eval.unknown_shape._fresh_server import fresh_vault_server
@@ -63,6 +64,11 @@ SPAWNERS: dict[str, object] = {
     "git": _port_aware(fresh_git_target, 9330),
     "filesystem": _port_aware(fresh_fs_target, 9340),
     "filesystem_vuln": _port_aware(fresh_fs_vuln_target, 9350),
+    # holdout pair: multi-tenant cache (vulnerable + owner-namespaced fixed)
+    "cache": _port_aware(fresh_cache_target, 19215),
+    "cache_fixed": _port_aware(
+        lambda port: fresh_cache_target(port, fixed=True), 19216
+    ),
 }
 
 

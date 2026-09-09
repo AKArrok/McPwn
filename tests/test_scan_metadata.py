@@ -7,10 +7,14 @@ that B introduced (HANDOFF B: point-in-time reproducible scans).
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
 from mcp_redteam.contracts import ScanResult
+from mcp_redteam.orchestrator import runner as runner_mod
+from tests.fixtures.stub_attacker import fake_make_client
 
 
 def test_scan_result_reproducibility_fields_default_to_safe():
@@ -127,3 +131,27 @@ def test_scan_result_seed_and_evidence_judge_model_round_trip():
     )
     assert r2.seed == 42
     assert r2.evidence_judge_model == "doubao-seed-2.0-lite"
+
+
+def test_scan_connection_error_is_persisted_without_static_hit_crash(monkeypatch, tmp_path):
+    """A failed MCP connection still produces a valid, inspectable ScanResult."""
+
+    class _FailingSession:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            raise OSError("connection refused")
+
+        async def __aexit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(runner_mod, "McpSession", _FailingSession)
+    monkeypatch.setattr(runner_mod, "make_client", fake_make_client)
+    monkeypatch.setattr(runner_mod, "_make_judge_fn_or_none", lambda: None)
+
+    result = asyncio.run(runner_mod.scan("http://127.0.0.1:1/sse", out_dir=tmp_path))
+
+    assert result.stop_reason == "error"
+    assert result.static_hits == []
+    assert (tmp_path / "scan_result.json").is_file()

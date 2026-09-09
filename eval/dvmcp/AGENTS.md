@@ -27,10 +27,12 @@
     `run_all_signals` 看 signal_id 是否重现. verifier / LLM judge 都不重跑.
   * **状态污染** (9004 状态计数器等) 通过 `mcpwn eval dvmcp reset --yes`
     处理 (`orchestrator/reset_hook.py`, 默认 dry-run).
-  * **DVMCP 是 fixture, 不是泛化测试集**. 当前 FPR 在 10 港上测的是
-    "agent 在 DVMCP-shape 上不误报 DVMCP-shape 的端口", 不是 "agent 在
-    干净 MCP server 上不报警". 后者需要额外的 negative sample set
-    (FastMCP echo / calculator 等), 见 M3 之前的待办.
+  * **DVMCP 是已见过、已反复调参的 regression test set, 不是泛化测试集**.
+    当前 FPR 在 10 港上测的是 "agent 在 DVMCP-shape 上不误报 DVMCP-shape
+    的端口", 不是 "agent 在干净 MCP server 上不报警". 后者需要额外的
+    negative sample set.
+  * 8/10、9/10、FPR 0、replay 5/5 只能证明当前版本没有破坏这些已知案例,
+    不能外推为陌生 MCP 80%-90% recall. 独立泛化结论只看冻结 holdout.
   * **N=1 跑 scan** 没有稳定性约束. LLM 在环, 同 seed 重跑结果可能漂移.
-    当前 recall 是单次点估计, 没置信区间. M3 之前需决定是否加 N>=1 扫掠
-    测 std, 见 M3 待办.
+    当前 recall 是单次点估计, 没置信区间. N>=5 也只测同一目标上的 LLM
+    运行方差,不是增加样本数.

@@ -1,4 +1,4 @@
-# AGENTS.md — eval/generalize (delegate-mcp 泛化验证靶机)
+# AGENTS.md — eval/generalize (delegate-mcp 跨形状开发验证靶机)
 
 - **输入**: SSE 端点 `http://127.0.0.1:PORT/sse`(`run_*` 脚本每 run 自动 spawn
   全新 `delegate_server.py`,端口 20005/20105+i);无 sandbox_root。
@@ -12,4 +12,5 @@
   delegate 记入全局集合,泄漏到所有 vault)。
 - **边界**: 仅 127.0.0.1;无持久化;无 auth 工具;纯实验靶机,禁止部署到任何
   真实环境。与 vault-mcp 形状不同(子串匹配 vs 授权作用域),机制差异见
-  `README.md`。
+  `README.md`。本目录是 development validation:经历过失败观察和策略卡调整,
+  不能作为冻结独立 holdout 或对外泛化率证据。

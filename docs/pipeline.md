@@ -39,6 +39,7 @@ flowchart LR
 ```text
 <out_dir>/
   findings.md             # 人类可读报告,只含 confidence >= 0.6 的 Finding
+  findings.json           # 轻量机器可读 findings/static_hits 列表
   poc/<finding_id>.py     # 每个 Finding 一个可重放 PoC
   traces/trace_*.json     # 每个 candidate 的 AttackTrace 全量落盘
   scan_result.json        # 完整 ScanResult + 可复现元数据
@@ -54,14 +55,20 @@ flowchart LR
 
 | 字段 | 内容 |
 |---|---|
-| 输入 | 命令行参数:`target`(URL 或配 `--command`)、`--transport`、`--env`、`--out`、`--max-tokens`、`--wall-seconds`、`--max-candidates`、`--max-inner-steps`、`--attacker-temperature` |
-| 输出 | 调用 `runner.scan()`,随后调用 `report.findings.write_findings()`,在终端打印 Rich 汇总表;无 finding 时 `typer.Exit(code=1)` |
+| 输入 | 命令行参数:`target`(URL 或配 `--command`)或 `--target-config mcpwn.yaml`、`--transport`、`--env`、`--out`、`--max-tokens`、`--wall-seconds`、`--max-candidates`、`--max-inner-steps`、`--attacker-temperature`;`mcpwn ci` / `mcpwn validate-artifact` 读取 `<out_dir>/findings.json` |
+| 输出 | `scan` 调用 `runner.scan()`,随后调用 `report.findings.write_findings()`,写 `findings.md` / `findings.json` / SARIF / PoC,在终端打印 Rich 汇总表;无 finding 时 `typer.Exit(code=1)`;`ci` 输出稳定 pass/fail/inconclusive gate,退出码 0/1/2/3;`validate-artifact` 只做 JSON Schema 校验 |
 | 状态 | 无持久状态;只做参数解析、`.env` 加载、异步入口 |
-| 变换 | typer 参数 → `TargetSpec` → `scan(spec, out_dir, ...)` → ScanResult → findings.md + benchmark.md |
+| 变换 | typer 参数 / `TargetConfig` → `TargetSpec` → `scan(spec, out_dir, ...)` → ScanResult → findings.md + findings.json + benchmark.md |
 | 边界 | 不直接连接 MCP/LLM;所有业务逻辑都在 runner 之下 |
 
 `--attacker-temperature` 可覆盖 `config/models.yaml` 的 `attacker.temperature`;
-用 `0` 可以得到更可复现的 LLM 决策。
+用 `0` 可以得到更可复现的 LLM 决策。`mcpwn init` 生成 `mcpwn.yaml`;
+`mcpwn scan --target-config mcpwn.yaml` 是真实项目接入入口,不会绕过主扫描链路。
+`mcpwn ci <out_dir|findings.json>` 不重跑 scan,只消费 `findings.json`;默认
+`--fail-on high`,且 `stop_reason != completed` 时返回 inconclusive(退出码 3),
+避免预算耗尽/错误扫描被误判为通过。`mcpwn validate-artifact` 使用
+`mcp_redteam/schemas/findings-v1.schema.json` 校验 artifact 结构,供外部平台
+在不读 Python 源码的情况下集成。
 
 ### 2.2 编排器 — `mcp_redteam/orchestrator/runner.py`
 
@@ -217,9 +224,9 @@ flowchart LR
 | 字段 | 内容 |
 |---|---|
 | 输入 | `ScanResult`, `out_dir` |
-| 输出 | `findings.md`, `poc/<finding_id>.py` |
+| 输出 | `findings.md`, `findings.json`, `poc/<finding_id>.py`, `findings.sarif` |
 | 状态 | 无 |
-| 变换 | ScanResult → Markdown 段落 + Python replay 脚本 |
+| 变换 | ScanResult → Markdown 段落 + JSON artifact + SARIF + Python replay 脚本 |
 | 边界 | critical/high 的 `EvidenceSignal.matched_text` 已被 detector 指纹化;PoC 不硬编敏感串 |
 
 ---
@@ -327,7 +334,7 @@ sequenceDiagram
     VERIF->>SIG: verify_trace / run_all_signals
     VERIF-->>RUN: findings
     RUN->>REP: write_findings
-    REP-->>U: findings.md + poc/*.py + traces/*.json + scan_result.json
+    REP-->>U: findings.md + findings.json + poc/*.py + traces/*.json + scan_result.json
 ```
 
 ---
@@ -357,12 +364,12 @@ sequenceDiagram
 - 期望 0 findings;只要出现 finding 就输出 `FAIL`,并区分「detector bug / recon-planner bug / legitimate FP」三类原因。
 - 产出 `eval_report.md`,是 DVMCP FPR 有意义的前提。
 
-### 7.3 未知形状 / 泛化实验 — `eval/unknown_shape/` + `eval/generalize/`
+### 7.3 未知形状 / 跨形状开发验证 — `eval/unknown_shape/` + `eval/generalize/`
 
 - 验证「LLM 三决策点」(假设生成 / 复盘 / 证据判定)能否补上固定信号库的**结构性漏报**:
   - `unknown_shape`(vault-mcp,CWE-639 子串鉴权):baseline 0 findings → llm 版 3/3 PASS,提示词消融 D 臂 3/3(协议见 `eval/unknown_shape/README.md` + `ABLATION_PLAN.md`);
-  - `generalize`(delegate-mcp,CWE-639 授权作用域):换形状重跑三阶段,3/3 PASS(协议见 `eval/generalize/README.md`)。
-- 判据锁死:**baseline=0、llm 版每 run ≥1、N=3 miss 即 fail**(严格更优,不是"不劣于")。
+  - `generalize`(delegate-mcp,CWE-639 授权作用域):换形状重跑三阶段,3/3 PASS,但经历多轮调参,属于开发验证而非独立 holdout(协议见 `eval/generalize/README.md`)。
+- 判据锁死:**baseline=0、llm 版每 run ≥1、N=3 miss 即 fail**(严格更优,不是"不劣于");N 测同一目标运行方差,不是增加样本数。
 - 运行:`python eval/unknown_shape/run_baseline.py` / `run_llm.py` / `run_repeat.py`;generalize 同理。
 
 ### 7.4 真实世界目标 — `targets/`

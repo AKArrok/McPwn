@@ -45,7 +45,8 @@ def check(name: str, ok: bool, detail: str) -> None:
 def pytest_collected_count() -> int | None:
     r = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "tests/"],
-        capture_output=True, text=True, cwd=ROOT, timeout=120, check=False,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=ROOT, timeout=120, check=False,
     )
     m = re.search(r"(\d+) tests? collected", r.stdout)
     return int(m.group(1)) if m else None
@@ -158,7 +159,7 @@ def check_cards_vs_vulnclass() -> None:
 
     enum_values = {c.value for c in VulnClass}
     card_slugs = {p.stem for p in (ROOT / "mcp_redteam" / "vulns" / "cards").glob("*.md")}
-    check("L2 cards ↔ VulnClass 枚举", enum_values == card_slugs,
+    check("L2 cards <-> VulnClass 枚举", enum_values == card_slugs,
           f"枚举 {sorted(enum_values)} vs 卡 {sorted(card_slugs)}"
           + (f";差 {sorted(enum_values ^ card_slugs)}" if enum_values != card_slugs else ""))
 
@@ -173,7 +174,7 @@ def check_readme_commands() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     used = {c for c in re.findall(r"mcpwn ([\w-]+)", readme) if c.isascii()}
     unknown = sorted(used - registered)
-    check("L2 README 命令 ↔ cli.py", not unknown,
+    check("L2 README 命令 <-> cli.py", not unknown,
           f"README 用到 {sorted(used)};cli.py 注册 {sorted(registered)}"
           + (f";未注册 {unknown}" if unknown else ""))
 
@@ -192,4 +193,4 @@ if __name__ == "__main__":
     if failures:
         print(f"共 {len(failures)} 处漂移,修复后重跑。")
         sys.exit(1)
-    print("全部一致 ✓")
+    print("全部一致 OK")

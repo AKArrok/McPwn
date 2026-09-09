@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcpwn.local/schemas/findings-v1.schema.json",
+  "title": "McPwn findings.json v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "target",
+    "transport",
+    "stop_reason",
+    "counts",
+    "findings",
+    "static_hits"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "target": { "type": "string", "minLength": 1 },
+    "transport": { "type": "string", "enum": ["sse", "streamable_http", "stdio"] },
+    "stop_reason": {
+      "type": "string",
+      "enum": ["completed", "budget_tokens", "budget_time", "user_abort", "error"]
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tools_seen", "resources_seen", "traces", "findings", "static_hits"],
+      "properties": {
+        "tools_seen": { "type": "integer", "minimum": 0 },
+        "resources_seen": { "type": "integer", "minimum": 0 },
+        "traces": { "type": "integer", "minimum": 0 },
+        "findings": { "type": "integer", "minimum": 0 },
+        "static_hits": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "static_hits": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/static_hit" }
+    }
+  },
+  "$defs": {
+    "severity": {
+      "type": "string",
+      "enum": ["info", "low", "medium", "high", "critical"]
+    },
+    "finding_severity": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "vuln_class": {
+      "type": "string",
+      "enum": [
+        "direct_prompt_injection",
+        "command_injection",
+        "path_traversal",
+        "auth_bypass",
+        "tool_metadata_probe",
+        "indirect_injection",
+        "chain_composition",
+        "ssrf"
+      ]
+    },
+    "evidence_signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signal_id", "severity", "matched_text", "source_call_index"],
+      "properties": {
+        "signal_id": { "type": "string", "minLength": 1 },
+        "severity": { "$ref": "#/$defs/severity" },
+        "matched_text": { "type": "string", "maxLength": 512 },
+        "source_call_index": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "mcp_call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "args", "result_text", "elapsed_ms"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["list_tools", "list_resources", "call_tool", "read_resource"]
+        },
+        "name": { "type": ["string", "null"] },
+        "args": { "type": ["object", "null"] },
+        "result_text": { "type": "string" },
+        "elapsed_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_id",
+        "vuln_class",
+        "target",
+        "hypothesis_class",
+        "evidence_class",
+        "severity",
+        "confidence",
+        "title",
+        "summary",
+        "signals",
+        "poc_call_sequence",
+        "remediation_hint",
+        "trace_ref"
+      ],
+      "properties": {
+        "finding_id": { "type": "string", "pattern": "^F-[0-9a-fA-F]+|F-[A-Za-z0-9_-]+$" },
+        "vuln_class": { "$ref": "#/$defs/vuln_class" },
+        "target": { "type": "string", "minLength": 1 },
+        "hypothesis_class": { "oneOf": [{ "$ref": "#/$defs/vuln_class" }, { "type": "null" }] },
+        "evidence_class": { "oneOf": [{ "$ref": "#/$defs/vuln_class" }, { "type": "null" }] },
+        "severity": { "$ref": "#/$defs/finding_severity" },
+        "confidence": { "type": "number", "minimum": 0.6, "maximum": 1.0 },
+        "title": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string" },
+        "signals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence_signal" }
+        },
+        "poc_call_sequence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/mcp_call" }
+        },
+        "remediation_hint": { "type": "string" },
+        "trace_ref": { "type": "string" }
+      }
+    },
+    "static_hit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "severity", "subject", "where", "matched_text", "summary"],
+      "properties": {
+        "rule_id": { "type": "string", "minLength": 1 },
+        "severity": { "$ref": "#/$defs/severity" },
+        "subject": { "type": "string", "minLength": 1 },
+        "where": { "type": "string", "minLength": 1 },
+        "matched_text": { "type": "string", "maxLength": 512 },
+        "summary": { "type": "string" }
+      }
+    }
+  }
+}

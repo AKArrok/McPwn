@@ -1,0 +1,6 @@
+name: demo-excel-017
+transport: sse
+url: http://127.0.0.1:9203/sse
+headers: {}
+sandbox_root: /tmp/sandbox
+llm_points: false

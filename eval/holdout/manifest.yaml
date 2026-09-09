@@ -1,0 +1,40 @@
+protocol_version: 1
+frozen_at: "2026-09-01"
+minimum_repeats: 5
+
+# validation 是公开/已用过的配对，用于调试 harness 和因果验证；
+# holdout 才是从未用于改规则、策略卡或提示词的独立测试集。
+# 扫描主链不读取本文件，只有扫描完成后的 evaluator 使用这些标签。
+pairs:
+  - pair_id: excel-sandbox-escape
+    split: validation
+    vulnerable_target: excel-0.1.7
+    fixed_target: excel-0.1.8
+    scan_mode: standard
+    expected_vuln_classes: [path_traversal]
+    expected_signal_ids: [sandbox_escape_write, sandbox_escape_read]
+    allow_llm_evidence: false
+    control_forbidden_signal_prefixes: [sandbox_escape]
+    control_block_patterns: [access denied, outside sandbox, invalid path]
+
+  - pair_id: filesystem-allowlist
+    split: validation
+    vulnerable_target: filesystem-vuln
+    fixed_target: filesystem
+    scan_mode: llm
+    expected_vuln_classes: [path_traversal]
+    expected_signal_ids: [llm_evidence_verdict]
+    allow_llm_evidence: true
+    control_forbidden_signal_prefixes: [sandbox_escape]
+    control_block_patterns: [access denied, outside allowed, not allowed]
+
+  - pair_id: cache-tenant-collision
+    split: holdout
+    vulnerable_target: cache
+    fixed_target: cache-fixed
+    scan_mode: llm
+    expected_vuln_classes: [auth_bypass]
+    expected_signal_ids: []
+    allow_llm_evidence: true
+    control_forbidden_signal_prefixes: []
+    control_block_patterns: [not found, no entry, denied]

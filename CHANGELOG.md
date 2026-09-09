@@ -3,6 +3,68 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased] - 2026-08-31
+
+### Added
+
+- **Real-target config entrypoint**: `mcpwn init` now writes a reusable
+  `mcpwn.yaml`, and `mcpwn scan --target-config mcpwn.yaml` compiles that
+  file into the existing `TargetSpec` scan path. This makes scanning a
+  non-fixture MCP server a first-class workflow instead of a long ad-hoc CLI
+  command.
+- **Machine-readable findings artifact**: every `write_findings` call now also
+  emits `findings.json` (`schema_version=1`) with run metadata, counts,
+  findings, and static hits for CI/platform integration.
+- **CI gate command**: `mcpwn ci <out_dir|findings.json>` evaluates the
+  persisted artifact without re-running the LLM scan. It fails on configurable
+  severity thresholds, includes static hits by default, and uses distinct exit
+  codes for risk found, malformed artifact, and inconclusive scans.
+- **Repository CI exercises the artifact gate**: `.github/workflows/ci.yml`
+  now runs `scripts/ci_artifact_smoke.py`, which checks the installed CLI
+  returns 0 for a clean synthetic artifact and 1 for a high-severity artifact.
+- **Versioned findings JSON Schema**: `mcp_redteam/schemas/findings-v1.schema.json`
+  defines the external artifact contract, `mcpwn validate-artifact` validates
+  it directly, and `mcpwn ci` rejects schema-invalid artifacts before applying
+  severity gates.
+- **Wheel packaging smoke**: `scripts/package_smoke.py` builds the wheel,
+  verifies packaged config/schema/prompt/card resources, installs it into a
+  temporary venv, and exercises the generated `mcpwn` entrypoint; CI runs it
+  on both Linux and Windows.
+- **Frozen holdout evaluation protocol** (`eval/holdout/`): the four-piece
+  credibility work from review feedback — 漏洞版/修复版配对 + 冻结 holdout +
+  N≥5 重复 + 对照证据验证.
+  - `manifest.yaml` + `lock.json` (sha256) freeze: any edit to the manifest
+    (hint, relaxed criterion, swapped expected signals) aborts every protocol
+    run until a deliberate `freeze.py`; `minimum_repeats=5`
+    (key targets 10), N<5 aborts on LLM rounds.
+  - Paired-run verdict (`evaluate_pair_run`): positive detected (class +
+    deterministic signal, or a grounding-gated `llm_evidence_verdict` for
+    holdout pairs) AND fixed-version clean AND control replay passed
+    (grounded + denied + no forbidden signal reproduced) — a detection
+    without its negative control is not causal.
+  - Control replay (`replay_finding_on_control`): replays a finding's PoC
+    onto the FIXED server; denied calls are evidence of the fix and are not
+    scanned for signal reproduction.
+  - Evidence taxonomy clarified: DVMCP is a seen/tuned regression test set;
+    excel/filesystem pairs are validation/causal controls; only frozen
+    holdout pairs support external generalization claims; N≥5 measures
+    repeated LLM variance on the same target, not sample size.
+  - New frozen holdout pair **cache-mcp** (multi-tenant cache key collision,
+    CWE-345 flavour): vulnerable version keys the store by bare key so tenant
+    B reads tenant A's cached value; fixed version namespaces by `(owner, key)`
+    with verbatim-identical tool descriptions. Deterministic prove PASS on
+    both versions; baseline scan stays at 0 findings (unknown-shape premise);
+    hermetic regression in `tests/test_holdout_pair.py`.
+- New tests: `tests/test_holdout_protocol.py` (protocol contract, GPT-written)
+  + `tests/test_holdout_pair.py` (unknown-shape premise freeze, replay edges,
+  real fixed-server causal closed loop).
+
+### Notes
+
+- Local ARK CodingPlan subscription expired (`InvalidSubscription` 400) —
+  the judge role is unavailable, so the llm-round evidence channel is down
+  until the subscription is renewed (documented in HANDOFF_NEXT / eval_guide).
+
 ## [0.2.0] - 2026-08-30
 
 Three-transport connection layer, per-target benchmarking, static
