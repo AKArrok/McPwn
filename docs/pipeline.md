@@ -5,6 +5,12 @@
 > 这套链路如何被 eval、离线回归和 CI 守护。
 > 唯一权威设计规约仍是 `HANDOFF.md` 与顶层 `AGENTS.md`;本文是运行视图。
 
+配套的交互式项目结构图见
+[`mcpwn-architecture.html`](mcpwn-architecture.html)，其 Archify 源规格见
+[`mcpwn-architecture.architecture.json`](mcpwn-architecture.architecture.json)。
+结构图将本文的主链路、策略卡、信号验证、报告产物和评测护栏放在同一张图中；
+源码证据以源规格中的 Git revision 固定，便于与代码版本对照。
+
 ---
 
 ## 1. 总览

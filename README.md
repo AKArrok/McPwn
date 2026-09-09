@@ -175,6 +175,10 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
 
 ## 系统架构
 
+配套的交互式结构图：[`mcpwn-architecture.html`](docs/mcpwn-architecture.html)；
+对应的 Archify 源规格：[`mcpwn-architecture.architecture.json`](docs/mcpwn-architecture.architecture.json)。
+图中的源码证据固定在源规格记录的 Git revision，便于复核，不把工作区未提交改动混入结构图。
+
 ```
   +-----------+     recon      +-------------------+
   |  User CLI | -------------> |  agent.recon      |
@@ -310,6 +314,8 @@ benchmark.md(能匹配 manifest 靶场时含判定,否则仅自评指标)。
 
 | 文档 | 内容 |
 |---|---|
+| [`docs/mcpwn-architecture.html`](docs/mcpwn-architecture.html) | 可交互的项目结构图 (运行时主链路、证据输出、共享资产与评测) |
+| [`docs/mcpwn-architecture.architecture.json`](docs/mcpwn-architecture.architecture.json) | 结构图源规格与源码证据绑定 (Archify architecture schema) |
 | [`docs/pipeline.md`](docs/pipeline.md) | 代码端到端链路 (runner + graph 双视图) |
 | [`docs/agent_chain.md`](docs/agent_chain.md) | agent 思维与行动链路 (双路径) |
 | [`docs/mcp_attack_surface.md`](docs/mcp_attack_surface.md) | 打 MCP 的攻击思路与入手面 |
