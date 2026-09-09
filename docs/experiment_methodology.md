@@ -50,19 +50,38 @@ M3 之后的所有提能实验(unknown-shape 三阶段、泛化验证、提示�
 |---|---|---|
 | baseline 必须漏 | baseline = 0 findings(结构性漏报) | 没有对照的"发现"无法归因 |
 | 加能力后必须 ≥1 | 每 run ≥1 finding | 有就是有,没有就是没有 |
-| N 次重复 | 同 budget、每 run 全新 server、N=3 | 单次成功可能是运气 |
+| N 次重复 | 同 budget、每 run 全新 server、N=3 | 测同一目标上的 LLM 运行方差 |
 | **miss 即 fail** | 3 次里 1 次 miss = 整个实验 FAIL | 严格更优,不是"不劣于" |
 | 判据跑前锁死 | 协议文档先写判据再跑 | 事后改判据 = 作弊 |
 
-**"miss 即 fail" 的分量**:N=3 全过的概率,在能力真实成立时是 1,
-在能力靠运气时是 (p)^3——p<1 时迅速归零。这个判据**可证伪**:
-只要有一次 miss,结论就是"不成立",没有模糊地带。
+**N 的分量**:N=3 或 holdout 的 N≥5 不是增加样本数。它只是在同一目标、
+同一协议、同一预算下测 LLM 运行方差。样本数来自不同目标/配对;重复次数来自
+同一目标的稳定性检查。`miss 即 fail` 的价值是可证伪:只要有一次 miss,
+结论就是"当前能力不稳定",没有模糊地带。
+
+## 2.1 证据层级:不要把回归数字外推成泛化率
+
+McPwn 现在把四种证据分开写,避免把"已知测试集过了"包装成"真实世界召回率":
+
+| 证据层 | 对应材料 | 用途 | 结论边界 |
+|---|---|---|---|
+| DVMCP regression test set | `eval/dvmcp` | 开发/回归集,防退化、定位哪类能力坏了 | 已见过且反复调参,不能证明泛化 |
+| 漏洞版/修复版配对 | excel / filesystem / cache pairs | 因果验证:检出来自漏洞差异,不是项目特征 | 不是独立泛化测试 |
+| 冻结 holdout | `eval/holdout/manifest.yaml` 中 `split: holdout` | 从未用于改规则、策略卡或提示词的独立测试 | 可用于对外报告泛化结论 |
+| N≥5 | holdout repeat gate | 测同一目标上的 LLM 方差 | 不增加独立样本量 |
+
+所以 DVMCP 的 `8/10`、graph `9/10`、`FPR 0`、`replay 5/5` 只能证明
+"当前版本没有破坏这些已知案例"。它们不能写成"陌生 MCP 上 80%-90% recall"。
+如果看过某个 holdout 失败后改规则、策略卡或提示词,那个目标就不再是 holdout,
+只能降级为 validation 或重新冻结一个从未用于调参的新 holdout。
 
 ---
 
 ## 3. 三阶段实验协议(unknown-shape 模板)
 
-vault-mcp 实验定型的协议,后来 generalize / fetch_ssrf 复用:
+vault-mcp 实验定型的协议,后来 generalize / fetch_ssrf 复用。这里的
+`generalize` 是历史目录名;由于 delegate 经历多轮失败观察和策略卡调整,
+严谨口径应称为**跨形状开发验证**,不是独立泛化测试:
 
 | 阶段 | 内容 | 判据 | 回答的问题 |
 |---|---|---|---|
@@ -138,6 +157,6 @@ LLM 在环的结果再严格也有随机性,所以关键实验配**确定性 pro
 - `HANDOFF_NEXT.md` — M3 负结论、严格更优判据的权威表述
 - `eval/unknown_shape/README.md` — 三阶段协议 + Stage-3 第一轮 2/3 FAIL 的修复史
 - `eval/unknown_shape/ABLATION_PLAN.md` — 消融协议(泄漏清单、2×2 四臂、防泄漏预检)
-- `eval/generalize/README.md` — 跨形状验证 + 三轮 FAIL 的修复过程
+- `eval/generalize/README.md` — 跨形状开发验证 + 三轮 FAIL 的修复过程
 - `eval/dvmcp/m3_judge.py` — M3 五判据的代码实现(留作反面教材对照)
 - `docs/pwn_results.md` — 各实验的最终结果与诚实边界

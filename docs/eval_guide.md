@@ -12,16 +12,29 @@
 
 ## 1. 评估全景
 
+先把证据口径分开。**DVMCP 可以称为 `DVMCP regression test set`**,但必须带
+限定:它是**已见过、已反复调参的回归测试集**,不是能证明泛化能力的独立测试集。
+`8/10`、`9/10`、`FPR 0`、`replay 5/5` 只能证明"当前版本没有破坏这些已知
+案例",不能证明"面对陌生 MCP 也有 80%-90% 召回"。
+
+| 证据层 | 本仓库对应 | 用途 | 对外结论边界 |
+|---|---|---|---|
+| 开发/回归集 | DVMCP | 防退化、定位哪类能力坏了 | 不报告泛化召回 |
+| 因果验证集 | 漏洞版/修复版配对 | 证明检出来自漏洞差异,不是项目特征 | 不等于独立测试 |
+| 冻结 holdout | `eval/holdout` 中 `split: holdout` | 从未调规则/策略卡/提示词的独立测试 | 可用于泛化结论 |
+| N≥5 重复 | 同一目标重复 LLM run | 测同目标运行方差 | 不是增加样本数 |
+
 | eval | 靶机 | 验证什么 | 关键指标 | 状态(2026-08) |
 |---|---|---|---|---|
-| `dvmcp` | DVMCP 10 港(9001-9010) | 8 类漏洞的**召回** | recall / FPR / replay | recall 0.80-0.90, FPR 0, replay 5/5 |
+| `dvmcp` | DVMCP 10 港(9001-9010) | 已知案例**回归** | recall / FPR / replay | recall 0.80-0.90, FPR 0, replay 5/5 |
 | `realworld` | excel-mcp CVE-2026-40576 | 真实漏洞**正向检出 + 修复版负向拦截** | prove exploited/blocked + scan findings | 0.1.7 exploited / 0.1.8 blocked, 双 PASS |
 | `unknown_shape` | vault-mcp(CWE-639 子串鉴权) | LLM 三决策点能否补**结构性漏报** | baseline=0 → llm ≥1, N=3 miss=fail | 3/3 PASS + 消融 D 3/3 |
-| `generalize` | delegate-mcp(CWE-639 授权作用域) | 三决策点能否**跨形状迁移** | 同上(严格更优) | 3/3 PASS(第 4 轮) |
+| `generalize` | delegate-mcp(CWE-639 授权作用域) | 三决策点能否**跨形状开发验证** | 同上(严格更优) | 3/3 PASS(第 4 轮;非独立 holdout) |
 | `fetch_ssrf` | 官方 mcp-server-fetch | SSRF 类在**真实 server** 上端到端 | ≥1 SSRF finding | scan 1 finding 0.75 |
 | `clean_baseline` | 本地无漏洞 server 变体 | 信号库**不误报**(FPR 可信度) | 0 findings | 3 变体 0 findings |
+| `holdout` | cache-mcp 配对 | 冻结独立测试 + 因果对照 | N≥5 + control replay | 协议已冻结,LLM 轮待跑 |
 
-> 一句话分工:DVMCP 测"广度"(8 类都会)、realworld 测"真实"(CVE)、
+> 一句话分工:DVMCP 测"已知广度回归"(8 类有没有坏)、realworld 测"真实"(CVE)、
 > unknown_shape/generalize 测"深度"(信号库漏时 LLM 能否补)、fetch_ssrf 测
 > "SSRF 真靶"、clean_baseline 测"不胡说"。
 
@@ -29,8 +42,9 @@
 
 ## 2. DVMCP 回归(fixture:Damn Vulnerable MCP Server)
 
-**验证什么**:agent 在 10 个不同漏洞端口上能自主发现多少。10 港对应 8 类
-漏洞(chain / indirect 是 bonus),预期映射在 `eval/dvmcp/expected.yaml`。
+**验证什么**:agent 在 10 个已知漏洞端口上有没有退化。10 港对应 8 类漏洞
+(chain / indirect 是 bonus),预期映射在 `eval/dvmcp/expected.yaml`。这是
+**开发/回归集**,不是独立测试集。
 
 **怎么跑**:
 
@@ -48,6 +62,7 @@ mcpwn eval dvmcp run           # 遍历 9001-9010, 产 eval_report.md
 | poc_replay_pass_rate | 随机抽 5 条 finding 重放 PoC,信号是否重现 | 1.00 |
 
 **注意**:DVMCP 状态有污染(challenge 4 计数器等),每次跑前先 `reset`。
+这些数字只能报告为 regression result,不能外推为陌生 MCP 的真实 recall。
 
 ---
 
@@ -113,7 +128,7 @@ python eval/unknown_shape/ablation/run_ablation.py --all   # Stage 4
 
 ---
 
-## 5. 泛化验证(fixture:delegate-mcp,CWE-639 授权作用域)
+## 5. 跨形状开发验证(fixture:delegate-mcp,CWE-639 授权作用域)
 
 **验证什么**:vault-mcp 上的"类级发现能力"是**只对子串鉴权一种形状成立**,
 还是能**跨形状迁移**。delegate 的机制完全不同:读接口精确匹配(绕参数无效),
@@ -129,8 +144,9 @@ python eval/unknown_shape/ablation/run_ablation.py --all   # Stage 4
 | 第 3 轮 | 2/3 FAIL | 同型"自证收敛" → 卡第 6 步加强 |
 | **第 4 轮** | ✅ **3/3 PASS** | — |
 
-**结论**:假设生成 / judge 跨形状稳定;方差在执行层"验证范围"动作。
-精确表述:"类级框架 + 类级执行引导下跨形状严格更优成立"。
+**结论边界**:这证明"类级框架 + 类级执行引导下跨形状严格更优成立"这一开发
+验证命题。由于该目标经历了多轮失败观察与策略卡调整,它不能再作为独立 holdout,
+也不能单独支撑对外泛化率。
 
 ---
 
@@ -187,16 +203,75 @@ python -m eval.clean_baseline.runner   # 3 变体各跑一次 scan
 | agent 广度(8 类都认识) | `mcpwn eval dvmcp run` |
 | 真实 CVE 检出 + 修复对照 | `mcpwn eval realworld prove/run` |
 | LLM 提能(未知形状) | `python eval/unknown_shape/run_*.py` |
-| 能力是否跨形状 | `python eval/generalize/...`(协议见 README) |
+| 能力是否跨形状 | `python eval/generalize/...`(开发验证,协议见 README) |
 | SSRF 真靶 | `eval/fetch_ssrf/`(见 README) |
 | FPR 可信度 | `eval/clean_baseline/` |
+| **结论可信度(配对+冻结+重复+对照)** | `eval/holdout/`(见 §9) |
 
 > 所有 eval 都以 `runs/` 下产物为准(`eval_report.md` / `scan_result.json`);
 > `runs/` 被 gitignore,产物是本地证据,commit 只进协议与代码。
 
 ---
 
-## 9. 相关文档
+## 9. 冻结 holdout 协议(fixture:配对样本 + cache-mcp 未知形状)
+
+**验证什么**:把"能跑的红队 Agent"推进到"**结论经得起质疑**的安全评估系统"。
+用户评审定下的四件套:**漏洞版/修复版配对 + 冻结 holdout + N≥5 重复 +
+对照证据验证**。它回答的不是"找得到吗",而是"**找的是真漏洞吗**"——
+
+- 漏洞版检出(positive)+ 修复版零期望类 finding(fixed_clean)+ 每条 finding
+  在**修复版上对照回放**(grounded + 被拒 + 无禁止信号重现)三者同时成立,
+  单次配对 run 才 PASS。回放时被拒调用才算"修复生效";非被拒调用若重现
+  禁止信号族 = 漏洞机制在修复版幸存,FAIL。
+- N≥5(llm 轮硬性,`validate_repeats` 对 N<5 abort),测**同一目标上的 LLM
+  运行方差**。它不是增加独立样本数;样本数仍由 holdout pair 数决定。
+- 协议冻结:改 `manifest.yaml`(加提示、放松判据、换预期信号)sha256 变,
+  所有协议 run 中止直到有意 freeze(`python eval/holdout/freeze.py`)。
+  若看过 holdout 失败结果后修改规则、策略卡或提示词,必须把该目标降级为
+  validation,或重新冻结一个从未用于调参的新 holdout。
+
+**怎么跑**:
+
+```bash
+python eval/holdout/freeze.py --check                # 验证 lock 未漂移
+python eval/holdout/prove.py                         # cache 漏洞版确定性打穿
+python eval/holdout/prove.py --fixed                 # cache 修复版确定性拒绝
+python -m eval.holdout.runner --check                # 协议/target/env 检查
+python -m eval.holdout.runner --split holdout --n 5  # 严格 holdout N=5 (LLM)
+python -m eval.holdout.runner --split holdout --pair cache-tenant-collision --n 10
+```
+
+**配对清单**(冻结于 `manifest.yaml`):
+
+| pair | split | 漏洞 | 判据 |
+|---|---|---|---|
+| excel-sandbox-escape | validation | excel-mcp-server CVE-2026-40576 | `sandbox_escape_*` 确定性信号 |
+| filesystem-allowlist | validation | server-filesystem 0.6.2 CVE-2025-53109/53110 | grounded `llm_evidence_verdict` |
+| **cache-tenant-collision** | **holdout** | cache-mcp 多租户缓存键碰撞(CWE-345 变体) | **grounding 过的 llm_evidence_verdict** |
+
+**cache-mcp**(`eval/holdout/fixtures/cache_server.py`):工具名是 cache_set /
+cache_get / cache_list,描述宣称"每个 owner 独立缓存命名空间"——但漏洞版用
+**裸 key** 存,tenant A 写 `cache_set(owner="alice", key="config")` 后 tenant B
+`cache_get(owner="bob", key="config")` 直接读到 A 的缓存值。这是从 capability
+graph 推出来的授权/隔离缺陷,不在固定 vuln class 集里、信号库零命中——
+**真正的未知形状**(与 vault 的 owner 子串、delegate 的作用域泄漏同属
+CWE-639/345 家族但机制全不同)。修复版按 `(owner, key)` 命名空间隔离,工具描述
+逐字相同。
+
+**当前状态**(2026-08-31):
+
+- `prove.py` 双版本 PASS(漏洞版泄漏 `SECRET-CONF-ALICE-2026` / 修复版拒绝);
+- baseline scan 0 检出——判据正确地 FAIL,即"确定性路径检不出未知形状"
+  前提成立(与 vault/delegate 的 baseline=0 同义);
+- hermetic 回归 `tests/test_holdout_pair.py`:冻结 cache 漏洞 trace 零信号前提
+  + 真实 fixed server 回放阻断闭环;
+- **llm 轮待跑**:本机 ARK CodingPlan 订阅过期(`InvalidSubscription` 400),
+  judge 角色不可用(attacker 已实际发出跨租户读取但 evidence verdict 无法
+  落盘)。恢复订阅后 `--mode llm --n 5` 跑 cache 配对。
+
+---
+
+## 10. 相关文档
 
 - `docs/pwn_results.md` — 各靶机 pwn 结果的详细记录(含 graph-vs-runner 对比)
 - `HANDOFF.md` §7 / §10 — DVMCP fixture 定位与里程碑验收

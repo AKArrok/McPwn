@@ -12,8 +12,12 @@ Run:  python eval/unknown_shape/vault_server.py          (SSE on 127.0.0.1:9205)
 from __future__ import annotations
 
 import argparse
+import asyncio
 
-from mcp.server.mcpserver import MCPServer
+try:
+    from mcp.server.mcpserver import MCPServer
+except ModuleNotFoundError:  # mcp SDK 1.x compatibility
+    from mcp.server.fastmcp import FastMCP as MCPServer
 
 server = MCPServer("vault-mcp")
 
@@ -72,6 +76,22 @@ def grant_access(owner: str, name: str, delegate: str) -> str:
     return f"granted read access on {name!r} to {delegate!r}"
 
 
+def _run_sse(host: str, port: int) -> None:
+    settings_fields = getattr(type(getattr(server, "settings", None)), "model_fields", {})
+    if {"host", "port"}.issubset(settings_fields):
+        server.settings.host = host
+        server.settings.port = port
+        if hasattr(server, "run_sse_async"):
+            asyncio.run(server.run_sse_async())
+            return
+        server.run(transport="sse")
+        return
+    if hasattr(server, "run_sse_async"):
+        asyncio.run(server.run_sse_async(host=host, port=port))
+        return
+    server.run(transport="sse", host=host, port=port)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="vault-mcp SSE server (unknown-shape fixture)"
@@ -79,4 +99,4 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9205)
     args = parser.parse_args()
-    server.run(transport="sse", host=args.host, port=args.port)
+    _run_sse(args.host, args.port)

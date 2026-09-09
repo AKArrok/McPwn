@@ -16,6 +16,7 @@ Usage (async context manager):
 from __future__ import annotations
 
 import asyncio
+import socket
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -30,6 +31,16 @@ _READY_DELAY = 1.0
 _READY_CONNECT_TIMEOUT = 5.0
 _STOP_TIMEOUT = 10.0
 _KILL_TIMEOUT = 5.0
+_PORT_CLOSE_ATTEMPTS = 20
+_PORT_CLOSE_DELAY = 0.25
+
+
+def _port_accepts(port: int) -> bool:
+    try:
+        with socket.create_connection((_HOST, port), timeout=1.0):
+            return True
+    except OSError:
+        return False
 
 
 @asynccontextmanager
@@ -77,3 +88,7 @@ async def fresh_vault_server(port: int) -> AsyncIterator[str]:
             except TimeoutError:
                 proc.kill()
                 await asyncio.wait_for(proc.wait(), timeout=_KILL_TIMEOUT)
+        for _ in range(_PORT_CLOSE_ATTEMPTS):
+            if not await asyncio.to_thread(_port_accepts, port):
+                break
+            await asyncio.sleep(_PORT_CLOSE_DELAY)

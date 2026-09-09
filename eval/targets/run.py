@@ -57,6 +57,7 @@ class Target:
     llm_expect: str
     llm_hyp_budget: int | None
     env: list[str]
+    sandbox_root: str | None
     # Declarative connection (no spawner): stdio command + optional transport
     # override ("sse" / "streamable_http" for HTTP entries).
     command: str | None = None
@@ -79,6 +80,7 @@ class Target:
             llm_expect=str(entry.get("llm_expect", "info")),
             llm_hyp_budget=entry.get("llm_hyp_budget"),  # None -> default pool
             env=list(entry.get("env", [])),
+            sandbox_root=entry.get("sandbox_root"),
             command=entry.get("command"),
             transport=str(entry.get("transport", "auto")),
         )
@@ -157,6 +159,7 @@ async def _run_scan(
                 wall_seconds=300, planner_mode="hardcoded",
                 llm_points=llm, seed=seed,
                 llm_hyp_budget=target.llm_hyp_budget,
+                sandbox_root=target.sandbox_root,
             )
         else:
             async with get_spawner(target.spawn, target.sse_url) as sse_url:
@@ -165,6 +168,7 @@ async def _run_scan(
                     wall_seconds=300, planner_mode="hardcoded",
                     llm_points=llm, seed=seed,
                     llm_hyp_budget=target.llm_hyp_budget,
+                    sandbox_root=target.sandbox_root,
                 )
         f = len(result.findings)
         write_benchmark(

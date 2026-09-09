@@ -8,7 +8,10 @@ dependent for unit tests).
 
 from __future__ import annotations
 
-from mcp.server.mcpserver import MCPServer
+try:
+    from mcp.server.mcpserver import MCPServer
+except ModuleNotFoundError:  # mcp SDK 1.x compatibility
+    from mcp.server.fastmcp import FastMCP as MCPServer
 
 from eval.clean_baseline.servers import _BUILDERS, _PUBLIC_FILES
 

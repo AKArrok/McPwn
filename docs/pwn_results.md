@@ -55,6 +55,9 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
 
 ## 2. DVMCP（9006 / 9010）
 
+> 口径: DVMCP 是已见过、已反复调参的 regression test set。本节数字证明
+> 当前版本没有破坏这些已知案例,不能外推为陌生 MCP 的真实召回率。
+
 | port | 模式 | traces | findings | 注入 |
 |---|---|---|---|---|
 | 9010 Multi-Vector（chain_composition） | runner 20k | 3 | 3（path_traversal / chain / indirect） | 全部无 |
@@ -124,6 +127,7 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
 > 方法: `eval/dvmcp/runner.py` 的 `run_all` 加 `graph` 参数后跑两轮（runner →
 > reset DVMCP → graph），预算 max_tokens=20000 / wall=300s。脚本与产物:
 > `runs/lg_b_dvmcp_full/{compare.py, COMPARE.md, runner/, graph/}`（runs/ 忽略区）。
+> 这是 regression result,不是独立测试结果。
 
 | 指标 | runner | graph |
 |---|---|---|
@@ -137,7 +141,8 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
 
 对照 HANDOFF §10 验收（≥8/10 recall / 0 FPR / 5/5 replay）: **graph 9/10 满足
 且严格更优; FPR 0; replay 5/5**。9004 差异可能含 LLM 漂移(N=1), 但方向是
-"graph 不劣于 runner" 且额外命中一港。
+"graph 不劣于 runner" 且额外命中一港。不要把这里的 9/10 写成真实世界 90%
+recall;它只说明 DVMCP 已知回归集没有退化。
 
 ---
 
@@ -158,7 +163,7 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
 
 ---
 
-## 8. delegate-mcp（泛化验证，CWE-639 授权作用域缺陷，2026-08）
+## 8. delegate-mcp（跨形状开发验证，CWE-639 授权作用域缺陷，2026-08）
 
 > 协议与结果: `eval/generalize/README.md`（权威）。换形状重跑三阶段——与 vault
 > 的**子串匹配**机制不同: `_can_read` 精确匹配，漏洞在 `grant_access` 把
@@ -177,6 +182,7 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
   身份 `list_vaults` 意外列出 `admin_vault` / 读到未授权 vault secret（judge 0.9 认账）。
 - 结论: 假设生成/judge 跨形状稳定，**方差在执行层"验证范围"动作** → 跨形状
   稳定性低于 vault；精确结论 = "类级框架 + 类级执行引导下跨形状严格更优成立"。
+  由于前 3 轮失败后发生过调参,delegate 不能作为独立 holdout 使用。
 
 ---
 
@@ -219,7 +225,7 @@ marker : /root/mcpwn_pwned_MCPWN-20260806T090037-33f962.xlsx   # 沙箱外绝对
 | excel-mcp 0.1.7 | 沙箱逃逸（CVE-2026-40576） | — | prove exploited + scan 0.75/0.94 | 0.1.8 修复版 blocked（对照） |
 | DVMCP 9010 | chain/indirect | — | graph 2-3 findings（0.95） | B 阶段注入+promote 生效 |
 | vault-mcp | CWE-639 子串鉴权（unknown-shape） | 0 | **3/3 PASS**（llm 版） | 消融 D 臂 3/3 → 能力成立 |
-| delegate-mcp | CWE-639 授权作用域（泛化） | 0 | **3/3 PASS**（第 4 轮） | owner 不可猜 fixture + 卡第 6 步执行引导 |
+| delegate-mcp | CWE-639 授权作用域（跨形状开发验证） | 0 | **3/3 PASS**（第 4 轮） | owner 不可猜 fixture + 卡第 6 步执行引导 |
 | fetch（真实） | SSRF（设计特性） | — | **scan 1 finding 0.75** | 信号假阳性修复 + llm 抢占 trade-off 修复（hyp budget pool） |
 | git（真实，修复版） | 参数注入/路径校验（CVE 已修） | — | **0 findings（FPR ✓）** | std + llm 双配置 0 误报 |
 | filesystem（真实，修复版） | allowlist 绕过（CVE 已修） | — | **0 findings（FPR ✓）** | std + llm 双配置 0 误报;漏洞版验证见下 |

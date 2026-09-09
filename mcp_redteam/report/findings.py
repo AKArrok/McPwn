@@ -1,7 +1,8 @@
-"""Render ScanResult -> findings.md + poc/*.py.
+"""Render ScanResult -> findings.md + findings.json + poc/*.py.
 
 Layout under out_dir/:
     findings.md         human-readable summary
+    findings.json       stable machine-readable findings list
     poc/{finding_id}.py replayable script per finding
     traces/*.json       full AttackTrace dumps (written by verifier)
     scan_result.json    complete ScanResult
@@ -14,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from mcp_redteam.contracts import Finding, McpCall, ScanResult
+
+FINDINGS_JSON_SCHEMA_VERSION = 1
 
 
 def _fmt_call(call: McpCall) -> str:
@@ -142,7 +145,7 @@ if __name__ == "__main__":
 
 
 def write_findings(result: ScanResult, out_dir: Path) -> Path:
-    """Write findings.md + poc/*.py under out_dir. Return findings.md path."""
+    """Write findings.md + findings.json + poc/*.py. Return findings.md path."""
     out_dir.mkdir(parents=True, exist_ok=True)
     poc_dir = out_dir / "poc"
     poc_dir.mkdir(exist_ok=True)
@@ -188,7 +191,32 @@ def write_findings(result: ScanResult, out_dir: Path) -> Path:
 
     md_path = out_dir / "findings.md"
     md_path.write_text("\n".join(lines), encoding="utf-8")
+    write_findings_json(result, out_dir)
     from mcp_redteam.report.sarif import write_sarif
 
     write_sarif(result, out_dir)
     return md_path
+
+
+def write_findings_json(result: ScanResult, out_dir: Path) -> Path:
+    """Write the lightweight machine-readable findings artifact."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": FINDINGS_JSON_SCHEMA_VERSION,
+        "run_id": result.run_id,
+        "target": result.sse_url,
+        "transport": result.transport,
+        "stop_reason": getattr(result.stop_reason, "value", result.stop_reason),
+        "counts": {
+            "tools_seen": len(result.tools_seen),
+            "resources_seen": len(result.resources_seen),
+            "traces": len(result.traces),
+            "findings": len(result.findings),
+            "static_hits": len(result.static_hits),
+        },
+        "findings": [f.model_dump(mode="json") for f in result.findings],
+        "static_hits": [h.model_dump(mode="json") for h in result.static_hits],
+    }
+    path = out_dir / "findings.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path

@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "McPwn 项目结构",
+    "locale": "zh-CN",
+    "output": "docs/mcpwn-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/AKArrok/McPwn.git",
+      "revision": "9159562126b603d52202ca9185263a4491c4e419"
+    },
+    "views": [
+      {
+        "id": "scan-path",
+        "label": "扫描主链路",
+        "focus": ["cli", "orchestrator", "recon_planner", "executor", "target_client", "mcp_server"],
+        "note": "从 mcpwn scan 进入，经侦察、规划、执行，到授权 MCP server。"
+      },
+      {
+        "id": "evidence-output",
+        "label": "证据与报告",
+        "focus": ["executor", "signals_verifier", "report_artifacts", "contracts"],
+        "note": "攻击调用和模型输出汇聚为 Finding、ScanResult 及可重放产物。"
+      },
+      {
+        "id": "shared-evaluation",
+        "label": "共享资产与评测",
+        "focus": ["contracts", "strategy_cards", "llm_models", "eval_harness", "test_suite"],
+        "note": "契约、策略卡、模型工厂和回归评测支撑运行时。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "cli",
+      "type": "frontend",
+      "label": "CLI 入口",
+      "sublabel": "cli.py",
+      "tag": "mcpwn scan / eval / ci",
+      "sources": [{"path": "mcp_redteam/cli.py"}],
+      "pos": [30, 350],
+      "size": [170, 72]
+    },
+    {
+      "id": "contracts",
+      "type": "backend",
+      "label": "统一数据契约",
+      "sublabel": "mcp_redteam/contracts.py",
+      "tag": "Pydantic v2",
+      "sources": [{"path": "mcp_redteam/contracts.py"}],
+      "pos": [30, 125],
+      "size": [180, 72]
+    },
+    {
+      "id": "orchestrator",
+      "type": "backend",
+      "label": "扫描编排",
+      "sublabel": "mcp_redteam/orchestrator",
+      "tag": "预算 + 元数据",
+      "sources": [{"path": "mcp_redteam/orchestrator/runner.py"}, {"path": "mcp_redteam/orchestrator/budget.py"}],
+      "pos": [224, 350],
+      "size": [190, 72]
+    },
+    {
+      "id": "recon_planner",
+      "type": "backend",
+      "label": "侦察与规划",
+      "sublabel": "mcp_redteam/agent",
+      "tag": "recon → next action",
+      "sources": [{"path": "mcp_redteam/agent/recon.py"}, {"path": "mcp_redteam/agent/planner.py"}],
+      "pos": [438, 350],
+      "size": [190, 72]
+    },
+    {
+      "id": "executor",
+      "type": "backend",
+      "label": "攻击执行",
+      "sublabel": "mcp_redteam/agent/executor.py",
+      "tag": "payload + MCP call",
+      "sources": [{"path": "mcp_redteam/agent/executor.py"}],
+      "pos": [652, 350],
+      "size": [190, 72]
+    },
+    {
+      "id": "target_client",
+      "type": "backend",
+      "label": "MCP 客户端",
+      "sublabel": "mcp_redteam/targets",
+      "tag": "SSE / HTTP / stdio",
+      "sources": [{"path": "mcp_redteam/targets/mcp_client.py"}],
+      "pos": [866, 350],
+      "size": [190, 72]
+    },
+    {
+      "id": "mcp_server",
+      "type": "external",
+      "label": "授权 MCP Server",
+      "sublabel": "被扫描目标",
+      "tag": "外部边界",
+      "sources": [{"path": "mcp_redteam/targets/mcp_client.py"}],
+      "pos": [1080, 350],
+      "size": [180, 72]
+    },
+    {
+      "id": "llm_models",
+      "type": "cloud",
+      "label": "LLM 模型工厂",
+      "sublabel": "mcp_redteam/models + config",
+      "tag": "attacker / judge",
+      "sources": [{"path": "mcp_redteam/models/chat.py"}, {"path": "mcp_redteam/config/models.yaml"}],
+      "pos": [652, 125],
+      "size": [190, 72]
+    },
+    {
+      "id": "strategy_cards",
+      "type": "security",
+      "label": "漏洞策略卡",
+      "sublabel": "mcp_redteam/vulns",
+      "tag": "按 VulnClass 选择",
+      "sources": [{"path": "mcp_redteam/vulns/registry.py"}, {"path": "mcp_redteam/vulns/cards/ssrf.md"}],
+      "pos": [438, 125],
+      "size": [190, 72]
+    },
+    {
+      "id": "signals_verifier",
+      "type": "security",
+      "label": "信号与验证",
+      "sublabel": "mcp_redteam/signals + verifier",
+      "tag": "EvidenceSignal → Finding",
+      "sources": [{"path": "mcp_redteam/signals/detectors.py"}, {"path": "mcp_redteam/agent/verifier.py"}],
+      "pos": [866, 125],
+      "size": [190, 72]
+    },
+    {
+      "id": "report_artifacts",
+      "type": "backend",
+      "label": "报告与产物",
+      "sublabel": "mcp_redteam/report + artifacts",
+      "tag": "findings.md / traces / poc",
+      "sources": [{"path": "mcp_redteam/report/findings.py"}],
+      "pos": [1080, 125],
+      "size": [190, 72]
+    },
+    {
+      "id": "eval_harness",
+      "type": "backend",
+      "label": "评测与回归",
+      "sublabel": "eval/ + tests/",
+      "tag": "DVMCP / holdout / CI",
+      "sources": [{"path": "eval/dvmcp/runner.py"}, {"path": "tests/test_benchmark.py"}],
+      "pos": [224, 575],
+      "size": [190, 72]
+    },
+    {
+      "id": "test_suite",
+      "type": "backend",
+      "label": "测试与质量门",
+      "sublabel": "tests/ + scripts/",
+      "tag": "回归 / 契约 / 静态检查",
+      "sources": [{"path": "tests/test_contracts_roundtrip.py"}, {"path": "scripts/check_docs.py"}],
+      "pos": [438, 575],
+      "size": [190, 72]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "McPwn 核心运行时",
+      "wraps": ["cli", "contracts", "orchestrator", "recon_planner", "executor", "target_client", "strategy_cards", "signals_verifier", "report_artifacts"]
+    },
+    {
+      "kind": "region",
+      "label": "工程验证层",
+      "wraps": ["eval_harness", "test_suite"]
+    },
+    {
+      "kind": "security-group",
+      "label": "外部系统边界",
+      "wraps": ["llm_models", "mcp_server"]
+    }
+  ],
+  "connections": [
+    {"id": "cli-to-orchestrator", "from": "cli", "to": "orchestrator", "label": "scan target", "variant": "emphasis", "labelDy": 60},
+    {"id": "orchestrator-to-recon", "from": "orchestrator", "to": "recon_planner", "label": "TargetSpec + budget", "variant": "emphasis", "labelDy": 60},
+    {"id": "recon-to-executor", "from": "recon_planner", "to": "executor", "label": "vuln class + target", "variant": "emphasis", "labelDy": 60},
+    {"id": "executor-to-client", "from": "executor", "to": "target_client", "label": "MCP calls", "variant": "emphasis", "labelDy": 60},
+    {"id": "client-to-server", "from": "target_client", "to": "mcp_server", "label": "SSE / HTTP / stdio", "variant": "security", "labelDy": 60},
+    {"id": "executor-to-llm", "from": "executor", "to": "llm_models", "label": "attacker prompt", "fromSide": "top", "toSide": "bottom", "labelDx": -70},
+    {"id": "executor-to-cards", "from": "executor", "to": "strategy_cards", "label": "load playbook", "fromSide": "top", "toSide": "bottom"},
+    {"id": "executor-to-verifier", "from": "executor", "to": "signals_verifier", "label": "trace + output", "fromSide": "top", "toSide": "bottom"},
+    {"id": "verifier-to-report", "from": "signals_verifier", "to": "report_artifacts", "label": "Finding / ScanResult", "variant": "emphasis", "labelDy": 60},
+    {"id": "cli-to-eval", "from": "cli", "to": "eval_harness", "label": "eval command", "variant": "dashed", "fromSide": "bottom", "toSide": "top"},
+    {"id": "eval-to-tests", "from": "eval_harness", "to": "test_suite", "label": "regression evidence", "variant": "dashed", "labelDy": 60},
+    {"id": "contracts-to-orchestrator", "from": "contracts", "to": "orchestrator", "label": "typed contracts", "variant": "dashed", "fromSide": "right", "toSide": "top"},
+    {"id": "contracts-to-verifier", "from": "contracts", "to": "signals_verifier", "label": "shared models", "variant": "dashed", "fromSide": "right", "toSide": "top"}
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "运行时主链路",
+      "items": ["CLI 进入 scan", "编排器驱动 recon → planner → executor", "MCP client 连接授权目标"]
+    },
+    {
+      "dot": "rose",
+      "title": "安全判断与输出",
+      "items": ["策略卡按漏洞类别提供攻击方向", "signals + verifier 形成 Finding", "报告层写入 findings、trace 与 PoC"]
+    },
+    {
+      "dot": "violet",
+      "title": "工程护栏",
+      "items": ["contracts.py 集中跨模块数据结构", "eval/ 与 tests/ 维护回归证据", "LLM 与 MCP server 都在外部系统边界"]
+    }
+  ]
+}

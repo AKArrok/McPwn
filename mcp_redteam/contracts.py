@@ -375,6 +375,42 @@ class TargetSpec(BaseModel):
         )
 
 
+class TargetConfig(BaseModel):
+    """User-facing ``mcpwn.yaml`` target configuration.
+
+    This is the stable project-level input for scanning a non-fixture MCP
+    server. It deliberately compiles down to ``TargetSpec`` so the scanner has
+    one connection contract.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = "local-mcp"
+    transport: Transport | str = "auto"
+    url: str | None = None
+    command: str | list[str] | None = None
+    cwd: str | None = None
+    env: dict[str, str] | None = None
+    headers: dict[str, str] | None = None
+    sandbox_root: str | None = None
+    llm_points: bool = False
+
+    def target_spec(self) -> TargetSpec:
+        transport = (
+            self.transport.value
+            if isinstance(self.transport, Transport)
+            else str(self.transport).replace("-", "_")
+        )
+        return TargetSpec.parse(
+            self.url,
+            transport=transport,
+            command=self.command,
+            cwd=self.cwd,
+            env=self.env,
+            headers=self.headers,
+        )
+
+
 class ScanResult(BaseModel):
     """Top-level output of one ``mcpwn scan <target>`` run.
 

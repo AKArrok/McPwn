@@ -28,7 +28,11 @@ import traceback
 from collections.abc import Callable
 
 import anyio
-from mcp.server.mcpserver import MCPServer
+
+try:
+    from mcp.server.mcpserver import MCPServer
+except ModuleNotFoundError:  # mcp SDK 1.x compatibility
+    from mcp.server.fastmcp import FastMCP as MCPServer
 
 # ── variant builders ─────────────────────────────────────────────────────────
 
@@ -93,7 +97,13 @@ async def _serve(variant: str, port: int) -> None:
     server = MCPServer(name=f"clean-{variant}")
     _BUILDERS[variant](server)
     try:
-        await server.run_sse_async(host="127.0.0.1", port=port)
+        settings_fields = getattr(type(getattr(server, "settings", None)), "model_fields", {})
+        if {"host", "port"}.issubset(settings_fields):
+            server.settings.host = "127.0.0.1"
+            server.settings.port = port
+            await server.run_sse_async()
+        else:
+            await server.run_sse_async(host="127.0.0.1", port=port)
     except* anyio.BrokenResourceError as excs:
         # Client (scan) closed the SSE stream mid-flight. Normal in our eval
         # pattern: runner.py tears the server down after scan() returns, and

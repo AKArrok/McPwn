@@ -260,6 +260,7 @@ async def scan(
     traces: list[AttackTrace] = []
     tools_seen: list[str] = []
     resources_seen: list[str] = []
+    static_hits = []
     error: str | None = None
 
     try:
