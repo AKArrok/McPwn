@@ -267,7 +267,7 @@ async def test_scan_llm_mode_fills_decisions(tmp_path, monkeypatch):
     tools = ["get_config", "process_user_input"]
 
     async def _fake_recon(session):
-        return [], cands, tools, []
+        return [], cands, tools, [], []
 
     planned = [
         PlannedCandidate(cands[2], "llm"),  # chain first
@@ -312,7 +312,7 @@ async def test_scan_llm_mode_budget_skip_records_unexecuted(tmp_path, monkeypatc
     cands = _candidates()
 
     async def _fake_recon(session):
-        return [], cands, [], []
+        return [], cands, [], [], []
 
     planned = [PlannedCandidate(c, "llm") for c in cands]
 
@@ -350,7 +350,7 @@ async def test_scan_hardcoded_mode_fills_fallback_decisions(tmp_path, monkeypatc
     cands = _candidates()
 
     async def _fake_recon(session):
-        return [], cands, [], []
+        return [], cands, [], [], []
 
     async def _fake_execute_one(**kwargs):
         return _trace_for(kwargs["candidate"])

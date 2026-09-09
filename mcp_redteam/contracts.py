@@ -11,10 +11,12 @@ locally.
 from __future__ import annotations
 
 import hashlib
+import shlex
 from enum import Enum
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class VulnClass(str, Enum):
@@ -43,6 +45,27 @@ class McpCall(BaseModel):
     args: dict[str, Any] | None = None
     result_text: str
     elapsed_ms: int
+
+
+class StaticHit(BaseModel):
+    """One static (zero-LLM) screening hit on the tool/resource surface.
+
+    Produced by ``agent/static_scan`` regex rules over tool/resource
+    metadata BEFORE any attack traffic - the cheap layer that peers like
+    mcp-scan lead with. ``subject`` is the tool/resource/package name the
+    hit belongs to; ``where`` says which metadata field matched
+    (description / arg:<name> / package). ``matched_text`` is a redacted
+    excerpt, never the full description.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str
+    severity: Severity
+    subject: str
+    where: str
+    matched_text: str = Field(max_length=512)
+    summary: str
 
 
 Severity = Literal["info", "low", "medium", "high", "critical"]
@@ -250,8 +273,115 @@ ScanStopReason = Literal[
 ]
 
 
+class Transport(str, Enum):
+    """MCP transports the connection layer speaks (mcp SDK client side)."""
+
+    SSE = "sse"
+    STREAMABLE_HTTP = "streamable_http"
+    STDIO = "stdio"
+
+
+class TargetSpec(BaseModel):
+    """How to reach one MCP target - the single cross-module connection input.
+
+    Built by :meth:`parse` (URL / CLI flags) and consumed by
+    ``targets/mcp_client.McpSession``; reports and prompts only ever see
+    :attr:`display`, so no downstream code branches on transport.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    transport: Transport
+    url: str | None = None
+    command: list[str] | None = None
+    cwd: str | None = None
+    env: dict[str, str] | None = None
+    headers: dict[str, str] | None = None
+
+    @property
+    def display(self) -> str:
+        """Human-facing endpoint string (report table, prompts, metadata)."""
+        if self.command:
+            return "stdio: " + " ".join(self.command)
+        return self.url or ""
+
+    @model_validator(mode="after")
+    def _fields_match_transport(self) -> TargetSpec:
+        if self.transport is Transport.STDIO:
+            if not self.command:
+                raise ValueError("stdio target requires command")
+        else:
+            if not self.url:
+                raise ValueError(f"{self.transport.value} target requires url")
+        return self
+
+    @classmethod
+    def parse(
+        cls,
+        raw: str | None = None,
+        *,
+        transport: Transport | str = "auto",
+        command: str | list[str] | None = None,
+        env: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> TargetSpec:
+        """Build a spec from CLI-style inputs.
+
+        ``transport="auto"`` dispatches: explicit ``command`` -> stdio; a URL
+        whose path ends in ``/sse`` -> SSE (all legacy DVMCP-style targets);
+        any other URL -> streamable HTTP (the current MCP standard).
+        """
+        if isinstance(command, str):
+            command = shlex.split(command)
+        if command:
+            if raw and raw.strip():
+                raise ValueError("cannot give both a target URL and --command; pick one")
+            if isinstance(transport, Transport) or transport not in ("auto", "stdio"):
+                raise ValueError("--command implies transport=stdio")
+            return cls(
+                transport=Transport.STDIO,
+                command=command,
+                cwd=cwd,
+                env=env,
+            )
+        if not raw:
+            raise ValueError("target requires a url or a command")
+        raw = raw.strip()
+        scheme = urlsplit(raw).scheme.lower()
+        if scheme not in ("http", "https"):
+            raise ValueError(
+                f"target URL must start with http:// or https:// (got {raw[:40]!r})"
+            )
+        if isinstance(transport, Transport):
+            chosen = transport
+        elif transport == "stdio":
+            raise ValueError("stdio transport requires --command")
+        elif transport == "sse":
+            chosen = Transport.SSE
+        elif transport == "streamable_http":
+            chosen = Transport.STREAMABLE_HTTP
+        elif transport == "auto":
+            path = urlsplit(raw).path.rstrip("/").lower()
+            chosen = Transport.SSE if path.endswith("/sse") else Transport.STREAMABLE_HTTP
+        else:
+            raise ValueError(f"unknown transport {transport!r}")
+        return cls(
+            transport=chosen,
+            url=raw,
+            headers=headers,
+            env=env,
+            cwd=cwd,
+        )
+
+
 class ScanResult(BaseModel):
-    """Top-level output of one ``mcpwn scan <url>`` run.
+    """Top-level output of one ``mcpwn scan <target>`` run.
+
+    ``sse_url`` is the transport-neutral endpoint display string
+    (:attr:`TargetSpec.display`) - a URL for HTTP transports, or
+    ``"stdio: <command>"`` for stdio targets; ``transport`` names the
+    actual wire transport used.
 
     Token accounting is split three ways per HANDOFF §6 / §9:
     attacker tokens share the ``max_tokens_total`` budget;
@@ -266,6 +396,16 @@ class ScanResult(BaseModel):
 
     run_id: str
     sse_url: str
+    transport: str = "sse"
+    # Full connection spec (transport/url/command/env/cwd/headers) as a JSON
+    # dict, so generated PoC replay scripts can reconnect to stdio targets
+    # too. None on results produced before this field existed.
+    target_spec: dict[str, Any] | None = None
+    # Derived sum (attacker + judge). Kept as a stored field auto-derived by
+    # model_validator so scan_result.json round-trips: model_dump_json writes
+    # it, model_validate accepts it (a computed_field would break re-load
+    # under extra="forbid").
+    total_tokens: int = 0
     started_at: str
     wall_seconds: float
     attacker_tokens: int = 0
@@ -274,6 +414,8 @@ class ScanResult(BaseModel):
     resources_seen: list[str] = Field(default_factory=list)
     traces: list[AttackTrace] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
+    # Static (zero-LLM) screening hits on the tool/resource surface.
+    static_hits: list[StaticHit] = Field(default_factory=list)
     stop_reason: ScanStopReason
 
     # Reproducibility metadata (point-in-time reproducible scans).
@@ -300,10 +442,11 @@ class ScanResult(BaseModel):
     # claim: tokens count as judge either way, model is recorded here.
     evidence_judge_model: str = ""
 
-    @computed_field  # type: ignore[misc]
-    @property
-    def total_tokens(self) -> int:
-        return self.attacker_tokens + self.judge_tokens
+    @model_validator(mode="after")
+    def _derive_total_tokens(self) -> ScanResult:
+        self.total_tokens = self.attacker_tokens + self.judge_tokens
+        return self
+
 
 class PlannerDecision(BaseModel):
     """One entry in the M3 planner's complete ordered plan (HANDOFF_M3 section 2).
@@ -315,6 +458,9 @@ class PlannerDecision(BaseModel):
     ``planned`` / ``executed`` / ``skip_reason``. ``planned``+``executed``
     separate intent from execution so the judge can distinguish "never
     planned" from "planned but starved by budget" on port 9010.
+    ``port`` semantics: real URL port for HTTP targets (DVMCP 9001-9010);
+    stable pseudo-port 50000+crc32(display)%40000 for stdio targets so
+    their decisions files stay distinguishable (never 0).
     """
 
     model_config = ConfigDict(extra="forbid")

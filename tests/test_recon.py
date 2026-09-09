@@ -113,7 +113,7 @@ def test_chain_composition_emitted_for_multi_class_server():
         _StubTool("read_file", "read file"),
         _StubTool("verify_token", "verify auth token"),
     ]
-    _, candidates, _, _ = _run_recon(tools, [])
+    _, candidates, _, _, _ = _run_recon(tools, [])
     chain = [c for c in candidates if c.vuln_class == VulnClass.CHAIN_COMPOSITION]
     assert len(chain) == 1, f"expected 1 chain candidate, got {len(chain)}"
     assert chain[0].score == 0.7
@@ -129,7 +129,7 @@ def test_chain_composition_absent_for_single_class_server():
         _StubTool("read_file", "read file"),
         _StubTool("read_config", "read config file"),
     ]
-    _, candidates, _, _ = _run_recon(tools, [])
+    _, candidates, _, _, _ = _run_recon(tools, [])
     chain = [c for c in candidates if c.vuln_class == VulnClass.CHAIN_COMPOSITION]
     assert chain == [], f"single-class server should not chain; got {chain}"
 
@@ -146,7 +146,7 @@ def test_chain_composition_caps_target_list_at_four():
         _StubTool("read_config", "read config"),
         _StubTool("process_doc", "process document"),
     ]
-    _, candidates, _, _ = _run_recon(tools, [])
+    _, candidates, _, _, _ = _run_recon(tools, [])
     chain = [c for c in candidates if c.vuln_class == VulnClass.CHAIN_COMPOSITION]
     assert len(chain) == 1
     tokens = chain[0].target.split(",")
@@ -158,7 +158,7 @@ def test_chain_composition_includes_resources():
     the chain target list (e.g. injection resource + exec tool = chain)."""
     tools = [_StubTool("execute_command", "run shell")]
     resources = [_StubResource("internal://secrets")]
-    _, candidates, _, _ = _run_recon(tools, resources)
+    _, candidates, _, _, _ = _run_recon(tools, resources)
     chain = [c for c in candidates if c.vuln_class == VulnClass.CHAIN_COMPOSITION]
     assert len(chain) == 1
     assert "resource:internal://secrets" in chain[0].target

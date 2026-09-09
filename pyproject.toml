@@ -1,11 +1,14 @@
 [project]
 name = "mcpwn"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP red-team agent: autonomous vulnerability discovery for MCP servers (agent-first; DVMCP as regression fixture)"
 readme = "README.md"
 requires-python = ">=3.13"
+license = { text = "MIT" }
 dependencies = [
-    "mcp[cli]>=1.2",
+    # 靶场 fixture (vault_server 等) 用 2.0 的 mcp.server.mcpserver API,
+    # 测试套件仅在 mcp>=2.0 下全绿; 连接层另做了 1.x 兼容分支但 floor 以 2.0 为准。
+    "mcp[cli]>=2.0",
     "openai>=1.40",
     "pydantic>=2.7",
     "pyyaml",
@@ -23,7 +26,10 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-asyncio",
+    "pytest-cov",
     "ruff",
+    "hypothesis",
+    "pre-commit",
 ]
 
 [project.scripts]
@@ -43,6 +49,15 @@ include = ["mcp_redteam*", "eval*"]
     "**/agents/**/*.md",
     "vulns/cards/*.md",
 ]
+
+[tool.coverage.run]
+source = ["mcp_redteam"]
+omit = ["mcp_redteam/langgraph/*"]
+
+[tool.coverage.report]
+# 门禁略低于当前实测 (78%), 防止 CI 抖动; 下拉此数字前先想想
+fail_under = 75
+show_missing = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,7 +3,7 @@
 > 设计决策见 `HANDOFF_LANGGRAPH.md`（已实施 A+B 阶段）；旧 `runner.scan`
 > 保留为默认路径与 parity 锚点。
 
-- 输入: 与 `runner.scan` 完全相同的 scan 参数（sse_url / out_dir / 预算 /
+- 输入: 与 `runner.scan` 完全相同的 scan 参数（target: `str | TargetSpec`,参数名 sse_url 兼容保留 / out_dir / 预算 /
   候选限制 / planner_mode / decisions / llm_points / seed），经
   `scan(..., graph=True)` 分支到 `orchestrator/runner._scan_graph`。
 - 输出: 与 runner 同契约的 `ScanResult` + `<out_dir>/scan_result.json`；

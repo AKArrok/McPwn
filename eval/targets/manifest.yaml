@@ -1,0 +1,78 @@
+# 靶场清单 (manifest) — 统一测试入口的唯一权威
+#
+# 新增靶场: 加一条条目即可。连接方式三选一:
+#   a) spawn: sse + sse_url           静态 HTTP 端点直连 (可加 transport: sse |
+#                                     streamable_http, 默认 auto: /sse 结尾走 SSE,
+#                                     其余先试 streamable HTTP 再回退 SSE)
+#   b) command: "<启动命令>"           stdio 直连 (native, 每轮拉起/回收子进程;
+#                                     可加 transport: stdio, env 子进程环境变量见 env 字段)
+#   c) spawn: <spawner 名>            自建 server 走 spawners.py 注册表 (旧行为不变)
+#
+# 字段:
+#   name           唯一标识
+#   label          人类可读描述
+#   spawn          spawner 名 (spawners.py 注册表) 或 "sse" (直连, 配 sse_url)
+#   sse_url        仅 HTTP 直连时: 静态端点 URL
+#   command        仅 stdio 直连时: 启动命令 (shlex 切分, 如 "uvx mcp-server-fetch")
+#   transport      可选: auto (默认) | sse | streamable_http | stdio
+#   prove          true=统一 runner 跑该靶场 prove 脚本 (manifest.prove_script)
+#   prove_script   可选, 相对 repo 根的 prove 脚本路径 (默认 eval/<name>/prove.py)
+#   baseline_expect 标准 scan 期望 findings: 0 | >=1 | info (仅记录)
+#   llm_expect      llm_points 轮期望: 0 | >=1 | info
+#   llm_hyp_budget  传给 scan 的 LLM 假设预算池: -1=禁用 (unknown-shape), 省略=默认 40%
+#   env             spawner/stdio 子进程需要的环境变量 (键 -> 说明; runner 缺失时警告/跳过)
+#                   注意: stdio 直连的 env 值会明文写进 scan_result.json 与 PoC 脚本
+#                   (回放需要), 不要在 env 里放密钥类变量
+
+targets:
+  - name: vault
+    label: vault-mcp (CWE-639 子串鉴权, unknown-shape)
+    spawn: vault
+    prove: true
+    prove_script: eval/unknown_shape/prove.py
+    baseline_expect: 0
+    llm_expect: ">=1"
+    llm_hyp_budget: -1
+
+  - name: delegate
+    label: delegate-mcp (CWE-639 授权作用域, 泛化验证)
+    spawn: delegate
+    prove: true
+    prove_script: eval/generalize/prove.py
+    baseline_expect: 0
+    llm_expect: ">=1"
+    llm_hyp_budget: -1
+
+  - name: fetch
+    label: mcp-server-fetch 真实靶机 (SSRF, 设计特性)
+    spawn: fetch
+    prove: true
+    prove_script: eval/fetch_ssrf/prove.py
+    baseline_expect: ">=1"
+    llm_expect: info   # 受模型 token 方差影响, 可靠判据是确定性 baseline
+
+  - name: git
+    label: mcp-server-git 真实修复版 (negative / FPR)
+    spawn: git
+    prove: false
+    baseline_expect: 0
+    llm_expect: 0
+    env: {MCPWN_GIT_VENV: 含 mcp-server-git + mcp<2 的 venv}
+
+  - name: filesystem
+    label: server-filesystem 真实修复版 (negative / FPR)
+    spawn: filesystem
+    prove: false
+    baseline_expect: 0
+    llm_expect: 0
+    env: {MCPWN_FS_INDEX: server-filesystem dist/index.js 路径}
+
+  - name: filesystem-vuln
+    label: server-filesystem 0.6.2 漏洞版 (CVE-2025-53109/53110, positive)
+    spawn: filesystem_vuln
+    prove: true
+    prove_script: eval/real_vuln/prove.py
+    baseline_expect: ">=1"   # 注: std 轮无 evidence judge 通道, 实际判据看 llm 轮
+    llm_expect: ">=1"
+    llm_hyp_budget: -1
+    env: {MCPWN_FS_INDEX_OLD: server-filesystem@0.6.2 dist/index.js 路径}

@@ -197,6 +197,11 @@ def verdict(results: list[dict]) -> None:
 
 
 def main() -> None:
+    # 输出含中文;在 cp1252 之类无法编码中文的控制台 (如 GitHub windows runner)
+    # 直接 print 会 UnicodeEncodeError 退出。不可编码字符降级替换而不是崩溃。
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and stream.encoding.lower().replace("-", "") != "utf8":
+            stream.reconfigure(errors="backslashreplace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--arm", choices=["A", "B", "C", "D"], help="跑单臂")
     parser.add_argument("--all", action="store_true", help="自动 gate: A → D → (B+C if D miss)")

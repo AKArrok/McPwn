@@ -81,8 +81,13 @@ def _finding_section(f: Finding) -> str:
     return "\n".join(lines)
 
 
-def _poc_script(f: Finding, sse_url: str) -> str:
-    """Emit a standalone replay script for one finding."""
+def _poc_script(f: Finding, result: ScanResult) -> str:
+    """Emit a standalone replay script for one finding.
+
+    The connection is embedded as a ``TargetSpec`` JSON blob so the script
+    replays over the SAME transport the scan used - including stdio targets
+    (command + env), not just HTTP endpoints.
+    """
     steps_repr: list[str] = []
     for c in f.poc_call_sequence:
         if c.kind == "call_tool":
@@ -98,9 +103,24 @@ def _poc_script(f: Finding, sse_url: str) -> str:
                 f'print({c.name!r}, "=>", call.result_text[:400])'
             )
     body = "\n".join(steps_repr) or "        # (no attack calls recorded)"
+    if result.target_spec:
+        target_block = (
+            "import json\n\n"
+            "from mcp_redteam.contracts import TargetSpec\n"
+            "from mcp_redteam.targets.mcp_client import McpSession\n\n\n"
+            f"TARGET = TargetSpec.model_validate_json(r'''"
+            f"{json.dumps(result.target_spec, ensure_ascii=False)}''')"
+        )
+        session_expr = "McpSession(TARGET)"
+    else:  # legacy scan_result.json without target_spec
+        target_block = (
+            "from mcp_redteam.targets.mcp_client import McpSession\n\n\n"
+            f"TARGET = {result.sse_url!r}"
+        )
+        session_expr = "McpSession(TARGET)"
     return f'''"""Replay script for finding {f.finding_id}.
 
-Auto-generated. Verifies the same signal fires against {sse_url}.
+Auto-generated. Verifies the same signal fires against {result.sse_url}.
 
 Compliance: this PoC targets an intentionally-vulnerable MCP server used for
 red-team research. Do NOT run against production or unauthorised systems.
@@ -108,11 +128,11 @@ red-team research. Do NOT run against production or unauthorised systems.
 
 import asyncio
 
-from mcp_redteam.targets.mcp_client import McpSession
+{target_block}
 
 
 async def main() -> None:
-    async with McpSession({sse_url!r}) as session:
+    async with {session_expr} as session:
 {body}
 
 
@@ -141,6 +161,19 @@ def write_findings(result: ScanResult, out_dir: Path) -> Path:
     lines.append(f"- **findings**: **{len(result.findings)}**")
     lines.append("")
 
+    if result.static_hits:
+        lines.append("---")
+        lines.append("")
+        lines.append("## 静态预筛 (zero-LLM, 扫描前命中)")
+        lines.append("")
+        lines.append("| 严重级 | 规则 | 对象 | 位置 | 摘要 |")
+        lines.append("|---|---|---|---|---|")
+        for h in result.static_hits:
+            lines.append(
+                f"| {h.severity} | `{h.rule_id}` | {h.subject} | {h.where} | {h.summary} |"
+            )
+        lines.append("")
+
     if not result.findings:
         lines.append("_No findings above confidence threshold._")
     else:
@@ -151,8 +184,11 @@ def write_findings(result: ScanResult, out_dir: Path) -> Path:
             lines.append("---")
             lines.append("")
             script_path = poc_dir / f"{f.finding_id}.py"
-            script_path.write_text(_poc_script(f, result.sse_url), encoding="utf-8")
+            script_path.write_text(_poc_script(f, result), encoding="utf-8")
 
     md_path = out_dir / "findings.md"
     md_path.write_text("\n".join(lines), encoding="utf-8")
+    from mcp_redteam.report.sarif import write_sarif
+
+    write_sarif(result, out_dir)
     return md_path

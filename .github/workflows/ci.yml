@@ -4,18 +4,26 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   test:
-    name: lint + test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: lint + test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # ubuntu 是通用回归; windows 是主开发平台 (spawner 的 venv 路径与
+        # subprocess 语义都以 Windows 为一等公民, 双平台同守)
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.13"]
+    env:
+      # windows runner 默认 cp1252 控制台, 输出中文的子进程会 UnicodeEncodeError;
+      # 强制 Python 全链路 UTF-8 (与主开发机一致)
+      PYTHONUTF8: "1"
 
     steps:
       - name: Check out repository
@@ -34,30 +42,14 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Lint (ruff)
-        # Locks the lint baseline set by CODE_REVIEW. Without CI, the 43
-        # ruff warnings previously catalogued silently regress on every PR.
-        # This step is the regression net for them.
-        run: ruff check mcp_redteam eval tests
+        run: ruff check mcp_redteam eval tests scripts
 
-      - name: Test (pytest)
-        # B (test_scan_metadata, 4 cases) and C (test_regression_baseline,
-        # 2 cases) ride alongside the existing 60-case suite, totalling 66
-        # tests in 1.88s on a single core. The C cases are hermetic - no
-        # DVMCP, no LLM API, no network - so the runner needs nothing more
-        # than the editable install.
-        run: pytest tests/ -v
+      - name: Test (pytest) + coverage gate
+        # 全套 hermetic 回归: 无 DVMCP、无 LLM API、无网络, 不需要任何 key。
+        # 覆盖率门禁 75% (pyproject [tool.coverage.report] fail_under)。
+        run: pytest -q --cov=mcp_redteam --cov-report=term-missing
 
       - name: Check docs facts vs code
-        # Locks doc/code consistency: test counts, signal counts, strategy
-        # card counts, package-data globs, cli command names. When adding a
-        # machine-checkable claim to any doc, add a rule in
-        # scripts/check_docs.py instead of hand-syncing the number.
+        # 文档/代码一致性: 测试数、信号数、策略卡数、package-data glob、cli 命令名。
+        # gitignore 的本地文档 (HANDOFF*/PROGRESS) 在 CI 中自动跳过并标注。
         run: python scripts/check_docs.py
-
-      - name: Fail loudly on any stale baseline drift
-        if: always()
-        run: |
-          if [ "${{ job.status }}" != "success" ]; then
-            echo "::error::CI failed - see the 'Test (pytest)' step for the failing case. If the regression baseline (tests/baselines/m0_9001.json) is intentionally being updated, refresh it from a known-good scan and document the change in the commit message."
-            exit 1
-          fi

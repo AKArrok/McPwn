@@ -17,7 +17,7 @@
 | 组件 | 说明 |
 |---|---|
 | `mcp-server-fetch`(官方,真实 server) | GitHub `modelcontextprotocol/servers/src/fetch`,pip 包 `mcp-server-fetch` 2026.7.10 + `mcp<2`(项目内 venv `eval/fetch_ssrf/.venv`)。**stdio** transport。SSRF 面是**设计特性**:README 自认 "can access local/internal IP addresses and may represent a security risk",无 private-IP 拦截——所以"只测漏洞版"= 最新版即是漏洞版(无 patch 可修,不是 CVE 型漏洞)。 |
-| `bridge.py`(stdio→SSE 桥) | 官方 mcp SDK 组件(stdio_client + 低级 Server + SseServerTransport)拼的 ~60 行透传桥:工具 schema 逐字透传,不做任何加工。McPwn 只连 SSE,官方 server 只讲 stdio,桥是唯一适配层,不改 McPwn 核心。 |
+| `bridge.py`(stdio→SSE 桥) | 官方 mcp SDK 组件(stdio_client + 低级 Server + SseServerTransport)拼的 ~60 行透传桥:工具 schema 逐字透传,不做任何加工。官方 server 只讲 stdio,桥把工具面原样抬到 SSE。注:McPwn 连接层现已原生支持 stdio(`mcpwn scan --command ...`),桥仅为保持既有跑法/对照保留。 |
 | `intranet_server.py`(受害者) | 本地假内网服务,监听 8000/8080/9211,返回 nginx banner + `TOP-SECRET-INTRANET-2026`。模拟"只有 server 侧能访问的内网目标"。 |
 
 ## 判据(锁死)
@@ -52,6 +52,11 @@ attacker 按 ssrf 卡走完整探测链:良性确认(example.com)→ 回环端�
    密码键值对(fetch 实际拒绝 file://,无真实泄漏)。修复:
    `_HARDCODED_PW_RE` 加前缀负向断言 `(?<![/a-zA-Z0-9])`(路径/URL 片段不再
    触发;`root_passwd: x` 仍触发),新增 3 条回归测试(tests/signals/test_leaks.py)。
+1b. **信号漏报(已修复)**:ssrf 卡模板教的十六进制 IP(`0x7f000001`)与 IPv6
+   回环(`[::1]`)命中真实 IIS banner 时 `ssrf_internal_service` 不触发——
+   `_INTERNAL_ARG_RE` 缺 hex/IPv6 变体、`_INTERNAL_BANNER_RE` 缺 `IIS` 变体
+   (真实 HTTP.sys 默认页是 "IIS Windows" 而非 "Microsoft-IIS")。修复两个
+   正则 + 2 条测试(tests/signals/test_ssrf.py)。
 2. **llm_points 假设抢占 trade-off(已修复,2026-08)**:llm 轮曾连续 3 次
    **miss** SSRF(1 次误报 + 2 次 0 findings),标准 scan 却一次即中。机制:
    三决策点的假设生成给新假设 score=0.99 排最前,而 recon 已正确分类

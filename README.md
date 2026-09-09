@@ -1,34 +1,177 @@
 # McPwn
 
-> **合规声明(P4)**:本项目仅用于评估**本机 Docker 容器**上的隔离靶机:Damn Vulnerable MCP Server
+[![CI](https://github.com/AKArrok/McPwn/actions/workflows/ci.yml/badge.svg)](https://github.com/AKArrok/McPwn/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.13%2B-blue)
+![coverage](https://img.shields.io/badge/coverage-78%25-brightgreen)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+> **合规声明 (P4)**:本项目仅用于评估**本机 Docker 容器**上的隔离靶机:Damn Vulnerable MCP Server
 > (`dvmcp`, 127.0.0.1:9001-9010)与真实世界靶机(`excel-mcp-server` 0.1.7/0.1.8, 127.0.0.1:9203/9204,
 > 由 `targets/realworld/deploy.ps1` 管理)等。**禁止**将本项目及其攻击 payload
 > 用于任何生产系统、公网服务或未经授权的目标。所有攻击均在隔离容器内进行,
 > 由本机 `reset_hook` / `deploy.ps1 -Clean` 负责状态回收。若你不在本地运行这些容器,请立即停止使用。
 
-## 项目定位
+<p align="center">
+  <strong>一个通用 MCP 红队 agent——给一个陌生 MCP server 的 SSE 端点,
+  自主完成侦察 → 假设 → 攻击 → 验证 → 报告的完整闭环。</strong><br/>
+  产出人类可读的 <code>findings.md</code> 与可重放的 PoC 脚本。
+</p>
 
-**McPwn 是一个通用 MCP 红队 agent(MCP Red-Teaming Agent)。**
+<p align="center">
+  <a href="https://github.com/AKArrok/McPwn/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/AKArrok/McPwn/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Python" src="https://img.shields.io/badge/python-3.13-blue">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
+  <a href="docs/"><img alt="Docs" src="https://img.shields.io/badge/docs-docs%2F-blueviolet"></a>
+</p>
 
-给定一个陌生 MCP server 的 SSE 端点,McPwn 无需任何关于该 server 的领域知识,
-自主完成 **侦察 → 假设 → 攻击 → 验证 → 报告** 的完整闭环,输出人类可读的
-漏洞发现 (`findings.md`) 与可重放的 PoC 脚本。
+<p align="center">
+  <b>不针对任何具体 challenge</b> · 同一套信号库 + 策略卡,跑任何 MCP server 都有效 ·
+  <b>证据只信真实调用返回</b> · 防 LLM 幻觉假阳
+</p>
+
+---
+
+## 目录
+
+- [为什么是 McPwn](#为什么是-mcpwn)
+- [特性](#特性)
+- [快速开始](#快速开始)
+- [Demo](#demo)
+- [评估结果](#评估结果)
+- [系统架构](#系统架构)
+- [命令行参考](#命令行参考)
+- [文档](#文档)
+- [项目结构](#项目结构)
+- [开发](#开发)
+- [已知边界](#已知边界)
+- [License](#license)
+
+---
+
+## 为什么是 McPwn
+
+MCP (Model Context Protocol) 正在成为 LLM 应用的"USB-C 接口"——但每个 MCP server
+都是一个新的攻击面:工具参数可能被执行、文件路径可能被穿越、用户输入可能被
+下游 LLM 消费。**McPwn 把"人工审一个陌生 MCP server"变成一条自动流水线**:
+
+```text
+mcpwn scan <target>
+  → list_tools + list_resources          # 侦察:建攻击面地图
+  → 按 8 类漏洞分类打标                   # 假设:工具/资源形状 → 候选
+  → LLM 按策略卡出 payload 探测           # 攻击:function-calling 循环
+  → 信号库 + 置信度判 Finding             # 验证:证据只来自真实返回
+  → findings.md + poc/*.py                # 报告:人类可读 + 可重放
+```
 
 DVMCP、excel-mcp-server、vault-mcp 等靶机**只是验证 agent 有效性的 fixture,
 不是评测目标**——agent 的通用性体现在:同一套漏洞信号库与策略卡,跑任何
 MCP server 都有效。
 
-## 核心特性
+## 特性
 
 | 特性 | 说明 |
 |---|---|
 | **通用漏洞信号库** | 20 条注册信号,按严重级分级 (critical/high/medium),纯正则启发,不针对任何具体 challenge |
 | **八类漏洞策略卡** | `direct_prompt_injection` / `command_injection` / `path_traversal` / `auth_bypass` / `tool_metadata_probe` / `indirect_injection` / `chain_composition` / `ssrf`,每类一份四段式策略卡 |
-| **agent-first 架构** | 无需常驻 victim LLM;prompt injection 类以 L0/L1(攻击面存在性)为判据,不依赖下游 LLM 是否被带偏 |
+| **agent-first 架构** | 无需常驻 victim LLM;prompt injection 类以 L0/L1 (攻击面存在性) 为判据,不依赖下游 LLM 是否被带偏 |
 | **Grounding 闸门** | 证据只来自真实 `McpCall.result_text`,attacker LLM 的总结文本永不作为证据来源,从根上防幻觉假阳 |
 | **三层预算闸门** | turns / tokens / wall-time 任一超限即停;judge 的 LLM token 独立计数,不挤占攻击预算 |
 | **可复现扫描** | `ScanResult` 记录 git_sha / config_snapshot / model / seed / attack_messages_sha1,数月后仍可还原"是哪份代码+哪个模型产出该结论" |
+| **LangGraph 双路径** | 默认手写循环 + `--graph` 显式状态机 (跨 trace 记忆 / checkpoint / 复盘),finding 集合等价由 parity 测试守护 |
 | **真实世界靶机** | excel-mcp-server CVE-2026-40576 正向/负向双版本对照回归 |
+
+## 快速开始
+
+### 环境要求
+
+- Python >= 3.13 (建议 conda 环境)
+- 一个 OpenAI 兼容的 LLM 端点 (attacker) + 一个可选的 judge 端点
+- 跑 DVMCP / 真实靶机回归需要 Docker
+
+### 安装
+
+```bash
+cp .env.example .env        # 填入 API key
+pip install -e ".[dev]"
+```
+
+模型配置在 `mcp_redteam/config/models.yaml` (逻辑名 → OpenAI 兼容端点),API key
+从环境变量读取。当前默认:
+
+| role | provider | model | key_env |
+|---|---|---|---|
+| attacker | DeepSeek 官方 API | `deepseek-v4-flash` | `DEEPSEEK_API_KEY` |
+| judge | 火山 Ark (Coding/Agent Plan) | `doubao-seed-2.0-lite` | `ARK_API_KEY` |
+
+### 冒烟测试
+
+```bash
+mcpwn ping-models --roles attacker,judge   # 自测各 role 端点连通性
+mcpwn lint-cards                           # 校验策略卡格式与禁词
+```
+
+### 单目标扫描
+
+```bash
+# SSE 端点 (DVMCP 靶场)
+mcpwn scan http://127.0.0.1:9001/sse --out runs/m0_smoke
+
+# streamable HTTP 端点 (现代远程 server;auto 会先试 streamable 再回退 SSE)
+mcpwn scan http://127.0.0.1:9000/mcp --out runs/streamable_demo
+
+# stdio 本地 server (每轮拉起子进程, 退出即回收)
+mcpwn scan --command "uvx mcp-server-fetch" --out runs/fetch_demo
+```
+
+## Demo
+
+对 DVMCP 9001 (直接 prompt injection) 的一次真实扫描:
+
+```text
+$ mcpwn scan http://127.0.0.1:9001/sse --out runs/demo_9001
+
+┌──────────────┬─────────────────────────────┐
+│ run_id       │ 20260807T123456-abc123       │
+│ transport    │ sse                          │
+│ target       │ http://127.0.0.1:9001/sse   │
+│ stop_reason  │ completed                   │
+│ tools_seen   │ 2                           │
+│ resources_seen│ 1                          │
+│ traces       │ 1                           │
+│ findings     │ 1                           │
+│ total_tokens │ 8,412                       │
+│ wall_seconds │ 23.4                        │
+└──────────────┴─────────────────────────────┘
+wrote runs/demo_9001/findings.md
+wrote runs/demo_9001/benchmark.md
+```
+
+```text
+runs/demo_9001/
+  findings.md             # 人类可读报告:1 条 Finding (direct_prompt_injection, 0.97)
+  benchmark.md            # 靶场评分卡:manifest 判定 + 覆盖面 + 预算效率
+  poc/F-xxx.py            # 可重放 PoC:read_resource("internal://credentials")
+  traces/trace_*.json     # 完整 AttackTrace (attacker 每一步决策 + 真实返回)
+  scan_result.json        # ScanResult + 可复现元数据 (git_sha/model/seed/...)
+```
+
+> 完整真实链路示例见 [`docs/agent_chain.md`](docs/agent_chain.md) §5 (DVMCP 9001 逐轮拆解)。
+
+## 评估结果
+
+McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 pass@k 主表):
+
+| 评估 | 靶机 | 结果 |
+|---|---|---|
+| **DVMCP 全港** | 10 个漏洞端口 (9001-9010) | recall **8/10** (runner) / **9/10** (graph), FPR **0.00**, replay **5/5** |
+| **真实世界** | excel-mcp-server CVE-2026-40576 | 0.1.7 **exploited** / 0.1.8 **blocked** 双 PASS (docker 双核对) |
+| **未知形状** | vault-mcp (CWE-639 子串鉴权) | baseline 0 findings → LLM 版 **3/3 PASS** + 提示词消融 **D 3/3** |
+| **泛化验证** | delegate-mcp (CWE-639 授权作用域) | **3/3 PASS** (strict-better, 换形状仍成立) |
+| **SSRF 真靶** | 官方 mcp-server-fetch | scan **1 finding** (`ssrf/fetch` 0.75, 真实内网服务命中) |
+| **干净基线** | 无漏洞 server 变体 | 3 变体 **0 findings** (FPR 可信度) |
+
+> 判据设计:提能实验一律"**严格更优**" (baseline=0、每 run ≥1、N=3 miss 即 fail),
+> 拒绝"不劣于"自欺——M3 的负面结果教训见 [`docs/experiment_methodology.md`](docs/experiment_methodology.md)。
 
 ## 系统架构
 
@@ -70,7 +213,7 @@ MCP server 都有效。
                               +-----------------------+
 ```
 
-**一次 `scan` 的产物**(写入 `--out` 目录):
+**一次 `scan` 的产物** (写入 `--out` 目录):
 
 ```text
 <out_dir>/
@@ -94,59 +237,62 @@ MCP server 都有效。
   同 trace 共现才成 finding——把 judge 幻觉的爆炸半径封顶;judge 引用的
   `evidence_call_index` 越界时降级为 not-steered,不产出信号。
 
-## 快速开始
-
-### 环境要求
-
-- Python >= 3.13(建议 conda 环境)
-- 一个 OpenAI 兼容的 LLM 端点(attacker)+ 一个可选的 judge 端点
-
-### 安装与配置
-
-```bash
-cp .env.example .env        # 填入 API key
-pip install -e ".[dev]"
-```
-
-模型配置在 `mcp_redteam/config/models.yaml`(逻辑名 → OpenAI 兼容端点),API key
-从环境变量读取。当前默认:
-
-| role | provider | model | key_env |
-|---|---|---|---|
-| attacker | DeepSeek 官方 API | `deepseek-v4-flash` | `DEEPSEEK_API_KEY` |
-| judge | 火山 Ark (Coding/Agent Plan) | `doubao-seed-2.0-lite` | `ARK_API_KEY` |
-
-### 冒烟测试
-
-```bash
-mcpwn ping-models --roles attacker,judge   # 自测各 role 端点连通性
-mcpwn lint-cards                           # 校验策略卡格式与禁词
-```
-
-### 单目标扫描
-
-```bash
-mcpwn scan http://127.0.0.1:9001/sse --out runs/m0_smoke
-```
-
 ## 命令行参考
 
-### `mcpwn scan <sse-url>`
+### `mcpwn scan <target>`
 
-对单个 MCP server 执行完整扫描。
+对单个 MCP server 执行完整扫描。`<target>` 是 HTTP 端点 URL(SSE 或 streamable HTTP),配 `--command` 时为 stdio 启动命令。
 
 | 选项 | 默认 | 说明 |
 |---|---|---|
 | `--out`, `-o` | `runs/scan_latest` | 产物输出目录 |
 | `--max-tokens` | 30000 | attacker token 预算 |
-| `--wall-seconds` | 240 | 墙钟时间预算(秒) |
+| `--wall-seconds` | 240 | 墙钟时间预算 (秒) |
 | `--max-candidates` | 20 | 最多探测的 (vuln_class, target) 候选数 |
 | `--max-inner-steps` | 12 | 每个候选的 attacker 工具调用轮数上限 |
 | `--attacker-temperature` | models.yaml | 覆盖 attacker 温度;用 0 得到可复现扫描 |
-| `--headers` | — | SSE 请求头,如 `x-user-id=mcpwn,x-chat-id=scan1`(真实世界 MCP server 常用) |
-| `--sandbox-root` | — | 声明的沙箱根(部署元数据),启用 sandbox-escape 判据 |
-| `--graph` | false | 以显式 LangGraph 状态机跑流水线(与默认手写循环等价) |
-| `--llm-points` | false | 启用三 LLM 决策点:假设生成 / 零发现复盘 / grounded 证据判定(unknown-shape 覆盖) |
+| `--transport` | `auto` | 传输选择:`auto`(默认,`/sse` 结尾走 SSE,其余先试 streamable HTTP 再回退)、`sse`、`streamable-http`、`stdio` |
+| `--command` | — | stdio 目标启动命令,如 `uvx mcp-server-fetch`(每轮拉起子进程,退出即回收) |
+| `--env` | — | stdio 子进程环境变量,如 `EXCEL_FILES_PATH=/tmp/sandbox` |
+| `--headers` | — | HTTP 请求头,如 `x-user-id=mcpwn,x-chat-id=scan1` (真实世界 MCP server 常用) |
+| `--sandbox-root` | — | 声明的沙箱根 (部署元数据),启用 sandbox-escape 判据 |
+| `--graph` | false | 以显式 LangGraph 状态机跑流水线 (与默认手写循环等价) |
+| `--llm-points` | false | 启用三 LLM 决策点:假设生成 / 零发现复盘 / grounded 证据判定 (unknown-shape 覆盖) |
+
+### `mcpwn static-scan <target>` / `mcpwn vet-package <name>`
+
+**零 LLM 静态预筛**——攻击前的廉价第一层(与 mcp-scan 同哲学):
+
+- 工具/资源描述与参数 schema 的正则启发式:指令覆盖、对用户隐藏行为、
+  外传数据、跨 server 调用、凭证面、任意执行、路径逃逸、内网端点
+- 供应链核查:stdio 启动命令中的包名做 **typosquat 检测**(与知名 MCP
+  server 包名比对)+ 已知恶意包名单 + 明文 http 远程告警
+- 无攻击流量、无 token 消耗,结果进 SARIF(`--out`)
+
+```bash
+mcpwn static-scan http://127.0.0.1:9001/sse
+mcpwn static-scan --command "uvx mcp-server-fetch" -o static.sarif
+mcpwn vet-package postmark-mcp-official   # -> critical: 已知冒名包
+```
+
+`mcpwn scan` 每次也会自动运行静态预筛 + 供应链核查,命中写入
+`findings.md` 的"静态预筛"节与 `findings.sarif`。
+
+### `mcpwn benchmark <target> [--mode std|llm]`
+
+对 manifest 清单 (`eval/targets/manifest.yaml`) 中的单个靶场执行一次扫描,
+并产出该靶场的 benchmark 报告 `<out>/<target>/benchmark.md`:漏洞类覆盖、
+信号/finding 统计、预算与效率,以及按 `baseline_expect` / `llm_expect`
+给出的 PASS/FAIL/INFO 判定。每次 `mcpwn scan` 也会自动附带一份
+benchmark.md(能匹配 manifest 靶场时含判定,否则仅自评指标)。
+
+| 选项 | 默认 | 说明 |
+|---|---|---|
+| `--mode` | `std` | `std` 用 baseline_expect 判定;`llm` 开启 llm_points 并用 llm_expect |
+| `--out`, `-o` | `runs/benchmark` | 输出根目录 |
+| `--max-tokens` | 30000 | attacker token 预算 |
+| `--wall-seconds` | 300 | 墙钟预算 (秒) |
+| `--seed` | — | LLM 采样种子 (provider-dependent) |
 
 ### `mcpwn ping-models [--roles ...]`
 
@@ -154,53 +300,27 @@ mcpwn scan http://127.0.0.1:9001/sse --out runs/m0_smoke
 
 ### `mcpwn lint-cards`
 
-加载并校验全部策略卡(四段标题齐全、无已知靶场明文答案)。
+加载并校验全部策略卡 (四段标题齐全、无已知靶场明文答案)。
 
-## 回归评估
+### `mcpwn eval dvmcp ...` / `mcpwn eval realworld ...`
 
-McPwn 用三类 fixture 回归验证 agent 有效性,产出独立指标,不做 pass@k 主表:
+回归评估子命令,见 [`docs/eval_guide.md`](docs/eval_guide.md)。
 
-### DVMCP(10 个漏洞端口,9001-9010)
+## 文档
 
-```bash
-mcpwn eval dvmcp reset --yes    # 清理容器状态(默认 dry-run)
-mcpwn eval dvmcp run            # 遍历 9001-9010,产 eval_report.md
-```
+| 文档 | 内容 |
+|---|---|
+| [`docs/pipeline.md`](docs/pipeline.md) | 代码端到端链路 (runner + graph 双视图) |
+| [`docs/agent_chain.md`](docs/agent_chain.md) | agent 思维与行动链路 (双路径) |
+| [`docs/mcp_attack_surface.md`](docs/mcp_attack_surface.md) | 打 MCP 的攻击思路与入手面 |
+| [`docs/anti_hallucination.md`](docs/anti_hallucination.md) | 防幻觉机制全集 (Grounding 闸门 / 指纹化 / claim mismatch) |
+| [`docs/eval_guide.md`](docs/eval_guide.md) | 评估体系导航 (6 个 eval 怎么跑) |
+| [`docs/reproducibility.md`](docs/reproducibility.md) | 可复现性设计 (seed / attack_messages_sha1) |
+| [`docs/experiment_methodology.md`](docs/experiment_methodology.md) | 可证伪实验方法论 (strict-better 判据) |
+| [`docs/pwn_results.md`](docs/pwn_results.md) | 各靶机攻击成果与结果记录 |
 
-指标:`recall`(预期 vuln class 被发现的比例)、`false_positive_rate`、
-`poc_replay_pass_rate`(随机抽 finding 重放 PoC 看信号是否重现)。
-
-**最近结果 (M2 v5)**:recall 8/10, FPR 0.00, replay 5/5。
-
-### 真实世界靶机(excel-mcp-server CVE-2026-40576)
-
-```bash
-./targets/realworld/deploy.ps1 -Yes      # 拉起 0.1.7(:9203) / 0.1.8(:9204), 默认 dry-run
-mcpwn eval realworld prove excel-0.1.7   # 确定性打穿证明:写 marker 到沙箱外 /root/ 并 docker exec 核对
-mcpwn eval realworld prove excel-0.1.8   # 对照:0.1.8 拒绝写入(修复有效)
-mcpwn eval realworld run -o runs/eval_real_world  # 检测门:正向 recall + 负向 precision
-```
-
-**最近结果**:0.1.7 exploited PASS / 0.1.8 blocked PASS,正向检出 `sandbox_escape_write` (high),负向 0 findings。
-
-### 未知形状靶机(vault-mcp,CWE-639)
-
-`eval/unknown_shape/README.md` 是协议权威。该实验验证"LLM 三决策点"
-(假设生成 / 复盘 / 证据判定)能否补上固定信号库的结构性漏报:
-
-```bash
-python eval/unknown_shape/run_baseline.py   # Stage 1: baseline(应 0 findings)
-python eval/unknown_shape/run_llm.py        # Stage 2: LLM 增量(应 >=1 finding)
-python eval/unknown_shape/run_repeat.py     # Stage 3: 同 seed 同 budget N=3,miss 即 fail
-```
-
-**最近结果**:Stage 1 0 findings(结构性漏),Stage 3 3/3 PASS(严格更优),
-提示词消融 A 3/3 + D 3/3。
-
-### 干净基线(跨 server FPR)
-
-`eval/clean_baseline/` 用无漏洞的 server 变体(noop / summarize / file_list)
-验证信号库不误报,支撑"FPR 0"的可信度。
+设计规约 (项目内部):`HANDOFF.md` (唯一权威) / `AGENTS.md` (顶层规约) /
+`PROGRESS.md` (状态快照)。
 
 ## 项目结构
 
@@ -210,50 +330,56 @@ mcp_redteam/
                           Finding/JudgeVerdict/LlmEvidenceVerdict/ScanResult/...)
   cli.py                  mcpwn 命令入口
   signals/detectors.py    20 条注册信号 + L2 占位
-  vulns/cards/*.md        8 张策略卡 + registry.py(加载与 lint)
+  vulns/cards/*.md        8 张策略卡 + registry.py (加载与 lint)
   agent/
     recon.py              侦察:list tools/resources + 形状分类打标
-    planner.py            候选排序(hardcoded;LLM 版已证 ROI 负,保留供对比)
-    llm_points.py         三 LLM 决策点(假设生成/复盘/证据判定)
+    planner.py            候选排序 (hardcoded;LLM 版已证 ROI 负,保留供对比)
+    llm_points.py         三 LLM 决策点 (假设生成/复盘/证据判定)
     executor.py           openai function-calling 循环 + 主动探测
     verifier.py           信号汇总 + 置信度 + L2 judge + 证据判定
-  orchestrator/           runner.py(scan 驱动) / budget.py(三闸门) / reset_hook.py
+  orchestrator/           runner.py (scan 驱动) / budget.py (三闸门) / reset_hook.py
+  langgraph/              LangGraph 状态机 (graph=True 路径)
   targets/mcp_client.py   MCP SDK 薄封装
   models/chat.py          OpenAI-compat 工厂 + retry-with-backoff + 限流
-  judge/                  L2 judge(prompt 外置 + JSON 解析)
+  judge/                  L2 judge (prompt 外置 + JSON 解析)
   report/findings.py      ScanResult -> findings.md + poc/*.py
 eval/
   dvmcp/                  DVMCP fixture + expected.yaml + runner + m3_judge
-  realworld/              excel-mcp CVE 回归(prove.py 双版本对照)
+  realworld/              excel-mcp CVE 回归 (prove.py 双版本对照)
   unknown_shape/          vault-mcp 三阶段实验 + 提示词消融
+  generalize/             delegate-mcp 跨形状验证
+  fetch_ssrf/             官方 mcp-server-fetch SSRF 真靶
   clean_baseline/         无漏洞 server 的 FPR baseline
-tests/                    单元/回归测试(pytest, 数量见 CI badge)
-docs/                     pipeline.md(端到端链路) / agent_chain.md(agent 思维链路)
-                          / anti_hallucination.md(防幻觉机制) / eval_guide.md(评估导航)
-                          / reproducibility.md(可复现性) / experiment_methodology.md(实验方法论)
-                          / pwn_results.md(靶机结果)
-scripts/                  check_docs.py(文档 vs 代码 vs pyproject 一致性校验,CI 挂载)
+  regression.py           三靶机聚合回归 (prove/baseline/llm/full)
+tests/                    单元/回归测试 (pytest, 数量见 CI badge)
+docs/                     8 篇文档 (见上表)
+scripts/                  check_docs.py (文档 vs 代码 vs pyproject 一致性校验,CI 挂载)
 ```
 
 ## 开发
 
 ```bash
-pytest                       # 全部测试(数量见 CI badge)
-ruff check mcp_redteam eval  # lint(0 errors)
+pytest                       # 全部测试 (数量见 CI badge)
+ruff check mcp_redteam eval  # lint (0 errors)
 mcpwn lint-cards             # 策略卡校验
 python scripts/check_docs.py # 文档 vs 代码 vs pyproject 一致性校验
+python eval/regression.py    # 三靶机聚合回归 (默认 prove, 无 LLM ~30s)
 ```
 
-设计规约与增量施工见:
+### 贡献
 
-- `HANDOFF.md` — 唯一权威设计文档(架构、八类漏洞、数据契约、里程碑)
-- `HANDOFF_NEXT.md` — 当前跨 session 上下文与下一步
-- `PROGRESS.md` — 长期状态快照(数字 + commit 链)
-- `AGENTS.md` — 顶层规约(唯一权威)
+- 新增漏洞类/信号/策略卡:见 `mcp_redteam/vulns/AGENTS.md` 与 `mcp_redteam/signals/AGENTS.md`
+- 文档里写死数字前,先在 `scripts/check_docs.py` 加规则——不靠人记得同步
+- 所有攻击测试必须在隔离容器内进行 (见顶部合规声明)
 
 ## 已知边界
 
-- **prompt injection 类覆盖 L0/L1(攻击面存在性),不覆盖 L2(下游 LLM 真被带偏)**;
+- **prompt injection 类覆盖 L0/L1 (攻击面存在性),不覆盖 L2 (下游 LLM 真被带偏)**;
   L2 需要 victim/judge LLM,是可选增强,见 `PROMPT_INJECTION_GAP.md`。
-- SSRF 第 8 类策略卡与信号已落地,但尚无带 `fetch_url` 的真实靶机做过端到端验证。
-- LLM planner(M3)已实测与 hardcoded 等价甚至更差,结论记录在案,不再作为提能方向。
+- **LLM planner (M3) 已实测与 hardcoded 等价甚至更差**,结论记录在案,不再作为提能方向;
+  提能实验一律走"严格更优 + 可证伪"判据 (见 `docs/experiment_methodology.md`)。
+- 未知形状发现依赖 `--llm-points` 三决策点,默认扫描不启用 (不影响既有判据口径)。
+
+## License
+
+[MIT](LICENSE) © 2026 McPwn contributors

@@ -32,6 +32,7 @@ from mcp_redteam.contracts import (
     AttackTrace,
     PlannerDecision,
     ScanResult,
+    TargetSpec,
     VulnClass,
 )
 from mcp_redteam.langgraph.state import McPwnState
@@ -67,6 +68,9 @@ class GraphDeps:
     port: int
     seed: int | None
     llm_points: bool = False
+    # Connection spec (transport/url/command/env); None keeps legacy parity
+    # with tests that construct GraphDeps by hand without a spec.
+    spec: TargetSpec | None = None
     result: ScanResult | None = field(default=None)
 
 
@@ -74,14 +78,19 @@ def recon_node(deps: GraphDeps):
     """``agent/recon.recon``: list tools + resources, classify candidates."""
 
     async def node(state: McPwnState) -> dict[str, Any]:
-        recon_calls, candidates, tools_seen, resources_seen = await recon(
+        recon_calls, candidates, tools_seen, resources_seen, static_hits = await recon(
             deps.session
         )
+        from mcp_redteam.agent.supplychain import vet_target_spec
+
+        if deps.spec is not None:
+            static_hits = static_hits + vet_target_spec(deps.spec)
         return {
             "recon_calls": recon_calls,
             "candidates": candidates,
             "tools_seen": tools_seen,
             "resources_seen": resources_seen,
+            "static_hits": static_hits,
         }
 
     return node
@@ -373,6 +382,8 @@ def assemble_result(
     return ScanResult(
         run_id=state["run_id"],
         sse_url=deps.sse_url,
+        transport=deps.spec.transport.value if deps.spec else "sse",
+        target_spec=deps.spec.model_dump(mode="json") if deps.spec else None,
         started_at=state["started_at"],
         wall_seconds=time.perf_counter() - state["wall_start"],
         attacker_tokens=deps.budget.attacker_tokens,
@@ -380,6 +391,7 @@ def assemble_result(
         tools_seen=state.get("tools_seen", []),
         resources_seen=state.get("resources_seen", []),
         traces=state.get("traces", []),
+        static_hits=state.get("static_hits", []),
         findings=state.get("findings", []),
         stop_reason=stop_reason(deps.budget, deps.clock, error),
         git_sha=safe_git_sha(),
