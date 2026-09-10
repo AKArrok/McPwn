@@ -7,6 +7,15 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Added
 
+- Persisted scan artifacts now pass through a shared redaction boundary:
+  target env/header values become local replay references, URL query values and
+  credential-shaped fields are redacted, and generated PoCs resolve references
+  only from the operator's local environment.
+- Added release metadata checks, locked uv-based CI installation, Dependabot,
+  CodeQL, dependency auditing, and a tag-triggered wheel verification workflow.
+- Added a local read-only findings.json viewer and operations/contributing/security
+  documentation that state the supported CI boundary and the gaps before any
+  hosted multi-tenant deployment.
 - **Real-target config entrypoint**: `mcpwn init` now writes a reusable
   `mcpwn.yaml`, and `mcpwn scan --target-config mcpwn.yaml` compiles that
   file into the existing `TargetSpec` scan path. This makes scanning a

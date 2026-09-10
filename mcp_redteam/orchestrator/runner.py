@@ -49,6 +49,11 @@ from mcp_redteam.orchestrator.scan_meta import (
     safe_git_sha,
     stop_reason,
 )
+from mcp_redteam.security import (
+    redact_scan_result,
+    target_artifact_references,
+    target_secret_values,
+)
 from mcp_redteam.targets.mcp_client import McpSession
 from mcp_redteam.vulns.registry import lint_all_cards
 
@@ -417,6 +422,8 @@ async def scan(
     findings, _ = build_findings(
         traces, trace_dir=trace_dir, budget=budget, judge_fn=judge_fn,
         sandbox_root=sandbox_root, evidence_judge_fn=evidence_judge_fn,
+        artifact_secrets=target_secret_values(spec),
+        artifact_references=target_artifact_references(spec),
     )
     wall_elapsed = time.perf_counter() - wall_start
 
@@ -446,7 +453,7 @@ async def scan(
     )
 
     (out_dir / "scan_result.json").write_text(
-        result.model_dump_json(indent=2), encoding="utf-8"
+        redact_scan_result(result).model_dump_json(indent=2), encoding="utf-8"
     )
     return result
 
@@ -563,7 +570,7 @@ async def _scan_graph(
                 partial = dict(initial_state)
         deps.result = assemble_result(deps, partial, error=error)
         (out_dir / "scan_result.json").write_text(
-            deps.result.model_dump_json(indent=2), encoding="utf-8"
+            redact_scan_result(deps.result).model_dump_json(indent=2), encoding="utf-8"
         )
 
     assert deps.result is not None, "graph scan produced no result"

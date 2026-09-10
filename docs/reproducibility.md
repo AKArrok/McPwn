@@ -132,7 +132,19 @@ Stage-3 "同 seed 同 budget" 的判据里,DeepSeek 不支持 seed 时记录
 
 ---
 
-## 7. 相关代码与文档
+## 7. 产物脱敏与本地重放
+
+`scan_result.json`、`findings.json`、`findings.md`、SARIF、traces 和生成的 PoC
+都从同一份 live `ScanResult` 的 disk-safe view 生成。目标配置中的 env/header
+值不会原样落盘,而是保存为 `${KEY}` 或 `${MCPWN_HEADER_NAME}` 引用; URL query
+值、常见凭证形态和敏感字段也会做模式脱敏。
+
+因此复现分为两步:先用已提交的代码版本与锁文件校验产物元数据,再在本地
+设置所需环境变量后运行 PoC。缺少变量时 replay 会明确失败,不会把占位符当成
+真实凭证发送。server 返回的任意自定义字段仍需要发布前人工审查,因为模式脱敏
+无法证明它理解所有业务秘密。
+
+## 8. 相关代码与文档
 
 - `mcp_redteam/orchestrator/scan_meta.py` — 全部可复现字段的实现
 - `mcp_redteam/contracts.py` — `ScanResult` 字段定义与 seed 注释

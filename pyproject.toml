@@ -4,7 +4,7 @@ version = "0.2.0"
 description = "MCP red-team agent: autonomous vulnerability discovery for MCP servers (agent-first; DVMCP as regression fixture)"
 readme = "README.md"
 requires-python = ">=3.13"
-license = { text = "MIT" }
+license = "MIT"
 dependencies = [
     # MCP SDK server-side import paths shift across releases; local fixtures
     # use compatibility imports, while the package floor follows the supported

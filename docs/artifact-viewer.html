@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>McPwn Artifact Viewer</title>
+  <style>
+    :root { color-scheme: dark; --bg: #101412; --panel: #18211d; --line: #2b3a33; --text: #e8f0eb; --muted: #9eb0a5; --accent: #70d39b; --warn: #f2c66d; --danger: #ff8d83; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at top right, #20372b 0, var(--bg) 42rem); color: var(--text); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 72px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: end; margin-bottom: 28px; }
+    h1 { margin: 0; letter-spacing: -.03em; font-size: clamp(2rem, 5vw, 3.5rem); }
+    h2 { margin: 0 0 12px; font-size: 1.1rem; }
+    p { color: var(--muted); }
+    .eyebrow { color: var(--accent); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; font-size: .75rem; }
+    .panel { background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line); border-radius: 16px; padding: 20px; box-shadow: 0 16px 60px #0004; }
+    .input { min-width: 280px; }
+    input[type=file] { width: 100%; color: var(--muted); }
+    .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+    .stat { min-height: 94px; }
+    .stat strong { display: block; font-size: 2rem; color: var(--accent); }
+    .stat span { color: var(--muted); }
+    .grid { display: grid; grid-template-columns: 1.25fr .75fr; gap: 18px; }
+    .finding { border-top: 1px solid var(--line); padding: 16px 0; }
+    .finding:first-child { border-top: 0; padding-top: 0; }
+    .finding h3 { margin: 0 0 6px; font-size: 1rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: .85rem; }
+    .badge { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+    .critical, .high { color: var(--danger); }
+    .medium { color: var(--warn); }
+    .low, .info { color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; vertical-align: top; padding: 9px 6px; border-top: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 600; }
+    code { color: #d6e8dc; overflow-wrap: anywhere; }
+    #empty { min-height: 220px; display: grid; place-items: center; text-align: center; }
+    .hidden { display: none; }
+    @media (max-width: 820px) { header, .grid { display: block; } .input { margin-top: 18px; } .stats { grid-template-columns: repeat(2, 1fr); } .panel + .panel { margin-top: 18px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="eyebrow">McPwn · local artifact review</div>
+      <h1>Scan results, without the guesswork.</h1>
+      <p>加载本地 <code>findings.json</code>，快速查看严重级别、置信度和证据摘要。</p>
+    </div>
+    <div class="panel input">
+      <label for="artifact"><strong>选择 findings.json</strong></label>
+      <input id="artifact" type="file" accept="application/json,.json">
+    </div>
+  </header>
+
+  <section id="empty" class="panel">
+    <div><h2>还没有加载扫描产物</h2><p>这是只读静态查看器：不联网、不执行 PoC、不触发扫描。</p></div>
+  </section>
+
+  <section id="content" class="hidden">
+    <div id="summary" class="panel"></div>
+    <div class="stats">
+      <div class="panel stat"><span>Findings</span><strong id="finding-count">0</strong></div>
+      <div class="panel stat"><span>Critical</span><strong id="critical-count">0</strong></div>
+      <div class="panel stat"><span>High</span><strong id="high-count">0</strong></div>
+      <div class="panel stat"><span>Medium</span><strong id="medium-count">0</strong></div>
+      <div class="panel stat"><span>Static hits</span><strong id="static-count">0</strong></div>
+    </div>
+    <div class="grid">
+      <section class="panel"><h2>Findings</h2><div id="findings"></div></section>
+      <section class="panel"><h2>Static screening</h2><div id="static-hits"></div></section>
+    </div>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const esc = (value) => String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  const severity = (value) => "<span class=\"badge " + esc(value) + "\">" + esc(value || "unknown") + "</span>";
+
+  function render(data) {
+    if (!data || typeof data !== "object" || !Array.isArray(data.findings)) throw new Error("不是 McPwn findings.json");
+    const findings = data.findings;
+    const staticHits = Array.isArray(data.static_hits) ? data.static_hits : [];
+    const count = (level) => findings.filter((f) => f.severity === level).length;
+    $("finding-count").textContent = findings.length;
+    $("critical-count").textContent = count("critical");
+    $("high-count").textContent = count("high");
+    $("medium-count").textContent = count("medium");
+    $("static-count").textContent = staticHits.length;
+    $("summary").innerHTML = "<h2>" + esc(data.target || "McPwn scan") + "</h2><div class=\"meta\"><span>run_id: <code>" + esc(data.run_id) + "</code></span><span>stop_reason: " + esc(data.stop_reason) + "</span><span>wall: " + esc(data.wall_seconds) + "s</span><span>tokens: " + esc(data.total_tokens) + "</span></div>";
+    $("findings").innerHTML = findings.length ? findings.map((f) => "<article class=\"finding\"><h3>" + esc(f.title || f.finding_id) + "</h3><div class=\"meta\">" + severity(f.severity) + "<span>confidence " + esc(Number(f.confidence || 0).toFixed(2)) + "</span><code>" + esc(f.finding_id) + "</code></div><p>" + esc(f.summary) + "</p><details><summary>Evidence and remediation</summary><p>" + ((f.signals || []).map((s) => severity(s.severity) + " <code>" + esc(s.signal_id) + "</code> " + esc(s.matched_text)).join("<br>") || "No signals") + "</p><p>" + esc(f.remediation_hint || "No remediation hint recorded") + "</p></details></article>").join("") : "<p>No findings above the confidence threshold.</p>";
+    $("static-hits").innerHTML = staticHits.length ? "<table><thead><tr><th>Severity</th><th>Rule</th><th>Subject</th><th>Summary</th></tr></thead><tbody>" + staticHits.map((h) => "<tr><td>" + severity(h.severity) + "</td><td><code>" + esc(h.rule_id) + "</code></td><td>" + esc(h.subject) + "</td><td>" + esc(h.summary) + "</td></tr>").join("") + "</tbody></table>" : "<p>No static screening hits.</p>";
+    $("empty").classList.add("hidden");
+    $("content").classList.remove("hidden");
+  }
+
+  $("artifact").addEventListener("change", (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { try { render(JSON.parse(reader.result)); } catch (error) { alert("加载失败：" + error.message); } };
+    reader.readAsText(file);
+  });
+</script>
+</body>
+</html>

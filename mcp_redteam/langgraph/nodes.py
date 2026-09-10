@@ -44,6 +44,11 @@ from mcp_redteam.orchestrator.scan_meta import (
     safe_git_sha,
     stop_reason,
 )
+from mcp_redteam.security import (
+    redact_scan_result,
+    target_artifact_references,
+    target_secret_values,
+)
 from mcp_redteam.targets.mcp_client import McpSession
 
 
@@ -362,6 +367,10 @@ def verify_node(deps: GraphDeps):
             judge_fn=deps.judge_fn,
             sandbox_root=deps.sandbox_root,
             evidence_judge_fn=deps.evidence_judge_fn,
+            artifact_secrets=(target_secret_values(deps.spec) if deps.spec else None),
+            artifact_references=(
+                target_artifact_references(deps.spec) if deps.spec else None
+            ),
         )
         return {"findings": findings}
 
@@ -411,7 +420,7 @@ def report_node(deps: GraphDeps):
     async def node(state: McPwnState) -> dict[str, Any]:
         result = assemble_result(deps, state, error=state.get("error"))
         (Path(state["out_dir"]) / "scan_result.json").write_text(
-            result.model_dump_json(indent=2), encoding="utf-8"
+            redact_scan_result(result).model_dump_json(indent=2), encoding="utf-8"
         )
         deps.result = result
         return {"stop_reason": result.stop_reason}

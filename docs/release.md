@@ -20,15 +20,18 @@ migration in the changelog before release.
 Run these from a clean checkout with the development dependencies installed:
 
 ```bash
-python scripts/check_docs.py
-python -m ruff check mcp_redteam eval tests scripts
-python scripts/ci_artifact_smoke.py
-python scripts/package_smoke.py
-python -m pytest -q
+uv sync --locked --extra dev
+uv run python scripts/check_release.py
+uv run python scripts/check_docs.py
+uv run ruff check mcp_redteam eval tests scripts
+uv run python scripts/ci_artifact_smoke.py
+uv run python scripts/package_smoke.py
+uv run pytest -q --cov=mcp_redteam --cov-report=term-missing
 ```
 
 The repository CI also runs the test suite on Python 3.13 across Ubuntu and
-Windows. The smoke scripts intentionally avoid requiring a Docker target, network,
+Windows. CI installs from `uv.lock`; changing `pyproject.toml` without updating
+that lock file is a release-blocking error. The smoke scripts intentionally avoid requiring a Docker target, network,
 or LLM credentials.
 
 ## Artifact compatibility policy

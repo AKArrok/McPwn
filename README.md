@@ -5,14 +5,14 @@ grounded findings, replayable PoCs, machine-readable artifacts, and severity gat
 
 [![CI](https://github.com/AKArrok/McPwn/actions/workflows/ci.yml/badge.svg)](https://github.com/AKArrok/McPwn/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
-![coverage](https://img.shields.io/badge/coverage-78%25-brightgreen)
+![coverage gate](https://img.shields.io/badge/coverage_gate-CI%20%3E%3D%2075%25-brightgreen)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-> **合规声明 (P4)**:本项目仅用于评估**本机 Docker 容器**上的隔离靶机:Damn Vulnerable MCP Server
-> (`dvmcp`, 127.0.0.1:9001-9010)与真实世界靶机(`excel-mcp-server` 0.1.7/0.1.8, 127.0.0.1:9203/9204,
-> 由 `targets/realworld/deploy.ps1` 管理)等。**禁止**将本项目及其攻击 payload
-> 用于任何生产系统、公网服务或未经授权的目标。所有攻击均在隔离容器内进行,
-> 由本机 `reset_hook` / `deploy.ps1 -Clean` 负责状态回收。若你不在本地运行这些容器,请立即停止使用。
+> **合规声明 (P4)**:本项目仅用于本机或 CI 隔离环境中评估**本地或明确授权的 MCP server**。
+> 仓库内的 Damn Vulnerable MCP Server (dvmcp, 127.0.0.1:9001-9010)、
+> excel-mcp-server 0.1.7/0.1.8 (由 targets/realworld/deploy.ps1 管理)等只是回归 fixture。
+> **禁止**将本项目及其攻击 payload 用于任何生产系统、公网服务或未经授权的目标。
+> 真实目标接入必须通过显式 target config 和授权流程;本项目不提供 hosted multi-tenant 隔离。
 
 <p align="center">
   <strong>一个通用 MCP 红队 agent——给一个陌生 MCP server 的 MCP transport 端点,
@@ -85,6 +85,8 @@ reviewer-facing evidence and boundaries are collected here:
 - [`docs/threat_model.md`](docs/threat_model.md) — supported targets, non-goals, and gate semantics
 - [`docs/comparison.md`](docs/comparison.md) — position against adjacent approaches
 - [`docs/release.md`](docs/release.md) — release checks and artifact compatibility
+- [`docs/operations.md`](docs/operations.md) — safe CI deployment, secrets, and production boundary
+- [`docs/artifact-viewer.html`](docs/artifact-viewer.html) — local, read-only findings.json viewer for review/demo
 - [`docs/case_study_excel.md`](docs/case_study_excel.md) — one grounded vulnerable/fixed case
 
 ```mermaid
@@ -470,6 +472,8 @@ benchmark.md(能匹配 manifest 靶场时含判定,否则仅自评指标)。
 | [`docs/threat_model.md`](docs/threat_model.md) | 威胁模型、非目标与 CI 语义 |
 | [`docs/comparison.md`](docs/comparison.md) | 与静态扫描、DAST、人工红队等的定位对比 |
 | [`docs/release.md`](docs/release.md) | SemVer、发布前检查与 artifact 兼容策略 |
+| [`docs/operations.md`](docs/operations.md) | CI 落地、敏感信息边界与生产部署范围 |
+| [`docs/artifact-viewer.html`](docs/artifact-viewer.html) | 本地只读扫描结果查看器,不联网、不执行 PoC |
 | [`docs/case_study_excel.md`](docs/case_study_excel.md) | excel-mcp 漏洞版/修复版配对案例 |
 
 设计规约 (项目内部):`HANDOFF.md` (唯一权威) / `AGENTS.md` (顶层规约) /

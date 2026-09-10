@@ -407,6 +407,8 @@ def build_findings(
     judge_fn: JudgeFn | None = None,
     sandbox_root: str | None = None,
     evidence_judge_fn: Callable[[AttackTrace], LlmEvidenceVerdict | None] | None = None,
+    artifact_secrets: set[str] | None = None,
+    artifact_references: dict[str, str] | None = None,
 ) -> tuple[list[Finding], dict[str, list[EvidenceSignal]]]:
     """Turn every trace whose confidence >= threshold into a Finding.
 
@@ -492,8 +494,15 @@ def build_findings(
         trace_ref = ""
         if trace_dir is not None:
             fname = f"trace_{i:03d}_{trace.vuln_class.value}.json"
+            from mcp_redteam.security import redact_trace
+
             (trace_dir / fname).write_text(
-                trace.model_dump_json(indent=2), encoding="utf-8"
+                redact_trace(
+                    trace,
+                    secrets=artifact_secrets,
+                    references=artifact_references,
+                ).model_dump_json(indent=2),
+                encoding="utf-8",
             )
             trace_ref = str(trace_dir / fname)
 

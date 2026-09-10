@@ -16,7 +16,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from mcp_redteam import __version__
 from mcp_redteam.contracts import ScanResult
+from mcp_redteam.security import redact_scan_result
 
 SARIF_VERSION = "2.1.0"
 SARIF_SCHEMA = (
@@ -110,7 +112,7 @@ def to_sarif(result: ScanResult) -> dict[str, Any]:
                     "driver": {
                         "name": "McPwn",
                         "informationUri": "https://github.com/AKArrok/McPwn",
-                        "version": "0.2.0",
+                        "version": __version__,
                         "rules": list(rules.values()),
                     }
                 },
@@ -134,5 +136,8 @@ def write_sarif(result: ScanResult, out_dir) -> Any:
     import json
 
     path = out_dir / "findings.sarif"
-    path.write_text(json.dumps(to_sarif(result), indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(
+        json.dumps(to_sarif(redact_scan_result(result)), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
     return path

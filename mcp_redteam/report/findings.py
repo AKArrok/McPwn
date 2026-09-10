@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp_redteam.contracts import Finding, McpCall, ScanResult
+from mcp_redteam.security import redact_scan_result
 
 FINDINGS_JSON_SCHEMA_VERSION = 1
 
@@ -22,7 +23,12 @@ FINDINGS_JSON_SCHEMA_VERSION = 1
 def _fmt_call(call: McpCall) -> str:
     if call.kind == "call_tool":
         args_repr = _fmt_args_for_replay(call.args or {})
-        return f"call_tool({call.name!r}, {args_repr})  # {call.elapsed_ms}ms"
+        note = (
+            "  # unparsed LLM args; replay may need manual edit"
+            if list((call.args or {}).keys()) == ["_raw"]
+            else ""
+        )
+        return f"call_tool({call.name!r}, {args_repr})  # {call.elapsed_ms}ms{note}"
     if call.kind == "read_resource":
         return f"read_resource({call.name!r})  # {call.elapsed_ms}ms"
     return f"# {call.kind}  {call.elapsed_ms}ms"
@@ -38,7 +44,7 @@ def _fmt_args_for_replay(args: dict[str, Any]) -> str:
     """
     if list(args.keys()) == ["_raw"]:
         raw = args["_raw"]
-        return f"{raw!r}  # (unparsed LLM args, replay may need manual edit)"
+        return repr(raw)
     # Use json.dumps for stable, quote-safe output; fall back to repr for
     # non-JSON-serialisable values (rare in practice).
     try:
@@ -97,7 +103,7 @@ def _poc_script(f: Finding, result: ScanResult) -> str:
             args_literal = _fmt_args_for_replay(c.args or {})
             steps_repr.append(
                 f'        call = await session.call_tool({c.name!r}, '
-                f'{args_literal}); '
+                f'resolve_artifact_values({args_literal})); '
                 f'print({c.name!r}, "=>", call.result_text[:400])'
             )
         elif c.kind == "read_resource":
@@ -110,11 +116,15 @@ def _poc_script(f: Finding, result: ScanResult) -> str:
         target_block = (
             "import json\n\n"
             "from mcp_redteam.contracts import TargetSpec\n"
+            "from mcp_redteam.security import (\n"
+            "    resolve_artifact_refs,\n"
+            "    resolve_artifact_values,\n"
+            ")\n"
             "from mcp_redteam.targets.mcp_client import McpSession\n\n\n"
             f"TARGET = TargetSpec.model_validate_json(r'''"
             f"{json.dumps(result.target_spec, ensure_ascii=False)}''')"
         )
-        session_expr = "McpSession(TARGET)"
+        session_expr = "McpSession(resolve_artifact_refs(TARGET))"
     else:  # legacy scan_result.json without target_spec
         target_block = (
             "from mcp_redteam.targets.mcp_client import McpSession\n\n\n"
@@ -146,6 +156,7 @@ if __name__ == "__main__":
 
 def write_findings(result: ScanResult, out_dir: Path) -> Path:
     """Write findings.md + findings.json + poc/*.py. Return findings.md path."""
+    result = redact_scan_result(result)
     out_dir.mkdir(parents=True, exist_ok=True)
     poc_dir = out_dir / "poc"
     poc_dir.mkdir(exist_ok=True)
@@ -200,6 +211,7 @@ def write_findings(result: ScanResult, out_dir: Path) -> Path:
 
 def write_findings_json(result: ScanResult, out_dir: Path) -> Path:
     """Write the lightweight machine-readable findings artifact."""
+    result = redact_scan_result(result)
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": FINDINGS_JSON_SCHEMA_VERSION,

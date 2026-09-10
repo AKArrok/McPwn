@@ -8,6 +8,8 @@ unable to locate checked-in schemas/prompts/cards.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -43,11 +45,19 @@ def _run(args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedPro
     return completed
 
 
+def _uv_command() -> str | None:
+    return os.environ.get("UV") or shutil.which("uv")
+
+
 def _build_wheel(tmp: Path) -> Path:
     wheel_dir = tmp / "wheelhouse"
     wheel_dir.mkdir()
-    completed = _run(
-        [
+    uv = _uv_command()
+    if uv:
+        command = [uv, "build", "--wheel", "--out-dir", str(wheel_dir)]
+        builder_name = "uv build"
+    else:
+        command = [
             sys.executable,
             "-m",
             "pip",
@@ -57,11 +67,11 @@ def _build_wheel(tmp: Path) -> Path:
             "--no-build-isolation",
             "--wheel-dir",
             str(wheel_dir),
-        ],
-        cwd=ROOT,
-    )
+        ]
+        builder_name = "pip wheel"
+    completed = _run(command, cwd=ROOT)
     if completed.returncode != 0:
-        raise RuntimeError(f"pip wheel failed with rc={completed.returncode}")
+        raise RuntimeError(f"{builder_name} failed with rc={completed.returncode}")
     wheels = sorted(wheel_dir.glob("mcpwn-*.whl"))
     if len(wheels) != 1:
         raise RuntimeError(f"expected exactly one mcpwn wheel, found {len(wheels)}")
@@ -111,11 +121,21 @@ def _artifact() -> dict:
 
 def _install_and_smoke(wheel: Path, tmp: Path) -> None:
     venv_dir = tmp / "venv"
-    venv.EnvBuilder(with_pip=True, system_site_packages=True).create(venv_dir)
+    uv = _uv_command()
+    if uv:
+        completed = _run([uv, "venv", "--system-site-packages", str(venv_dir)], cwd=ROOT)
+    else:
+        venv.EnvBuilder(with_pip=True, system_site_packages=True).create(venv_dir)
+        completed = None
+    if completed is not None and completed.returncode != 0:
+        raise RuntimeError(f"temporary venv creation failed with rc={completed.returncode}")
+
     python = _venv_python(venv_dir)
-    completed = _run(
-        [str(python), "-m", "pip", "install", "--no-deps", "--ignore-installed", str(wheel)]
-    )
+    if uv:
+        command = [uv, "pip", "install", "--python", str(python), str(wheel)]
+    else:
+        command = [str(python), "-m", "pip", "install", "--ignore-installed", str(wheel)]
+    completed = _run(command)
     if completed.returncode != 0:
         raise RuntimeError(f"wheel install failed with rc={completed.returncode}")
 
