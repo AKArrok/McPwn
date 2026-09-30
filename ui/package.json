@@ -1,0 +1,12 @@
+{
+  "name": "mcpwn-ui-preview",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "lint": "node --check app.js",
+    "test": "node tests/smoke.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

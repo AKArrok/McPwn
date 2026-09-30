@@ -1,0 +1,37 @@
+name: UI preview
+permissions:
+  contents: read
+on:
+  pull_request:
+    paths: ['ui/**', '.github/workflows/ui-preview.yml']
+  push:
+    paths: ['ui/**', '.github/workflows/ui-preview.yml']
+jobs:
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci --prefix ui
+      - run: npm run lint --prefix ui
+      - run: npx --prefix ui playwright install --with-deps chromium
+      - name: Browser smoke
+        run: |
+          python ui/serve.py --port 8765 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:8765/ >/dev/null; then break; fi
+            sleep 0.5
+          done
+          npm test --prefix ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-preview-screenshots
+          path: ui/test-results/
