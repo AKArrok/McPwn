@@ -67,6 +67,7 @@ async def one(
             planner_mode="hardcoded",
             llm_points=True,
             llm_hyp_budget=-1,  # unknown-shape: LLM 假设需自由探索
+            trace_token_cap=-1,  # 同上: 单 trace 自由探索, 不设子闸门
             seed=seed,
         )
     detail = [

@@ -151,6 +151,11 @@ def test_graph_parity_m3_decisions(tmp_path) -> None:
 def test_graph_parity_budget_exhaustion(tmp_path) -> None:
     """Under a tiny token budget both paths stop at the same candidate and
     record identical skip bookkeeping (runner loop-top break vs graph gate).
+
+    ``trace_token_cap=-1`` pins the pre-cap starvation semantics this test
+    exists for: with the default per-trace cap, a tiny budget hands every
+    candidate a bounded slice instead of starving the tail, and no candidate
+    would be skipped (cap rotation is covered in test_trace_budget.py).
     """
     baseline = _load_baseline()
     decisions_old: list = []
@@ -160,14 +165,14 @@ def test_graph_parity_budget_exhaustion(tmp_path) -> None:
         old = asyncio.run(runner_mod.scan(
             sse_url=baseline["sse_url"], out_dir=tmp_path / "runner",
             max_tokens=250, wall_seconds=60, max_candidates=5,
-            decisions=decisions_old,
+            decisions=decisions_old, trace_token_cap=-1,
         ))
     with patch.object(runner_mod, "make_client", side_effect=fake_make_client), \
          patch.object(runner_mod, "McpSession", FakeMcpSession):
         new = asyncio.run(runner_mod.scan(
             sse_url=baseline["sse_url"], out_dir=tmp_path / "graph",
             max_tokens=250, wall_seconds=60, max_candidates=5,
-            decisions=decisions_new, graph=True,
+            decisions=decisions_new, graph=True, trace_token_cap=-1,
         ))
 
     _assert_parity(old, new)

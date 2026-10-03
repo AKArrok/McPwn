@@ -6,6 +6,7 @@ placeholder detector that returns None; wiring it to an actual LLM call is M2/M3
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Callable
@@ -230,7 +231,13 @@ def _build_judge_user_message(trace: AttackTrace) -> str:
     call_lines = []
     for i, c in enumerate(all_calls):
         text = (c.result_text or "").replace("\n", " ")[:400]
-        call_lines.append(f"[{i}] {c.kind} | {c.name!r} | {text}")
+        # Args matter for the indirect-injection correspondence check: the
+        # embedded instruction travels in the attacker's payload args and the
+        # instructed objective shows up in later calls' args. Without them the
+        # judge only sees echoed result text and misses exact-object matches.
+        args = json.dumps(c.args, ensure_ascii=False)[:200] if c.args else ""
+        arg_part = f" | args={args}" if args else ""
+        call_lines.append(f"[{i}] {c.kind} | {c.name!r}{arg_part} | {text}")
     action_lines: list[str] = []
     for m in trace.attacker_messages:
         role = m.get("role", "")
@@ -257,36 +264,44 @@ def make_judge_fn(client: OpenAI, spec: ModelSpec) -> JudgeFn:
     never raises: LLM call failure or unparseable JSON both yield None, so the
     verifier treats judge silence as not-steered. Judge tokens are counted
     out-of-band into budget.judge_tokens (never the attacker budget).
+
+    One retry covers transient transport errors and unparseable replies: the
+    L2 verdict is the single corroboration channel for indirect/chain
+    findings, so a silent one-shot failure drops the whole finding path
+    (N=3 regression: one httpx transport error on a 9006 judge call turned a
+    steered-able trace into 0 findings).
     """
 
     def _judge(trace: AttackTrace, budget: TokenBudget | None) -> JudgeVerdict | None:
         if not trace.attack_calls:
             return None
         user_msg = _build_judge_user_message(trace)
-        try:
-            create_kwargs: dict[str, Any] = {
-                "model": spec.model,
-                "temperature": spec.temperature,
-                "messages": [
-                    {"role": "system", "content": _JUDGE_SYSTEM_TMPL.render()},
-                    {"role": "user", "content": user_msg},
-                ],
-            }
-            if spec.seed is not None:
-                create_kwargs["seed"] = spec.seed
-            resp = client.chat.completions.create(**create_kwargs)
-        except Exception:  # noqa: BLE001
-            _log.exception("judge LLM call failed; treating as not-steered")
-            return None
-        usage = getattr(resp, "usage", None)
-        if usage is not None and budget is not None:
-            budget.add(
-                "judge",
-                getattr(usage, "prompt_tokens", 0) or 0,
-                getattr(usage, "completion_tokens", 0) or 0,
-            )
-        content = (resp.choices[0].message.content or "").strip()
-        return parse_judge_json(content)
+        base_messages = [
+            {"role": "system", "content": _JUDGE_SYSTEM_TMPL.render()},
+            {"role": "user", "content": user_msg},
+        ]
+        for attempt in range(2):
+            try:
+                create_kwargs: dict[str, Any] = {
+                    "model": spec.model,
+                    "temperature": spec.temperature,
+                    "messages": base_messages,
+                }
+                if spec.seed is not None:
+                    create_kwargs["seed"] = spec.seed
+                resp = client.chat.completions.create(**create_kwargs)
+            except Exception:  # noqa: BLE001
+                _log.exception("judge LLM call failed (attempt %d)", attempt + 1)
+                continue
+            usage = getattr(resp, "usage", None)
+            if usage is not None and budget is not None:
+                budget.add_usage("judge", usage)
+            content = (resp.choices[0].message.content or "").strip()
+            verdict = parse_judge_json(content)
+            if verdict is not None:
+                return verdict
+            _log.warning("judge reply unparseable (attempt %d): %r", attempt + 1, content[:120])
+        return None
 
     return _judge
 

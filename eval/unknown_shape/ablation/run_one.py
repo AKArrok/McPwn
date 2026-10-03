@@ -46,6 +46,7 @@ async def one(port: int, seed: int | None, out_dir: Path) -> dict:
             llm_points=True,
             seed=seed,
             llm_hyp_budget=-1,  # unknown-shape 消融: LLM 假设需自由探索
+            trace_token_cap=-1,  # 同上: 单 trace 自由探索, 不设子闸门
         )
     return {
         "findings": len(result.findings),

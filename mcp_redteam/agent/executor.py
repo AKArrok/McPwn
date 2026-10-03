@@ -11,6 +11,7 @@ Uses the shared budget (attacker_tokens) from the caller.
 from __future__ import annotations
 
 import json
+import os
 import time
 from importlib.resources import files
 from typing import Any
@@ -38,6 +39,73 @@ _SYSTEM_TMPL = Template(
     .joinpath("attacker_system.md")
     .read_text(encoding="utf-8")
 )
+
+# ── Optional in-loop probe subagent (experiment: eval/unknown_shape/subagent_exp) ──
+# Off by default. Per-run via MCPWN_ATTACKER_SUBAGENT (each scan runs in its
+# own subprocess, so module-import-time env reads are run-scoped):
+#   "1"    -> subagent available, delegation recommended (standard addendum)
+#   "force"-> subagent available, first action MUST be a dispatch (forced addendum)
+_SUBAGENT_ENV = os.environ.get("MCPWN_ATTACKER_SUBAGENT", "").strip().lower()
+_SUBAGENT_ENABLED = _SUBAGENT_ENV in {"1", "force"}
+_SUBAGENT_FORCED = _SUBAGENT_ENV == "force"
+_DISPATCH_TOOL_NAME = "dispatch_probe"
+_MAX_DISPATCHES = 3
+_SUBAGENT_MAX_STEPS = 6
+
+# Context compaction: tool results older than the last ``_KEEP_RECENT_TURNS``
+# tool-calling turns are truncated to a digest before the next LLM call. The
+# dominant prompt-token sink is re-sending full history every step (each tool
+# result up to 8000 chars). Evidence safety: signals, evidence judge, L2 judge
+# and PoC replay all read ``attack_calls``/``recon_calls`` (full McpCall text);
+# the verifier's judge view only reads assistant entries. Truncation therefore
+# only trims the attacker LLM's reasoning context.
+_KEEP_RECENT_TURNS = 2
+_TOOL_DIGEST_CHARS = 300
+# Tail of the truncation marker; already-truncated messages are recognized by
+# it and skipped so re-compaction never double-truncates (idempotency).
+_TRUNC_MARKER_TAIL = "full result text is in the attack_calls record]"
+_SUBAGENT_TMPL = Template(
+    files("mcp_redteam.attackers.agents")
+    .joinpath("subagent_probe_system.md")
+    .read_text(encoding="utf-8")
+)
+_ADDENDUM_FILE = (
+    "subagent_delegation_addendum_forced.md"
+    if _SUBAGENT_FORCED
+    else "subagent_delegation_addendum.md"
+)
+_DELEGATION_ADDENDUM_TEXT = files("mcp_redteam.attackers.agents").joinpath(
+    _ADDENDUM_FILE
+).read_text(encoding="utf-8")
+
+_DISPATCH_TOOL_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": _DISPATCH_TOOL_NAME,
+        "description": (
+            "Spawn a fresh-context probe subagent that executes MCP tool calls "
+            "for ONE focused task you assign, then returns what it tried and "
+            "what came back. Use it for exhaustive variant probing you don't "
+            "want filling your own context with raw output. Its tool calls "
+            "count as real evidence and share your token budget."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "Self-contained probe task: hypothesis to test, which "
+                        "tool(s) and argument variants to try, what result "
+                        "counts as a hit. The subagent sees the strategy card "
+                        "and tool list but NOT this conversation."
+                    ),
+                }
+            },
+            "required": ["task"],
+        },
+    },
+}
 
 
 def _render_system_prompt(
@@ -67,6 +135,46 @@ def _parse_tool_args(raw_args: str | None) -> dict[str, Any]:
         return {"_raw": raw_args}
 
 
+def _compact_tool_results(
+    messages: list[dict[str, Any]],
+    keep_recent_turns: int = _KEEP_RECENT_TURNS,
+    digest_chars: int = _TOOL_DIGEST_CHARS,
+) -> int:
+    """Truncate tool-result contents from old turns, in place.
+
+    Only the last ``keep_recent_turns`` tool-calling turns keep their tool
+    results in full; older tool messages are shortened to ``digest_chars``
+    plus a truncation marker. Structure-preserving: messages are shortened,
+    never removed, so every assistant tool_call keeps its matching tool
+    message (no dangling ids). User/system/assistant entries are untouched.
+    Idempotent: messages already carrying the truncation marker are skipped.
+
+    Returns the number of messages truncated.
+    """
+    turn_starts = [
+        i for i, m in enumerate(messages)
+        if m.get("role") == "assistant" and m.get("tool_calls")
+    ]
+    if len(turn_starts) <= keep_recent_turns:
+        return 0
+    boundary = turn_starts[len(turn_starts) - keep_recent_turns]
+    truncated = 0
+    for m in messages[:boundary]:
+        if m.get("role") != "tool":
+            continue
+        content = m.get("content") or ""
+        if _TRUNC_MARKER_TAIL in content:
+            continue
+        if len(content) > digest_chars:
+            m["content"] = (
+                content[:digest_chars]
+                + f" [truncated {len(content) - digest_chars} chars; "
+                + _TRUNC_MARKER_TAIL
+            )
+            truncated += 1
+    return truncated
+
+
 async def execute_one(
     session: McpSession,
     candidate: Candidate,
@@ -78,6 +186,7 @@ async def execute_one(
     max_inner_steps: int = 12,
     sandbox_root: str | None = None,
     prior_evidence: list[str] | None = None,
+    trace_token_cap: int | None = None,
 ) -> AttackTrace:
     """Probe one (vuln_class, target) candidate. Returns an AttackTrace.
 
@@ -85,13 +194,26 @@ async def execute_one(
     line per earlier hit, injected as an extra user message so later
     candidates (especially chain_composition) can build on prior findings.
     Rendered as a user message, never into the strategy card / system prompt.
+
+    ``trace_token_cap`` (orchestrator policy, resolved in runner.scan): upper
+    bound on attacker tokens (in+out, including probe subagents) this single
+    trace may spend. When reached, the loop stops so the remaining planned
+    candidates keep budget - one wrong lead must not starve the plan (real
+    regression: one 9010 trace burned the whole 40k llm-points budget with 50
+    calls and 0 findings). ``None`` = uncapped (executor default; the runner
+    resolves its own default to a fraction of the scan budget).
     """
     client, model_spec = attacker
 
     card = load_card(candidate.vuln_class)
     system_prompt = _render_system_prompt(candidate, card.text, sse_url, sandbox_root)
 
-    openai_tools = build_openai_tools(await session.raw_list_tools())
+    raw_tools = await session.raw_list_tools()
+    openai_tools = build_openai_tools(raw_tools)
+    dispatch_count = 0
+    if _SUBAGENT_ENABLED:
+        system_prompt = system_prompt + "\n\n" + _DELEGATION_ADDENDUM_TEXT
+        openai_tools = [*openai_tools, _DISPATCH_TOOL_SCHEMA]
 
     attack_calls: list[McpCall] = []
     trace_started = time.perf_counter()
@@ -108,7 +230,10 @@ async def execute_one(
             attack_calls=attack_calls,
             budget=budget,
             clock=clock,
-            raw_tools=await session.raw_list_tools(),
+            # Reuse the snapshot fetched above - a second raw_list_tools here
+            # would be a wasted round-trip (drift detection compares recon
+            # vs the *refreshed* snapshot, not two identical pre-attack ones).
+            raw_tools=raw_tools,
         )
     elif candidate.vuln_class == VulnClass.CHAIN_COMPOSITION:
         probe_note = await _seed_chain_probe(
@@ -118,7 +243,7 @@ async def execute_one(
             attack_calls=attack_calls,
             budget=budget,
             clock=clock,
-            raw_tools=await session.raw_list_tools(),
+            raw_tools=raw_tools,
         )
 
     messages: list[dict[str, Any]] = [
@@ -176,6 +301,16 @@ async def execute_one(
             break
         if clock.exceeded():
             break
+        if trace_token_cap is not None and total_in + total_out >= trace_token_cap:
+            final_text = final_text or (
+                f"[trace token cap {trace_token_cap} reached; stopping this "
+                "trace so remaining candidates keep budget]"
+            )
+            break
+
+        # Trim pre-turn tool results before re-sending history (see
+        # _compact_tool_results for the evidence-safety argument).
+        _compact_tool_results(messages)
 
         try:
             resp = chat_create_with_retry(
@@ -197,7 +332,7 @@ async def execute_one(
             pout = getattr(usage, "completion_tokens", 0) or 0
             total_in += pin
             total_out += pout
-            budget.add("attacker", pin, pout)
+            budget.add_usage("attacker", usage)
             # LLM-hypothesis candidates share a bounded pool (see
             # runner.scan): a wrong LLM lead must not starve the recon
             # candidates behind it. Pool exhausted -> stop this trace.
@@ -235,6 +370,42 @@ async def execute_one(
                 break
             fn_name = tc.function.name
             args = _parse_tool_args(tc.function.arguments)
+            if _SUBAGENT_ENABLED and fn_name == _DISPATCH_TOOL_NAME:
+                # The dispatch itself is not an MCP call and is deliberately
+                # NOT appended to attack_calls: evidence must stay grounded on
+                # real tool returns. The subagent's own calls are appended
+                # inside _run_probe_subagent and are visible to the interim
+                # signal check below.
+                if dispatch_count >= _MAX_DISPATCHES:
+                    summary = (
+                        f"[subagent rejected: max {_MAX_DISPATCHES} dispatches "
+                        "per trace; probe directly with MCP tools]"
+                    )
+                    sub_in = sub_out = 0
+                else:
+                    dispatch_count += 1
+                    summary, sub_in, sub_out = await _run_probe_subagent(
+                        session=session,
+                        task=str(args.get("task", "") or ""),
+                        candidate=candidate,
+                        attacker=attacker,
+                        budget=budget,
+                        clock=clock,
+                        sse_url=sse_url,
+                        sandbox_root=sandbox_root,
+                        attack_calls=attack_calls,
+                        raw_tools=raw_tools,
+                    )
+                    total_in += sub_in
+                    total_out += sub_out
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": summary[:8000],
+                    }
+                )
+                continue
             try:
                 if fn_name == "read_resource":
                     call = await session.read_resource(args.get("uri", ""))
@@ -305,7 +476,11 @@ async def execute_one(
                     }
                 )
             # Convergence turn: only spend more tokens if we still have budget.
-            if budget.exceeded() or clock.exceeded():
+            _cap_hit = (
+                trace_token_cap is not None
+                and total_in + total_out >= trace_token_cap
+            )
+            if budget.exceeded() or clock.exceeded() or _cap_hit:
                 final_text = final_text or (msg.content or "")
                 break
             try:
@@ -324,7 +499,7 @@ async def execute_one(
                     pout = getattr(final_usage, "completion_tokens", 0) or 0
                     total_in += pin
                     total_out += pout
-                    budget.add("attacker", pin, pout)
+                    budget.add_usage("attacker", final_usage)
                 final_msg = final_resp.choices[0].message
                 final_text = final_msg.content or ""
                 messages.append({"role": "assistant", "content": final_text})
@@ -349,6 +524,145 @@ async def execute_one(
         tokens_out=total_out,
         elapsed_ms=elapsed_ms,
     )
+
+
+async def _run_probe_subagent(
+    session: McpSession,
+    task: str,
+    candidate: Candidate,
+    attacker: tuple[OpenAI, ModelSpec],
+    budget: TokenBudget,
+    clock: WallClock,
+    sse_url: str,
+    sandbox_root: str | None,
+    attack_calls: list[McpCall],
+    raw_tools: list[Any],
+) -> tuple[str, int, int]:
+    """One fresh-context probe subagent spawned by a dispatch_probe call.
+
+    Runs a bounded LLM loop (``_SUBAGENT_MAX_STEPS`` steps) against the real
+    MCP tools (no dispatch_probe -> no recursion). Its MCP calls are appended
+    to the parent trace's ``attack_calls`` so the signal library and the
+    evidence judge see them like any other probe; its tokens are charged to
+    the same attacker budget (and the llm-hypothesis pool when the parent
+    candidate is one), so the total-budget comparison stays honest.
+
+    Returns ``(summary, tokens_in, tokens_out)``. The summary returned to the
+    main agent is coordination text, never evidence - same grounding
+    discipline as the main loop's final message.
+    """
+    client, model_spec = attacker
+    card = load_card(candidate.vuln_class)
+    system_prompt = _SUBAGENT_TMPL.render(
+        vuln_class=candidate.vuln_class.value,
+        target_kind=candidate.target_kind,
+        target=candidate.target,
+        sse_url=sse_url,
+        sandbox_root=sandbox_root or "未知",
+        max_steps=_SUBAGENT_MAX_STEPS,
+    )
+    sub_tools = build_openai_tools(raw_tools)
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": task or "(no task text given; probe the candidate hypothesis)",
+        },
+    ]
+
+    total_in = 0
+    total_out = 0
+    call_log: list[str] = []
+    final_text = ""
+
+    for _step in range(_SUBAGENT_MAX_STEPS):
+        if budget.exceeded() or clock.exceeded():
+            final_text = final_text or "[subagent stopped: budget/clock]"
+            break
+        _compact_tool_results(messages)
+        try:
+            resp = chat_create_with_retry(
+                client,
+                model=model_spec.model,
+                temperature=model_spec.temperature,
+                seed=model_spec.seed,
+                messages=messages,
+                tools=sub_tools,
+                tool_choice="auto",
+            )
+        except Exception as exc:
+            final_text = final_text or (
+                f"[subagent error at step {_step}] {type(exc).__name__}: {exc}"
+            )
+            break
+
+        usage = getattr(resp, "usage", None)
+        if usage:
+            pin = getattr(usage, "prompt_tokens", 0) or 0
+            pout = getattr(usage, "completion_tokens", 0) or 0
+            total_in += pin
+            total_out += pout
+            budget.add_usage("attacker", usage)
+            if candidate.origin == "llm_hypothesis" and not budget.charge_llm_hyp(pin, pout):
+                final_text = final_text or "[subagent stopped: llm-hyp budget pool exhausted]"
+                break
+
+        msg = resp.choices[0].message
+        tool_calls = getattr(msg, "tool_calls", None) or []
+        assistant_entry: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+        if tool_calls:
+            assistant_entry["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments or "{}",
+                    },
+                }
+                for tc in tool_calls
+            ]
+        messages.append(assistant_entry)
+
+        if not tool_calls:
+            final_text = msg.content or ""
+            break
+
+        for tc in tool_calls:
+            if budget.exceeded() or clock.exceeded():
+                break
+            fn_name = tc.function.name
+            args = _parse_tool_args(tc.function.arguments)
+            try:
+                if fn_name == "read_resource":
+                    call = await session.read_resource(args.get("uri", ""))
+                else:
+                    call = await session.call_tool(fn_name, args)
+            except Exception as exc:
+                call = McpCall(
+                    kind="call_tool",
+                    name=fn_name,
+                    args=args,
+                    result_text=f"[mcp error] {type(exc).__name__}: {exc}",
+                    elapsed_ms=0,
+                )
+            attack_calls.append(call)
+            call_log.append(
+                f"{call.name or '-'}({json.dumps(call.args, ensure_ascii=False)[:120]}) "
+                f"-> {(call.result_text or '')[:160]}"
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": call.result_text[:8000],
+                }
+            )
+
+    summary = final_text or "(subagent produced no final message)"
+    if call_log:
+        summary += "\n[subagent call log]\n" + "\n".join(call_log)
+    return f"[subagent done, {len(call_log)} MCP call(s)]\n{summary}", total_in, total_out
 
 
 async def _seed_metadata_probes(

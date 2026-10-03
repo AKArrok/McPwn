@@ -446,6 +446,13 @@ class ScanResult(BaseModel):
     wall_seconds: float
     attacker_tokens: int = 0
     judge_tokens: int = 0
+    # Cache-effective cost accounting (observational, never gates). DeepSeek
+    # reports the prefix-cache-hit share of prompt tokens; effective spend
+    # discounts that share at ~1/10 price. Without cache reporting both stay
+    # equal to attacker_tokens (raw API-reported totals, comparable across
+    # providers and with pre-field artifacts).
+    attacker_cache_hit_tokens: int = 0
+    attacker_tokens_effective: int = 0
     tools_seen: list[str] = Field(default_factory=list)
     resources_seen: list[str] = Field(default_factory=list)
     traces: list[AttackTrace] = Field(default_factory=list)

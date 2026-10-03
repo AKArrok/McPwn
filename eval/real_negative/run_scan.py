@@ -57,6 +57,7 @@ async def one(
             llm_points=llm,
             seed=seed,
             llm_hyp_budget=-1,  # hypothesis leads must not be starved on negatives
+            trace_token_cap=-1,  # frozen protocol: legacy unbounded trace spend
         )
     detail = [(f.vuln_class.value, f.target, round(f.confidence, 2)) for f in result.findings]
     return len(result.findings), detail, result.stop_reason

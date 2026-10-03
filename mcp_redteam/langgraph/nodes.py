@@ -73,6 +73,8 @@ class GraphDeps:
     port: int
     seed: int | None
     llm_points: bool = False
+    # Per-trace token cap (resolved in runner.scan/_scan_graph); None = uncapped.
+    trace_token_cap: int | None = None
     # Connection spec (transport/url/command/env); None keeps legacy parity
     # with tests that construct GraphDeps by hand without a spec.
     spec: TargetSpec | None = None
@@ -203,6 +205,7 @@ def execute_node(deps: GraphDeps):
             max_inner_steps=state.get("max_inner_steps", 12),
             sandbox_root=deps.sandbox_root,
             prior_evidence=state.get("prior_evidence"),
+            trace_token_cap=deps.trace_token_cap,
         )
         if deps.decisions is not None and not state.get("followup_wave", False):
             deps.decisions.append(PlannerDecision(
@@ -397,6 +400,8 @@ def assemble_result(
         wall_seconds=time.perf_counter() - state["wall_start"],
         attacker_tokens=deps.budget.attacker_tokens,
         judge_tokens=deps.budget.judge_tokens,
+        attacker_cache_hit_tokens=deps.budget.attacker_cache_hit_tokens,
+        attacker_tokens_effective=deps.budget.attacker_tokens_effective,
         tools_seen=state.get("tools_seen", []),
         resources_seen=state.get("resources_seen", []),
         traces=state.get("traces", []),

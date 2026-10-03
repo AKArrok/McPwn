@@ -5,6 +5,9 @@
 - 状态:
   * `TokenBudget` (per-scan, judge tokens 独立计数, HANDOFF Q8).
   * `WallClock` (per-scan).
+  * per-trace token 上限: `trace_token_cap` 参数 (默认 = 40% max_tokens,
+    -1 关闭), 由 `_resolve_trace_token_cap` 解析后传给每次 execute_one —
+    单个错误方向 trace 不得吃光整个计划 (9010 llm-points 40k 烧穿回归).
 - 变换: `scan()` = recon -> plan -> for candidate: execute_one -> verify -> emit findings.
 - 边界:
   * 串行, 不并发候选 (HANDOFF Q9).

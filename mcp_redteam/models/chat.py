@@ -53,6 +53,13 @@ def load_registry() -> dict[str, dict]:
 
 
 def load_spec(role: Role) -> ModelSpec:
+    # Degraded-mode override: when the judge endpoint is unavailable (e.g. ARK
+    # CodingPlan subscription expired), MCPWN_JUDGE=attacker resolves the judge
+    # role onto the attacker's model spec so evidence judging keeps working in
+    # key-limited environments. The active model stays auditable via
+    # ScanResult.evidence_judge_model / attacker_model.
+    if role == "judge" and os.environ.get("MCPWN_JUDGE", "").strip().lower() == "attacker":
+        return dataclasses.replace(load_spec("attacker"), role="judge")
     reg = _load_registry()
     if role not in reg:
         raise KeyError(f"role {role!r} missing from config/models.yaml")

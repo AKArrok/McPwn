@@ -20,6 +20,7 @@
 #   baseline_expect 标准 scan 期望 findings: 0 | >=1 | info (仅记录)
 #   llm_expect      llm_points 轮期望: 0 | >=1 | info
 #   llm_hyp_budget  传给 scan 的 LLM 假设预算池: -1=禁用 (unknown-shape), 省略=默认 40%
+#   trace_token_cap 传给 scan 的单 trace token 上限: -1=禁用 (自由探索协议), 省略=默认 40%
 #   sandbox_root    可选:部署声明的沙箱根,启用 sandbox escape 确定性信号
 #   env             spawner/stdio 子进程需要的环境变量 (键 -> 说明; runner 缺失时警告/跳过)
 #                   注意: stdio 直连的 env 值会明文写进 scan_result.json 与 PoC 脚本
@@ -34,6 +35,7 @@ targets:
     baseline_expect: 0
     llm_expect: ">=1"
     llm_hyp_budget: -1
+    trace_token_cap: -1
 
   - name: delegate
     label: delegate-mcp (CWE-639 授权作用域, 跨形状开发验证)
@@ -43,6 +45,7 @@ targets:
     baseline_expect: 0
     llm_expect: ">=1"
     llm_hyp_budget: -1
+    trace_token_cap: -1
 
   - name: fetch
     label: mcp-server-fetch 真实靶机 (SSRF, 设计特性)
@@ -76,6 +79,7 @@ targets:
     baseline_expect: ">=1"   # 注: std 轮无 evidence judge 通道, 实际判据看 llm 轮
     llm_expect: ">=1"
     llm_hyp_budget: -1
+    trace_token_cap: -1
     env: {MCPWN_FS_INDEX_OLD: server-filesystem@0.6.2 dist/index.js 路径}
 
   - name: cache
@@ -86,6 +90,7 @@ targets:
     baseline_expect: 0
     llm_expect: ">=1"
     llm_hyp_budget: -1
+    trace_token_cap: -1
 
   - name: cache-fixed
     label: cache-mcp 修复版 (冻结 holdout control)
@@ -94,6 +99,7 @@ targets:
     baseline_expect: 0
     llm_expect: 0
     llm_hyp_budget: -1
+    trace_token_cap: -1
 
   - name: excel-0.1.7
     label: excel-mcp-server 0.1.7 漏洞版 (CVE-2026-40576)

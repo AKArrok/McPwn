@@ -1,7 +1,14 @@
 {
   "forbidden_tokens": [
-    "子串匹配", "前缀", "空值", "空 owner", "空串", "空 token",
-    "owner=''", "CWE-639", "非属主"
+    "子串匹配",
+    "前缀",
+    "空值",
+    "空 owner",
+    "空串",
+    "空 token",
+    "owner=''",
+    "CWE-639",
+    "非属主"
   ],
   "files": {
     "prompts/hypothesis_system.md": {
@@ -27,7 +34,7 @@
     },
     "cards/auth_bypass.md": {
       "delete_substrings": [
-        "空 / 伪造 / 弱结构",
+        "空/伪造/弱结构",
         "空 token",
         "空串",
         "{\"auth_token\": \"\", ...}"

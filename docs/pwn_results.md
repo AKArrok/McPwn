@@ -249,3 +249,143 @@ recall;它只说明 DVMCP 已知回归集没有退化。
 4. **桥通用化**（`8b3b605`）: stdio→SSE 透传桥支持任意 stdio 命令 +
    tolerant list_tools（旧版缺 inputSchema.type 时补 type, adapter-only）。
 5. **SSRF 信号变体修复**（`ade6ca2`）: hex-encoded IP / IPv6 回环 / IIS banner。
+
+---
+
+## 12. harness 预算效率优化（trace cap + 上下文压缩 + 提示词瘦身, 2026-10）
+
+> 背景: 40k llm-points 单 trace 烧穿 (§5) 与 6/10 港 `budget_tokens` 停止暴露
+> 预算分配缺陷。目标: recall 不降、FPR=0 前提下 tok/finding -40%。
+> 口径同 §6 (20k/300s, runner → reset → graph)。产物: `runs/trace_budget_dvmcp{,_v2}/`。
+
+机制 (均落地并有单测 `tests/test_trace_budget.py`):
+1. **per-trace token cap** (`trace_token_cap`, 默认 40% 预算, -1 关闭): 单 trace
+   触顶即收敛轮转, 错误方向不吃光后续候选; 9010 50-call 烧穿类回归被结构性排除。
+2. **executor 上下文压缩**: 最近 2 个工具轮保留全文, 更早 tool result 截 300 字符
+   digest; 证据链读 `attack_calls` 全量不受影响。注: DVMCP 上不触发 (响应短),
+   对文件系统/excel 等大输出靶才生效。
+3. **提示词瘦身** (参考 `AI安全工程` 口诀风格): attacker_system 2020→1738 字节,
+   8 卡 18.3k→14.0k 字节 (-23%), per-trace bundle -19%; auth_bypass 卡补回
+   授权范围验证步骤 (§8 第 2 轮教训), ablation stripped 臂同步重生成 (预检 PASS)。
+
+| 轮次 | runner recall | graph recall | FPR | runner tok/finding | graph tok/finding |
+|---|---|---|---|---|---|
+| 基线 (§6) | 8/10 | 9/10 | 0 | 11.2k | 17.1k |
+| v1: cap+压缩 | **10/10** | 9/10 | 0 | 10.9k | 12.6k |
+| v2: +提示词瘦身 | 8/10 | 9/10 | 0 | 12.5k | **10.8k** |
+
+结论与诚实边界:
+1. **单 trace 饥饿已消除**: cap 在两轮共触发 6+ 次 (9006/9007/9008/9009/9010 的
+   metadata/auth trace 在 8-9k 处被截停轮转), budget 港位 6/10→5/10→5/10。
+2. **tok/finding -40% 未达标** (聚合 -10~-25%): 根因是 DVMCP token 大头在每次
+   LLM 调用的固定开销 (system+卡+schema), 压缩碰不到; 提示词瘦身省下的
+   per-call 成本被 budget 港"更便宜→更多次调用"吃掉 (Jevons), 9002/9010 仍
+   烧满 20k。固定口径下 graph 累计 -37% (17.1k→10.8k), runner 受 recall 分母
+   波动反而 +11%。
+3. **recall 在 9004/9006/9009 上掷硬币**: 三轮 N=1, temp=0.7, 单轮 recall
+   8↔10 波动主因是 LLM 漂移不是机制变化; graph 路径三轮稳定 9/10, 两模式
+   聚合 recall 17→19→17 / 20。recall 结论需 N=3 才能定稿。
+4. **下一步**: (a) N=3 钉牢 recall 分布; (b) 40% 缺口的剩余部分在
+   DeepSeek 前缀缓存计量 (重复 system+卡+schema 前缀命中计价 1/10, 零召回
+   风险, 需把口径从原始 token 换成有效成本) 或砍调用次数, 需拍板。
+
+### 12.1 N=3 重复 (2026-10, 代码=v2 口径)
+
+> 钉 recall 分布: 3 独立样本 × (runner → reset → graph), 产物
+> `runs/trace_budget_dvmcp_n3/r{0,1,2}/`。缓存有效成本计量
+> (`attacker_tokens_effective`, DeepSeek 前缀缓存命中按 1/10 折算) 在本轮
+> 之后落地, 本轮数字仍是原始 token 口径。
+
+| mode | r0 | r1 | r2 | 聚合 recall | tok/finding (N=3) | replay |
+|---|---|---|---|---|---|---|
+| runner | 7/10 | 8/10 | 9/10 | **24/30 = 0.80** | 12.5k (449.9k/36) | 5/5 ×3 |
+| graph | 8/10 | 8/10 | 8/10 | **24/30 = 0.80** | 12.1k (423.5k/35) | 5/5 ×3 |
+
+FPR 全部 0.00。逐港命中 (x/3): 9001-9003/9005/9007/9008/9010 = 3/3 双模式;
+**9004: runner 2/3, graph 3/3**; **9006: 双模式 0/3** (indirect 结构性弱港,
+v1 runner 的命中确认为漂移); **9009: runner 1/3, graph 0/3** (graph 早期单轮
+命中同为漂移, 轮转后 auth_bypass 面预算切片更紧)。
+
+结论修订:
+1. **recall 定稿**: 双模式聚合 0.80, 满足 HANDOFF ≥8/10 且 FPR=0; v1 的
+   runner 10/10 是漂移不是机制增益。9006 (indirect) 是结构性缺口, 与 harness
+   无关, 走卡/信号层单独立项。
+2. **tok/finding 定稿**: graph 17.1k → 12.1k (**-29%**, N=3 分母可信);
+   runner 11.2k → 12.5k (+11%, 但基线单轮 12 findings 属幸运样本, 现两模式
+   收敛到同一水平 ~12k)。原始 token 口径的 -40% 目标到此为止:
+   剩余缺口在重复前缀的计费而非调用量, 由缓存有效成本计量接棒
+   (`attacker_tokens_effective` 已落地, 下轮回归开始产出)。
+3. trace cap 三轮持续工作 (无单 trace 烧穿复发), 压缩在 DVMCP 不触发
+   (预期, 短响应靶), 对大输出真实靶有效。
+
+### 12.2 弱港归因修复 + 缓存有效成本 (2026-10, v4/v5)
+
+> 自主目标: recall 0.80 → ≥0.90 @N=3, FPR=0。方法: 失败 trace 归因 → 类级
+> 修复 → 单轮验证 (v4) → N=3 终验 (v5, 含缓存计量)。产物
+> `runs/trace_budget_dvmcp_v4/` (单轮), `runs/trace_budget_dvmcp_v5/` (N=3)。
+
+两处结构性归因 (N=3 旧轮 + 离线信号重放):
+1. **9006 (indirect) 0/6 根因 = L2 judge 校准死锁**: `stored_injection_roundtrip`
+   其实 6/6 全着 (L1 注入面每次都被证明), 但 confidence=0.5 需 L2 corroboration
+   才过 0.6; judge 提示词却问「红队是否被欺骗」——agent-first 架构下恒否
+   (v1 命中是侥幸)。修复: judge 重校准为「指令存在 + 指令点名的目标随后被
+   回访 = 可注入」(判 server 侧能力, 不判 agent 服从); indirect 卡补
+   「可操作性验证」步骤。
+2. **9009 (auth_bypass) 缺口**: `remote_access` 工具名/描述都不匹配 auth-gated
+   正则, 且第一遍短语表缺 "command executed"; 假 token 执行 `cat /etc/shadow`
+   的确认响应不被认账。修复: `_AUTH_SUCCESS_PHRASES` +`command executed` /
+   `executed on` (仅限带假凭据参数的第一遍, 低噪声); `_ADMIN_RE` +
+   `permission 'x' applied/granted` (自授权确认; 特意锚定 "permission" 前缀,
+   vault/delegate 的 "granted read access on..." 不匹配, 冻结协议不破,
+   delegate 预检 PASS)。
+
+| mode | r0/r1/r2 | 聚合 recall | tok/finding (raw) | tok/finding (effective) | cache hit 占比 |
+|---|---|---|---|---|---|
+| runner | 9/10, 10/10, 10/10 | **29/30 = 0.97** | 8.5k | **3.3k** | 69% |
+| graph | 9/10 ×3 | **27/30 = 0.90** | 9.7k | **3.9k** | 67% |
+
+FPR 全 0.00, replay 15/15。逐港: 9004/9009 修复后 3/3 双模式; **9006 runner
+2/3** (graph 0/3 —— graph 路径的 attacker 不回访指令点名对象, 新判据诚实
+判负, 是剩余的唯一结构性缺口)。
+
+结论:
+1. **recall 目标达成**: runner 0.97 / graph 0.90 (≥0.90 @N=3), 且逐港无
+   0/3 港残留于 runner 路径。
+2. **成本双口径定稿**: raw tok/finding runner 11.2k→8.5k (-24%), graph
+   17.1k→9.7k (**-43%, 首次达 40% 线**); effective 口径 (DeepSeek 前缀缓存
+   命中按 1/10 折算, 实测命中占 raw 的 67-69%) 双模式 **-71%/-77%**。
+   「每次调用固定开销占大头」的早期归因被缓存命中占比直接证实。
+3. 下一步候选: graph 路径 9006 (可操作性验证步骤在 graph 的 prior_evidence
+   注入下不生效, 需看注入时机), 9006 之外无 0/3 港。
+
+### 12.3 9006 双路径翻转 + 30/30 定稿 (2026-10, v6-v9)
+
+> 承接 §12.2 残留缺口 (graph 路径 9006 0/3)。逐轮 trace 归因发现 9006 在
+> 判定链上有四个独立断点, 全部为类级修复 (无靶场答案, lint 过, 负向靶全绿):
+> ① judge 可靠性: judge 调用网络错误/JSON 不可解析被吞成 None, L2 通道静默
+>   丢失 (v5 r1) → `make_judge_fn` 重试一次;
+> ② judge 视野: 注入指令在 attacker args 里、回访对象在后续 args 里, 但 judge
+>   用户消息只给 result_text → 补 args (截 200 字符);
+> ③ judge 作者判据: 旧措辞「server 嵌入的指令」让 judge 正确地观察到「payload
+>   是攻击者写的」而判负 (v6) → 重校准为「server 传输路径无隔离」——测试者
+>   植入 payload 是 by design, 漏洞在回显/存储不过滤;
+> ④ attacker 标记格式: 卡里 `INJECTION_MARKER_{{rand}}` 占位符无人渲染, LLM
+>   自造后缀长度随机 (v7 出现 2 位后缀, 不匹配 detector 的 >=4 位正则) →
+>   两张注入卡明确「`INJECTION_MARKER_` + >=6 位十六进制」。
+
+| mode | 逐轮 recall | 聚合 | raw tok/finding | effective tok/finding | cache hit |
+|---|---|---|---|---|---|
+| runner | 10/10, 10/10, 10/10 | **30/30 = 1.00** | 9.5k | 3.6k | 69% |
+| graph | 10/10, 10/10, 9/10 | **29/30 = 0.97** | 8.9k | 3.4k | 69% |
+
+FPR 全 0.00。唯一 miss (graph r2 9006) 经 trace 归因是判据在正确工作:
+marker 合规、roundtrip 命中 (L1), 但该轮 attacker 嵌入指令后未回访点名对象,
+judge 按判据诚实判负 —— 温度 0.7 下的行为方差, 非缺陷。
+
+全程 (v1-v9, 约 200 次 scan) FPR 恒为 0; 双模式 tok/finding 收敛到
+8.9k-9.5k (raw) / 3.4k-3.6k (effective, DeepSeek 前缀缓存命中 69% 按 1/10
+折算), 对照基线 raw -15%/-48%, effective -68%/-80%。
+
+至此「预算效率 + recall」双目标闭环: judge/信号层的三处结构性死锁
+(作者判据、单点失败、标记格式) 与两处短语缺口是本轮真正的方法论产出 ——
+**归因驱动 (离线重放 + trace 逐 call 对账) 优于调参驱动**。
