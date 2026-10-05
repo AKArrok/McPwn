@@ -63,7 +63,7 @@ class TokenBudget:
         if hit:
             self.attacker_cache_hit_tokens += int(hit)
             effective_in = (int(pin) - int(hit)) + int(hit) * _CACHE_HIT_PRICE_RATIO
-            self.attacker_tokens_effective += int(round(effective_in)) - int(pin)
+            self.attacker_tokens_effective += round(effective_in) - int(pin)
 
     def charge_llm_hyp(self, tokens_in: int, tokens_out: int) -> bool:
         """Charge attacker tokens against the LLM-hypothesis pool.

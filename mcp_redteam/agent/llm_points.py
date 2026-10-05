@@ -309,7 +309,7 @@ async def scout_hypotheses(
     surface = tool_descriptions or _tools_fallback(tools, resources)
     try:
         scout_tools = build_openai_tools(await session.raw_list_tools())
-    except Exception:  # noqa: BLE001 - additive point; failure is not a crash
+    except Exception:
         _log.warning("scout: raw_list_tools failed; skipping scout")
         return []
 
@@ -373,7 +373,7 @@ async def scout_hypotheses(
                 tools=scout_tools,
                 tool_choice="auto",
             )
-        except Exception:  # noqa: BLE001 - additive point; failure is not a crash
+        except Exception:
             _log.warning("scout: probe turn failed; continuing")
             break
         _charge(resp)
@@ -456,7 +456,7 @@ async def scout_hypotheses(
             )
             _charge(resp)
             final_content = resp.choices[0].message.content or ""
-        except Exception as exc:  # noqa: BLE001 - additive point; failure is not a crash
+        except Exception as exc:
             _log.warning("scout: JSON final failed (%s: %s); no scout candidates",
                          type(exc).__name__, str(exc)[:300])
             return []
@@ -516,7 +516,7 @@ def generate_hypotheses(
                     {"role": "user", "content": user_message},
                 ],
             )
-        except Exception:  # noqa: BLE001 - additive point; failure is not a crash
+        except Exception:
             _log.warning("hypothesis generation sample failed; continuing")
             continue
         _count_into_budget(budget, resp, "attacker")
@@ -584,7 +584,7 @@ def retrospective_hypotheses(
                 {"role": "user", "content": user_message},
             ],
         )
-    except Exception:  # noqa: BLE001 - additive point; failure is not a crash
+    except Exception:
         _log.warning("retrospective failed; continuing without follow-ups")
         return []
     _count_into_budget(budget, resp, "attacker")
@@ -626,7 +626,7 @@ def evidence_verdict(
                 {"role": "user", "content": user_message},
             ],
         )
-    except Exception:  # noqa: BLE001 - judge silence is not a crash
+    except Exception:
         _log.warning("evidence judge call failed")
         return None
     _count_into_budget(budget, resp, "judge")

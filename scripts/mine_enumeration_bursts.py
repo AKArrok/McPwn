@@ -106,7 +106,7 @@ def main() -> None:
     for path in sorted((REPO / "runs").rglob("scan_result.json")):
         try:
             results.append(analyze_scan(path, args.min_burst))
-        except Exception as exc:  # unreadable legacy artifacts must not kill the sweep
+        except Exception as exc:  # noqa: BLE001 - unreadable legacy artifacts must not kill the sweep
             results.append({"run": str(path), "error": f"{type(exc).__name__}: {exc}"})
 
     by_family: dict[str, list] = defaultdict(list)

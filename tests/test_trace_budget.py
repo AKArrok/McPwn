@@ -14,21 +14,22 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import Self
 from unittest.mock import patch
 
 from mcp_redteam.agent.executor import (
-    _compact_tool_results,
     _KEEP_RECENT_TURNS,
     _TOOL_DIGEST_CHARS,
+    _compact_tool_results,
     execute_one,
 )
-from mcp_redteam.contracts import McpCall, VulnClass
 from mcp_redteam.agent.recon import Candidate
+from mcp_redteam.contracts import McpCall, VulnClass
 from mcp_redteam.models.chat import ModelSpec
 from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
 from mcp_redteam.orchestrator.runner import (
-    _resolve_trace_token_cap,
     _TRACE_CAP_FRACTION,
+    _resolve_trace_token_cap,
 )
 from tests.fixtures.stub_attacker import (
     FakeChatCompletions,
@@ -36,7 +37,6 @@ from tests.fixtures.stub_attacker import (
     _resp,
     _tc,
 )
-
 
 # ── _resolve_trace_token_cap (mirrors the llm_hyp_budget knob semantics) ─────
 
@@ -125,7 +125,7 @@ class _LongResultSession:
         self._result = "A" * result_chars
         self.call_log: list[str] = []
 
-    async def __aenter__(self) -> "_LongResultSession":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *_: object) -> None:

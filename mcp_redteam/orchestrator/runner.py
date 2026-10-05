@@ -28,7 +28,7 @@ from mcp_redteam.agent.llm_points import (
     tool_summary,
 )
 from mcp_redteam.agent.planner import PlannedCandidate, plan, plan_llm
-from mcp_redteam.agent.recon import recon
+from mcp_redteam.agent.recon import Candidate, recon
 from mcp_redteam.agent.supplychain import vet_target_spec
 from mcp_redteam.agent.verifier import (
     _METADATA_ONLY_SIGNALS,

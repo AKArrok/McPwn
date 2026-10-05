@@ -552,7 +552,7 @@ async def _run_probe_subagent(
     discipline as the main loop's final message.
     """
     client, model_spec = attacker
-    card = load_card(candidate.vuln_class)
+    load_card(candidate.vuln_class)
     system_prompt = _SUBAGENT_TMPL.render(
         vuln_class=candidate.vuln_class.value,
         target_kind=candidate.target_kind,

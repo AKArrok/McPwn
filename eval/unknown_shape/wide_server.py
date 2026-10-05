@@ -93,9 +93,7 @@ def _can_read(note: dict) -> bool:
     """Access check. BUG: internal-ness is only enforced for admin-owned
     notes, so any internal note with a non-admin owner is world-readable
     (missing authorization, CWE-862 family)."""
-    if note["owner"] == "admin" and note["internal"]:
-        return False
-    return True
+    return not (note["owner"] == "admin" and note["internal"])
 
 
 @server.tool(description="Search shared notes by keyword; returns id and title of matches.")

@@ -68,7 +68,7 @@ def run_one(arm: str, budget: int, port: int, out_dir: Path, target: str = "vaul
     ]
     print(f"[run_all] spawn {' '.join(cmd)}", flush=True)
     started = time.perf_counter()
-    proc = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, encoding="utf-8")
+    proc = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, encoding="utf-8", check=False)
     wall = time.perf_counter() - started
     tail = (proc.stdout or "").strip().splitlines()
     if proc.returncode != 0 or not tail:
