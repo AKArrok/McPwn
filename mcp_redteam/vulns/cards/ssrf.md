@@ -1,41 +1,32 @@
 # ssrf
 
 ## When to use
-Recon 发现某个 tool 的 name / description 含 `fetch` / `http` / `url` / `webhook` /
-`callback` / `request` / `scrape` / `proxy`,或输入 schema 里有 `url` / `uri` /
-`endpoint` / `webhook` / `target` 这类「由 server 侧发起请求」的参数。核心特征:
-**server 会替攻击者向一个 URL 发起请求,并把响应内容带回 tool result**。
+Tool 名/描述含 `fetch` `http` `url` `webhook` `callback` `request` `scrape`
+`proxy`, 或 schema 有 `url` / `uri` / `endpoint` / `webhook` / `target` 这类
+「server 侧代发请求」参数。核心特征: **server 替攻击者访问 URL 并把响应带回**。
 
 ## Objective
-让目标 server 代我们访问一个**本不该被访问的内部目标**,并把结果暴露在响应里:
-云元数据端点 (AWS / GCP / Aliyun IMDS)、本机回环服务 (ssh / redis / mongo / nginx)、
-或 `file://` 本地文件。判定依据是 signals 中的:
-- `ssrf_cloud_metadata` (high): args 指向元数据端点,响应含 `ami-id` /
-  `instance-id` / `local-ipv4` / `security-credentials` 等键
-- `ssrf_internal_service` (high): args 指向回环/内网地址,响应含内部服务 banner
-  (SSH-2.0 / Redis / MongoDB / nginx / IIS)
-- 交叉触发 `leaks_*` 类: 通过 `file://` 或内网读取把敏感内容带回
-
-> 与 path_traversal 的区别:path_traversal 打**文件路径参数**,ssrf 打**server 侧代发
-> 请求的 URL 参数**。两者可叠加 (`file://` 读本地文件时同时是 path 面与 ssrf 面)。
+让 server 代访**本不该访问的内部目标**: 云元数据 (AWS/GCP/Aliyun IMDS)、本机
+回环服务 (ssh/redis/mongo/nginx)、`file://` 本地文件。判据:
+- `ssrf_cloud_metadata` (high): 响应含 `ami-id` / `instance-id` / `local-ipv4` /
+  `security-credentials`
+- `ssrf_internal_service` (high): 响应含内部 banner (SSH-2.0 / Redis / MongoDB /
+  nginx / IIS)
+- 交叉 `leaks_*`: `file://` 或内网读取带回敏感内容
+> 与 path_traversal 的区别: 那个打文件路径参数, 这个打代发请求的 URL 参数;
+> `file://` 两者叠加。
 
 ## Playbook
-1. `list_tools`,找出所有接受 URL / endpoint / webhook 参数的 tool,读它的输入 schema。
-2. 先用**良性**外部目标 (如 `http://example.com`) 确认 server 真的代发了请求并把
-   响应带回来 (而不是只回显 URL 字符串)。这一步不做判据,只确认攻击面存在。
-3. 依次试回环/内网目标:`http://127.0.0.1:22/`、`http://localhost:6379/`、
-   `http://10.0.0.1/`、`http://192.168.1.1/`。响应出现 SSH 版本串 / Redis
-   `ERR unknown command` / nginx 欢迎页 → `ssrf_internal_service`。
-4. 试云元数据端点:`http://169.254.169.254/latest/meta-data/` (AWS)、
-   `http://metadata.google.internal/computeMetadata/v1/` (GCP)、
-   `http://100.100.100.200/latest/meta-data/` (Aliyun)。响应出现 `ami-id` /
-   `instance-id` / `local-ipv4` / `security-credentials` 键 → `ssrf_cloud_metadata`。
-5. 试协议走私:`file:///etc/passwd`、`gopher://127.0.0.1:6379/_...`。文件内容回流时
-   会被 `leaks_*` 类信号捕获。
-6. 若 server 对 scheme / IP 有过滤,试绕过:301 重定向到内网、`@` 符号混淆
-   (`http://127.0.0.1:22@evil.com`)、十六进制/十进制 IP (`http://0x7f000001/`)、
-   IPv6 回环 (`http://[::1]:22/`)、DNS rebinding 提示 (`http://localtest.me/`)。
-7. 拿到任一条 high 置信证据就停;high 命中即收敛,不追求完整内网枚举。
+1. `list_tools` 找出接受 URL/endpoint/webhook 参数的 tool, 读 schema。
+2. 良性目标 (`http://example.com`) 确认 server 真代发并带回响应 (只确认攻击面)。
+3. 回环/内网: `127.0.0.1:22` / `localhost:6379` / `10.0.0.1` / `192.168.1.1`,
+   出 banner 即命中 `ssrf_internal_service`。
+4. 云元数据: AWS `169.254.169.254` / GCP `metadata.google.internal` / Aliyun
+   `100.100.100.200`, 出 `ami-id` 等键即命中 `ssrf_cloud_metadata`。
+5. 协议走私: `file:///etc/passwd`、`gopher://127.0.0.1:6379/_...` → `leaks_*`。
+6. 有 scheme/IP 过滤再试: 301 重定向到内网、`@` 混淆、十六进制/十进制 IP、
+   IPv6 回环、DNS rebinding。
+7. 任一 high 命中即收, 不做完整内网枚举。
 
 ## Templates
 - `{"url": "http://example.com"}`  # 良性确认 server 代发请求

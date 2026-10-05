@@ -23,5 +23,6 @@ poc/*.py}`;`mcpwn ci` 对 `findings.json` 产出稳定退出码。DVMCP 回归�
 - 不在 `.py` 内联长提示词,全部走 `**/agents/*.md`。
 - 不定义本地版 `McpCall/EvidenceSignal/AttackTrace/Finding/ScanResult/VulnClass`,
   全部从 `contracts.py` 导入。
-- `findings.md` / PoC 脚本禁止落原文敏感串;critical/high 信号的 `matched_text`
-  在 `signals/detectors._redact` 层已经指纹化。
+- 所有持久化产物(`scan_result.json`, `findings.md` / `findings.json`, SARIF,
+  traces 与 PoC 脚本)必须经过 `security.redact_scan_result`;禁止落原文敏感串。
+  critical/high 信号的 `matched_text` 在 `signals/detectors._redact` 层已经指纹化。

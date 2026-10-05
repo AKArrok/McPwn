@@ -16,7 +16,7 @@
 
 - Python 3.13.13 (miniconda `base`)
 - pytest, pytest-asyncio;openai / pydantic / mcp SDK
-- mcpwn 0.1.0 (dev install)
+- mcpwn 0.2.0 (dev install)
 
 ## Reproduce
 

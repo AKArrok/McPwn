@@ -3,6 +3,11 @@
 - 输入: 传输中立的端点 display 字符串 (由 `TargetSpec.display` 提供;SSE / streamable HTTP / stdio 统一为只读字符串,本层不感知传输)
 - 输出: `ScanResult` (含 findings + traces)
 - 状态: TokenBudget + WallClock 跨所有 trace 共享; 每个 trace 独立计时.
+  executor 另受 per-trace token 上限约束 (orchestrator 解析, 默认 40% 扫描
+  预算, `trace_token_cap=-1` 关闭): 单 trace 触顶即收敛轮转, 不吃光后续候选.
+  executor 在每轮 LLM 调用前压缩消息历史里超过最近 2 个工具轮的旧 tool
+  result (截为 digest); 证据消费方 (signals/judge/PoC replay) 一律读
+  attack_calls 全量, 不受压缩影响.
 - 变换:
   1. recon -> `list[McpCall]` + `list[Candidate]`
   2. planner -> sorted `list[Candidate]`

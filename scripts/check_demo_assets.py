@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "examples" / "demo_excel_017.yaml"
 RUNBOOK = ROOT / "docs" / "demo_evidence_runbook.md"
 RUNNER = ROOT / "scripts" / "demo_evidence.ps1"
+VIEWER = ROOT / "docs" / "artifact-viewer.html"
 
 
 def fail(message: str) -> None:
@@ -22,7 +23,7 @@ def fail(message: str) -> None:
 
 
 def main() -> int:
-    for path in (CONFIG, RUNBOOK, RUNNER):
+    for path in (CONFIG, RUNBOOK, RUNNER, VIEWER):
         if not path.is_file():
             fail(f"missing {path.relative_to(ROOT)}")
 
@@ -40,6 +41,10 @@ def main() -> int:
             fail(f"demo target contains forbidden secret field {key!r}")
 
     text = RUNNER.read_text(encoding="utf-8")
+    viewer_text = VIEWER.read_text(encoding="utf-8")
+    for token in ("findings.json", "FileReader", "不联网", "不执行 PoC"):
+        if token not in viewer_text:
+            fail(f"artifact viewer is missing required token {token!r}")
     required_tokens = (
         "[switch]$Check",
         "[switch]$Yes",

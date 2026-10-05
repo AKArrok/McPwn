@@ -265,9 +265,9 @@ CWE-639/345 家族但机制全不同)。修复版按 `(owner, key)` 命名空间
   前提成立(与 vault/delegate 的 baseline=0 同义);
 - hermetic 回归 `tests/test_holdout_pair.py`:冻结 cache 漏洞 trace 零信号前提
   + 真实 fixed server 回放阻断闭环;
-- **llm 轮待跑**:本机 ARK CodingPlan 订阅过期(`InvalidSubscription` 400),
-  judge 角色不可用(attacker 已实际发出跨租户读取但 evidence verdict 无法
-  落盘)。恢复订阅后 `--mode llm --n 5` 跑 cache 配对。
+- **llm 轮待跑**:judge 已切换到阿里云百炼 Qwen(`mcp_redteam/config/models.yaml`,
+  `qwen3.8-27b` @ DashScope 兼容端点),证据判定通道恢复;待跑
+  `--mode llm --n 5` cache 配对,数字以 runs/ 产物为准。
 
 ---
 

@@ -65,7 +65,10 @@ class ControlReplay:
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # Hash canonical content, not working-copy bytes: a Windows checkout with
+    # core.autocrlf=true materializes CRLF, which would break the frozen lock.
+    # LF files hash identically, so the committed lock stays valid.
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def load_protocol(

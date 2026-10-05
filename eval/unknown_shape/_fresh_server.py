@@ -25,6 +25,7 @@ from pathlib import Path
 from mcp_redteam.targets.mcp_client import McpSession
 
 _VAULT_SERVER = Path(__file__).with_name("vault_server.py")
+_WIDE_SERVER = Path(__file__).with_name("wide_server.py")
 _HOST = "127.0.0.1"
 _READY_ATTEMPTS = 15
 _READY_DELAY = 1.0
@@ -51,9 +52,21 @@ async def fresh_vault_server(port: int) -> AsyncIterator[str]:
     TimeoutError if it never accepts an MCP session. Always terminates the
     child on exit (including KeyboardInterrupt / scan failure).
     """
+    async for url in _fresh_server(_VAULT_SERVER, port):
+        yield url
+
+
+@asynccontextmanager
+async def fresh_wide_server(port: int) -> AsyncIterator[str]:
+    """Spawn ``wide_server.py`` (notes-mcp wide-enumeration fixture); yield SSE URL."""
+    async for url in _fresh_server(_WIDE_SERVER, port):
+        yield url
+
+
+async def _fresh_server(server_path: Path, port: int) -> AsyncIterator[str]:
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
-        str(_VAULT_SERVER),
+        str(server_path),
         "--host",
         _HOST,
         "--port",
@@ -67,8 +80,8 @@ async def fresh_vault_server(port: int) -> AsyncIterator[str]:
         for _ in range(_READY_ATTEMPTS):
             if proc.returncode is not None:
                 raise RuntimeError(
-                    f"vault server exited early with rc={proc.returncode}; "
-                    f"run `python {_VAULT_SERVER.name} --port {port}` manually for stderr"
+                    f"{server_path.name} exited early with rc={proc.returncode}; "
+                    f"run `python {server_path.name} --port {port}` manually for stderr"
                 )
             try:
                 async with McpSession(sse_url, connect_timeout=_READY_CONNECT_TIMEOUT) as s:
@@ -78,7 +91,7 @@ async def fresh_vault_server(port: int) -> AsyncIterator[str]:
             except Exception:  # noqa: BLE001 - readiness probe: any connect error retries
                 await asyncio.sleep(_READY_DELAY)
         if not ready:
-            raise TimeoutError(f"vault server not ready at {sse_url}")
+            raise TimeoutError(f"{server_path.name} not ready at {sse_url}")
         yield sse_url
     finally:
         if proc.returncode is None:

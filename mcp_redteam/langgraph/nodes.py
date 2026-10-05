@@ -44,6 +44,11 @@ from mcp_redteam.orchestrator.scan_meta import (
     safe_git_sha,
     stop_reason,
 )
+from mcp_redteam.security import (
+    redact_scan_result,
+    target_artifact_references,
+    target_secret_values,
+)
 from mcp_redteam.targets.mcp_client import McpSession
 
 
@@ -68,6 +73,8 @@ class GraphDeps:
     port: int
     seed: int | None
     llm_points: bool = False
+    # Per-trace token cap (resolved in runner.scan/_scan_graph); None = uncapped.
+    trace_token_cap: int | None = None
     # Connection spec (transport/url/command/env); None keeps legacy parity
     # with tests that construct GraphDeps by hand without a spec.
     spec: TargetSpec | None = None
@@ -198,6 +205,7 @@ def execute_node(deps: GraphDeps):
             max_inner_steps=state.get("max_inner_steps", 12),
             sandbox_root=deps.sandbox_root,
             prior_evidence=state.get("prior_evidence"),
+            trace_token_cap=deps.trace_token_cap,
         )
         if deps.decisions is not None and not state.get("followup_wave", False):
             deps.decisions.append(PlannerDecision(
@@ -362,6 +370,10 @@ def verify_node(deps: GraphDeps):
             judge_fn=deps.judge_fn,
             sandbox_root=deps.sandbox_root,
             evidence_judge_fn=deps.evidence_judge_fn,
+            artifact_secrets=(target_secret_values(deps.spec) if deps.spec else None),
+            artifact_references=(
+                target_artifact_references(deps.spec) if deps.spec else None
+            ),
         )
         return {"findings": findings}
 
@@ -388,6 +400,8 @@ def assemble_result(
         wall_seconds=time.perf_counter() - state["wall_start"],
         attacker_tokens=deps.budget.attacker_tokens,
         judge_tokens=deps.budget.judge_tokens,
+        attacker_cache_hit_tokens=deps.budget.attacker_cache_hit_tokens,
+        attacker_tokens_effective=deps.budget.attacker_tokens_effective,
         tools_seen=state.get("tools_seen", []),
         resources_seen=state.get("resources_seen", []),
         traces=state.get("traces", []),
@@ -411,7 +425,7 @@ def report_node(deps: GraphDeps):
     async def node(state: McPwnState) -> dict[str, Any]:
         result = assemble_result(deps, state, error=state.get("error"))
         (Path(state["out_dir"]) / "scan_result.json").write_text(
-            result.model_dump_json(indent=2), encoding="utf-8"
+            redact_scan_result(result).model_dump_json(indent=2), encoding="utf-8"
         )
         deps.result = result
         return {"stop_reason": result.stop_reason}

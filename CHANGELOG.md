@@ -3,10 +3,49 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/).
 
-## [Unreleased] - 2026-08-31
+## [0.3.0] - 2026-10-05
 
 ### Added
 
+- **预算/成本 harness 闭环** (trace cap / 上下文压缩 / 提示词瘦身 / 缓存计量):
+  per-trace token 子闸门 (`trace_token_cap`, 默认 40% 预算, `-1` 关闭),
+  executor 上下文压缩 (最近 2 工具轮全文, 更早结果截 digest, 证据链仍读
+  `attack_calls` 全量), 提示词 bundle -19%, DeepSeek 前缀缓存有效成本计量
+  (`attacker_tokens_effective`, 命中按 1/10 折算)。
+- `ui/` 本地中文控制台预览 (只读 findings 查看器, `serve.py` + browser
+  smoke + 独立 `ui-preview.yml` workflow);`docs/audit-review-data.js` 与
+  `docs/artifact-viewer.html` 增强。
+
+### Changed
+
+- **judge 角色切换 Qwen**: `qwen3.8-27b` @ 阿里云百炼 DashScope OpenAI
+  兼容端点 (`DASHSCOPE_API_KEY`);现役 config/README/eval 文档中 ARK/doubao
+  残留清除 (历史记录保留)。
+- README 评估数字刷新为 N=3 定稿口径:DVMCP 回归集 runner **30/30 (1.00)** /
+  graph **29/30 (0.97)**,FPR 恒 0 (约 200 次 scan),replay 15/15;effective
+  tok/finding 3.4k-3.6k (对照基线 -68%/-80%);新增英文 TL;DR。
+
+### Fixed
+
+- **9006 (indirect) 双路径翻转**: L2 judge 重校准为判「server 传输路径无隔离」
+  (而非「攻击者是否服从」);judge 调用网络错误重试一次;judge 用户消息补
+  args;两张注入卡明确 `INJECTION_MARKER_` + >=6 位 hex 标记格式 — recall
+  0.80 → 1.00/0.97 @N=3。
+- **9009 (auth_bypass) 检出缺口**: `_AUTH_SUCCESS_PHRASES` 补 `command
+  executed`/`executed on` (仅假凭据第一遍, 低噪声);`_ADMIN_RE` 补
+  `permission ... applied/granted` 自授权确认 (前缀锚定, 冻结协议不破)。
+
+### Added (2026-08-31, redaction & release hardening)
+
+- Persisted scan artifacts now pass through a shared redaction boundary:
+  target env/header values become local replay references, URL query values and
+  credential-shaped fields are redacted, and generated PoCs resolve references
+  only from the operator's local environment.
+- Added release metadata checks, locked uv-based CI installation, Dependabot,
+  CodeQL, dependency auditing, and a tag-triggered wheel verification workflow.
+- Added a local read-only findings.json viewer and operations/contributing/security
+  documentation that state the supported CI boundary and the gaps before any
+  hosted multi-tenant deployment.
 - **Real-target config entrypoint**: `mcpwn init` now writes a reusable
   `mcpwn.yaml`, and `mcpwn scan --target-config mcpwn.yaml` compiles that
   file into the existing `TargetSpec` scan path. This makes scanning a
@@ -61,9 +100,9 @@ versioning follows [SemVer](https://semver.org/).
 
 ### Notes
 
-- Local ARK CodingPlan subscription expired (`InvalidSubscription` 400) —
-  the judge role is unavailable, so the llm-round evidence channel is down
-  until the subscription is renewed (documented in HANDOFF_NEXT / eval_guide).
+- Judge role now runs Qwen `qwen3.8-27b` via DashScope (`DASHSCOPE_API_KEY`);
+  the llm-round evidence channel is restored. Holdout `--mode llm --n 5` on
+  the cache-mcp pair is still pending — numbers land in runs/ artifacts.
 
 ## [0.2.0] - 2026-08-30
 

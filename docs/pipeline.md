@@ -227,7 +227,7 @@ flowchart LR
 | 输出 | `findings.md`, `findings.json`, `poc/<finding_id>.py`, `findings.sarif` |
 | 状态 | 无 |
 | 变换 | ScanResult → Markdown 段落 + JSON artifact + SARIF + Python replay 脚本 |
-| 边界 | critical/high 的 `EvidenceSignal.matched_text` 已被 detector 指纹化;PoC 不硬编敏感串 |
+| 边界 | 所有落盘输出先经过 `security.redact_scan_result`;env/header 值变为 `${KEY}` 引用,URL query 脱敏;critical/high 的 `EvidenceSignal.matched_text` 已被 detector 指纹化;PoC 不硬编敏感串 |
 
 ---
 

@@ -56,6 +56,7 @@ class Target:
     baseline_expect: str
     llm_expect: str
     llm_hyp_budget: int | None
+    trace_token_cap: int | None
     env: list[str]
     sandbox_root: str | None
     # Declarative connection (no spawner): stdio command + optional transport
@@ -79,6 +80,7 @@ class Target:
             baseline_expect=str(entry.get("baseline_expect", "info")),
             llm_expect=str(entry.get("llm_expect", "info")),
             llm_hyp_budget=entry.get("llm_hyp_budget"),  # None -> default pool
+            trace_token_cap=entry.get("trace_token_cap"),  # None -> default 40% cap
             env=list(entry.get("env", [])),
             sandbox_root=entry.get("sandbox_root"),
             command=entry.get("command"),
@@ -159,6 +161,7 @@ async def _run_scan(
                 wall_seconds=300, planner_mode="hardcoded",
                 llm_points=llm, seed=seed,
                 llm_hyp_budget=target.llm_hyp_budget,
+                trace_token_cap=target.trace_token_cap,
                 sandbox_root=target.sandbox_root,
             )
         else:
@@ -168,6 +171,7 @@ async def _run_scan(
                     wall_seconds=300, planner_mode="hardcoded",
                     llm_points=llm, seed=seed,
                     llm_hyp_budget=target.llm_hyp_budget,
+                    trace_token_cap=target.trace_token_cap,
                     sandbox_root=target.sandbox_root,
                 )
         f = len(result.findings)

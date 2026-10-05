@@ -128,7 +128,8 @@ async def run_vault(out: Result, llm: bool, n: int) -> None:
         async with fresh_vault_server(19205 + i) as url:
             res = await scan(sse_url=url, out_dir=out_dir, max_tokens=30000,
                              wall_seconds=300, planner_mode="hardcoded",
-                             llm_points=llm, llm_hyp_budget=-1)
+                             llm_points=llm, llm_hyp_budget=-1,
+                             trace_token_cap=-1)  # frozen protocol: keep free exploration
         f = len(res.findings)
         detail = _fmt([(x.vuln_class.value, x.target, x.confidence) for x in res.findings])
         expect = "0" if not llm else ">=1"
@@ -144,7 +145,8 @@ async def run_delegate(out: Result, llm: bool, n: int) -> None:
         async with fresh_delegate_server(20105 + i) as url:
             res = await scan(sse_url=url, out_dir=out_dir, max_tokens=30000,
                              wall_seconds=300, planner_mode="hardcoded",
-                             llm_points=llm, llm_hyp_budget=-1)
+                             llm_points=llm, llm_hyp_budget=-1,
+                             trace_token_cap=-1)  # frozen protocol: keep free exploration
         f = len(res.findings)
         detail = _fmt([(x.vuln_class.value, x.target, x.confidence) for x in res.findings])
         expect = "0" if not llm else ">=1"

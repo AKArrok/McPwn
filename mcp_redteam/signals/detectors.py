@@ -206,7 +206,13 @@ _LS_ROOT_RE = re.compile(r"total \d+\s+[drwx-]{9}")
 _ADMIN_RE = re.compile(
     r"(?:admin\s+(?:command|action|access)\s+(?:executed|granted|confirmed)"
     r"|successfully\s+(?:authenticated|authorized)\s+admin"
-    r"|admin\s+privilege\w*\s+(?:granted|enabled|set))",
+    r"|admin\s+privilege\w*\s+(?:granted|enabled|set)"
+    # self-service grant confirmations, e.g. "Permission 'grant' applied for
+    # user 'x' on resource 'y'" (admin-grant tools). Deliberately anchored on
+    # the literal word "permission" so vault/delegate-style responses
+    # ("granted read access on ... to ...") do NOT match - their baseline
+    # protocol expects 0 findings.
+    r"|permission\s+'?[a-z_]+'?\s+(?:applied|granted))",
     re.IGNORECASE,
 )
 
@@ -269,6 +275,13 @@ _AUTH_SUCCESS_PHRASES: tuple[re.Pattern[str], ...] = tuple(
         r"authentication\s+successful",
         r"appears?\s+to\s+be\s+valid",
         r"token\s+is\s+valid",
+        # A call carrying a fake credential arg that comes back with a remote
+        # command-execution confirmation is forged-credential success (e.g.
+        # remote-access/admin tools: "Command executed on database: ...").
+        # First-pass only reaches here with an auth-shaped arg + fake value,
+        # so the surface stays narrow.
+        r"command\s+executed",
+        r"executed\s+on",
     )
 )
 

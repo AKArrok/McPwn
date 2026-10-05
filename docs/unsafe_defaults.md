@@ -5,7 +5,7 @@
 
 | # | 默认行为 | 为什么不安全 | 为什么有意如此 | 收紧路径 |
 |---|---|---|---|---|
-| 1 | stdio 目标的 `--env` 值**明文**写进 `scan_result.json` 与生成的 PoC 脚本 | 密钥类变量会 plaintext 落盘 | PoC 必须能独立重放 (需要真实 env); 加密会破坏可重放性 | 传递 `--env-file` 引用而非内联值; PoC 侧改为运行时读取 |
+| 1 | stdio 目标的 `--env` / HTTP header 在连接时需要真实值 | 连接凭证若原样落盘会泄露; 模型返回的任意自定义 secret 仍可能需要人工审查 | 连接必须在内存中拿到真实值,而 PoC 需要保留可重放入口 | 已实现:持久化产物使用 `${KEY}` / `${MCPWN_HEADER_NAME}` 引用, URL query 脱敏,字段/凭证模式脱敏; replay 时从本地环境解析; 发布前人工审查 server-returned data |
 | 2 | token/墙钟预算是**软**的: 闸门只在 LLM 轮间检查, 在途调用必然超调 (实测可到 +16%) | 单次调用的成本无法预扣 | LLM API 无预扣语义; 硬截断会产生无 verdict 的残缺 trace | benchmark.md 已把超调率一等化; 更紧的做法是缩小单轮 max_tokens |
 | 3 | evidence judge 未配置时**回落 attacker 模型** (独立性降级) | 攻击者自判削弱独立性 | 无 key 环境仍可跑完整链路; `evidence_judge_model` 已记录可审计 | benchmark.md 已标注独立性降级; 生产对比跑应配置独立 judge role |
 | 4 | intranet 语义端口 (fetch 靶机 9211) **固定不随机** | 并发跑同一靶机会端口冲突 | 端口号是 SSRF 信号判据的一部分 (attack 面语义) | 占用时 fail-fast 并给出清理提示 (已实现); 彻底解法是信号参数化端口 |

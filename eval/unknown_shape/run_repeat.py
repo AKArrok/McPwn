@@ -48,6 +48,7 @@ async def one(
             llm_points=True,
             seed=seed,
             llm_hyp_budget=-1,  # unknown-shape: recon 全错类, LLM 假设需自由探索
+            trace_token_cap=-1,  # 同上: 单 trace 自由探索, 不设子闸门
         )
     detail = [
         (f.vuln_class.value, f.target, round(f.confidence, 2))

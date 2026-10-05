@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>McPwn Audit &amp; Artifact Viewer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101412;
+      --surface: #18211d;
+      --surface-2: #202c26;
+      --text: #e8f0eb;
+      --muted: #9eb0a5;
+      --line: #2b3a33;
+      --cyan: #70d39b;
+      --critical: #ff8d83;
+      --high: #ff8d83;
+      --medium: #f2c66d;
+      --low: #70d39b;
+      --info: #9eb0a5;
+      --shadow: 0 16px 60px rgba(0, 0, 0, .27);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: radial-gradient(circle at top right, #20372b 0, var(--bg) 42rem);
+      color: var(--text);
+      font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: #0c1310;
+      color: #c1ead0;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+    .shell { max-width: 1280px; margin: 0 auto; padding: 34px 28px 56px; }
+    .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+    .eyebrow { margin: 0 0 8px; color: var(--cyan); font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { margin: 0; max-width: 760px; font-size: clamp(28px, 4vw, 48px); line-height: 1.05; letter-spacing: -.035em; }
+    h2 { margin: 0; font-size: 18px; }
+    h3 { margin: 0; font-size: 16px; line-height: 1.25; }
+    p { margin: 0; }
+    .subtitle { max-width: 740px; margin: 14px 0 0; color: var(--muted); }
+    .source-card {
+      flex: 0 0 300px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface) 90%, transparent);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .source-card strong { display: block; margin: 3px 0 12px; color: var(--text); font-size: 14px; }
+    .source-card label { display: block; margin-bottom: 5px; font-weight: 600; }
+    input[type=file] { width: 100%; color: var(--muted); font-size: 12px; }
+    .source-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .source-actions button { padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; }
+    .source-actions button:hover { border-color: var(--cyan); color: var(--text); }
+    .panel { border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--surface) 90%, transparent); box-shadow: var(--shadow); }
+    .summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 17px 20px; }
+    .summary h2 { margin-bottom: 6px; }
+    .summary-main { min-width: 0; }
+    .summary-meta { display: flex; flex-wrap: wrap; gap: 7px; color: var(--muted); font-size: 12px; }
+    .summary-meta span { padding: 3px 7px; border: 1px solid var(--line); border-radius: 6px; }
+    .summary-status { flex: 0 0 auto; padding: 8px 11px; border: 1px solid rgba(112, 211, 155, .35); border-radius: 10px; color: var(--cyan); font-size: 12px; font-weight: 700; }
+    .stats { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+    .stat { min-height: 104px; padding: 15px; }
+    .stat-label { color: var(--muted); font-size: 12px; }
+    .stat-value { margin-top: 7px; font-size: 30px; font-weight: 700; letter-spacing: -.04em; }
+    .stat-note { color: var(--muted); font-size: 11px; }
+    .stat.confirmed .stat-value, .stat.critical .stat-value { color: var(--critical); }
+    .stat.high .stat-value { color: var(--high); }
+    .stat.medium .stat-value { color: var(--medium); }
+    .stat.low .stat-value { color: var(--low); }
+    .stat.info .stat-value { color: var(--info); }
+    .surface-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .surface-card { padding: 15px 17px; }
+    .surface-card header { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 7px; }
+    .surface-card header span { color: var(--cyan); font: 700 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .surface-card p { color: var(--muted); font-size: 12px; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 11px; padding: 15px; margin-bottom: 19px; }
+    .field { display: grid; gap: 5px; min-width: 145px; flex: 1 1 150px; }
+    .field.search { flex: 2 1 260px; }
+    .field label { color: var(--muted); font-size: 12px; font-weight: 600; }
+    input[type=search], select {
+      width: 100%;
+      min-height: 41px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      outline: none;
+      background: var(--surface);
+      color: var(--text);
+    }
+    input:focus, select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(112, 211, 155, .14); }
+    .reset { min-height: 41px; padding: 8px 13px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--muted); }
+    .reset:hover { border-color: var(--cyan); color: var(--text); }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0 11px; }
+    .count { color: var(--muted); font-size: 13px; }
+    .findings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .finding { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--surface) 94%, transparent); transition: border-color .18s ease, transform .18s ease; }
+    .finding:hover, .finding:focus-within { border-color: #466052; transform: translateY(-1px); }
+    .finding::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--info); }
+    .finding[data-severity="Critical"]::before { background: var(--critical); }
+    .finding[data-severity="High"]::before { background: var(--high); }
+    .finding[data-severity="Medium"]::before { background: var(--medium); }
+    .finding[data-severity="Low"]::before { background: var(--low); }
+    .finding-main { width: 100%; padding: 17px 18px 14px 22px; border: 0; background: transparent; color: inherit; text-align: left; }
+    .finding-main:focus-visible { outline: 2px solid var(--cyan); outline-offset: -3px; }
+    .finding-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
+    .id { color: var(--muted); font: 700 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .04em; }
+    .severity { padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+    .severity.Critical { background: rgba(255, 141, 131, .16); color: var(--critical); }
+    .severity.High { background: rgba(255, 141, 131, .16); color: var(--high); }
+    .severity.Medium { background: rgba(242, 198, 109, .16); color: var(--medium); }
+    .severity.Low { background: rgba(112, 211, 155, .16); color: var(--low); }
+    .severity.Info { background: rgba(158, 176, 165, .15); color: var(--info); }
+    .meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; color: var(--muted); font-size: 12px; }
+    .meta span { padding: 3px 7px; border: 1px solid var(--line); border-radius: 6px; }
+    .meta .status-fix { border-color: rgba(158, 176, 165, .4); color: var(--info); }
+    .detail { display: none; padding: 0 18px 17px 22px; border-top: 1px solid var(--line); }
+    .finding.open .detail { display: block; }
+    .detail-grid { display: grid; gap: 11px; padding-top: 14px; }
+    .detail-label { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .detail p { margin-top: 3px; color: #d4deed; }
+    .detail .evidence { color: #f0f5ff; }
+    .empty { grid-column: 1 / -1; padding: 30px; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); text-align: center; }
+    .secondary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
+    .secondary { padding: 17px 19px; }
+    .secondary h2 { margin-bottom: 10px; }
+    .secondary p, .secondary li { color: var(--muted); font-size: 12px; }
+    .secondary ul { margin: 0; padding-left: 18px; }
+    .secondary li + li { margin-top: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 8px 5px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; }
+    .footnote { margin-top: 27px; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .error { margin-bottom: 14px; padding: 11px 14px; border: 1px solid rgba(255, 141, 131, .5); border-radius: 10px; background: rgba(255, 141, 131, .1); color: #ffd8dd; }
+    .hidden { display: none !important; }
+    @media (max-width: 1080px) { .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+    @media (max-width: 780px) {
+      .shell { padding: 24px 16px 40px; }
+      .topbar, .summary { display: block; }
+      .source-card, .summary-status { display: inline-block; margin-top: 18px; }
+      .stats, .findings, .secondary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .surface-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 460px) { .stats, .findings, .secondary-grid { grid-template-columns: 1fr; } .stat { min-height: 88px; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">McPwn · read-only audit review</p>
+        <h1>DVMCP / Excel MCP 全量漏洞验收</h1>
+        <p class="subtitle">默认载入最新脱敏审计批次；可按攻击面、严重级别、验收状态、端口 / 版本筛选，并展开查看 finding ID、复现操作和证据摘要。</p>
+      </div>
+      <div class="source-card">
+        <div>当前数据源</div>
+        <strong id="source-mode">本批次审计</strong>
+        <label for="artifact">加载其他 findings.json（可选）</label>
+        <input id="artifact" type="file" accept="application/json,.json">
+        <div class="source-actions"><button id="restore" type="button">恢复本批次</button><span>不联网、不执行 PoC</span></div>
+      </div>
+    </header>
+
+    <div id="error" class="error hidden" role="alert"></div>
+    <section id="summary" class="panel summary" aria-label="Audit metadata"></section>
+
+    <section class="stats" aria-label="Audit severity summary">
+      <article class="panel stat confirmed"><div class="stat-label">确认漏洞</div><div class="stat-value" id="confirmed-total">—</div><div class="stat-note">不含修复验证</div></article>
+      <article class="panel stat"><div class="stat-label">全部条目</div><div class="stat-value" id="entry-total">—</div><div class="stat-note">含 Info 验证项</div></article>
+      <article class="panel stat critical"><div class="stat-label">Critical</div><div class="stat-value" id="critical-count">—</div><div class="stat-note">需优先修复</div></article>
+      <article class="panel stat high"><div class="stat-label">High</div><div class="stat-value" id="high-count">—</div><div class="stat-note">权限 / 泄露</div></article>
+      <article class="panel stat medium"><div class="stat-label">Medium</div><div class="stat-value" id="medium-count">—</div><div class="stat-note">注入 / 校验</div></article>
+      <article class="panel stat low"><div class="stat-label">Low</div><div class="stat-value" id="low-count">—</div><div class="stat-note">信息披露</div></article>
+      <article class="panel stat info"><div class="stat-label">Info / 修复验证</div><div class="stat-value" id="info-count">—</div><div class="stat-note">不计入漏洞</div></article>
+    </section>
+
+    <section class="surface-grid" id="surface-summary" aria-label="Attack surface summary"></section>
+
+    <section class="panel toolbar" aria-label="Finding filters">
+      <div class="field search"><label for="query">搜索漏洞、证据或复现操作</label><input id="query" type="search" placeholder="例如：token、9002、公式、路径" autocomplete="off"></div>
+      <div class="field"><label for="surface">攻击面</label><select id="surface"><option value="all">全部</option></select></div>
+      <div class="field"><label for="severityFilter">严重级别</label><select id="severityFilter"><option value="all">全部</option><option value="Critical">Critical</option><option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option><option value="Info">Info / 修复验证</option></select></div>
+      <div class="field"><label for="statusFilter">验收状态</label><select id="statusFilter"><option value="all">全部</option><option value="confirmed">已确认漏洞</option><option value="fix_verification">修复验证</option></select></div>
+      <div class="field"><label for="endpoint">端口 / 版本</label><select id="endpoint"><option value="all">全部</option></select></div>
+      <button class="reset" id="reset" type="button">清除筛选</button>
+    </section>
+
+    <section aria-labelledby="findings-title">
+      <div class="section-head"><h2 id="findings-title">确认项与修复验证</h2><span class="count" id="count" aria-live="polite">—</span></div>
+      <div class="findings" id="findings"></div>
+    </section>
+
+    <section class="secondary-grid">
+      <section class="panel secondary" aria-labelledby="static-title"><h2 id="static-title">静态预筛</h2><div id="static-hits"></div></section>
+      <section class="panel secondary" aria-labelledby="notes-title"><h2 id="notes-title">范围与判读边界</h2><ul id="notes"></ul></section>
+    </section>
+
+    <p class="footnote">页面入口仍是 <code>docs/artifact-viewer.html</code>。默认数据来自本批次脱敏审计摘要；原始 trace 仅作为外部审计证据保存，不由页面加载或执行。</p>
+  </main>
+  <script src="./audit-review-data.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const severityRank = {Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4};
+    const escapeHtml = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (char) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
+    const normalizeSeverity = (value) => {
+      const name = String(value || '').toLowerCase();
+      return {critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info'}[name] || String(value || 'Unknown');
+    };
+    const statusLabel = (status) => status === 'fix_verification' ? '修复验证' : '已确认漏洞';
+    const targetLabel = (item) => {
+      const ports = Array.isArray(item.ports) ? item.ports : [];
+      const versions = Array.isArray(item.versions) ? item.versions : [];
+      if (!ports.length) return '未记录端点';
+      return ports.map((port, index) => `${port} / ${versions[index] || versions[0] || '版本未记录'}`).join('、');
+    };
+    const findingEvidence = (item) => item.evidence || item.summary || '未记录脱敏证据摘要';
+    const findingReproduction = (item) => item.reproduction || item.repro || '未记录最小复现操作';
+
+    function normalizeData(data) {
+      if (data && data.kind === 'mcpwn_audit_review' && Array.isArray(data.entries)) {
+        return { ...data, entries: data.entries.map((item) => ({...item, severity: normalizeSeverity(item.severity)})), static_hits: [] };
+      }
+      if (!data || !Array.isArray(data.findings)) throw new Error('不是 McPwn findings.json 或审计 review 数据');
+      return {
+        kind: 'findings_json',
+        run_id: data.run_id || 'uploaded artifact',
+        status: data.stop_reason || 'unknown',
+        scope: data.target || 'uploaded findings.json',
+        source: { report: '用户选择的 findings.json', trace: '由上传产物决定', evidence_policy: '沿用 findings.json 中的脱敏字段。' },
+        targets: [],
+        notes: ['这是上传的标准 findings.json；页面不会执行其中的 PoC。'],
+        entries: data.findings.map((item, index) => ({
+          id: item.finding_id || `finding-${index + 1}`,
+          title: item.title || item.finding_id || `Finding ${index + 1}`,
+          surface: 'Scan artifact',
+          ports: [],
+          versions: [],
+          severity: normalizeSeverity(item.severity),
+          status: 'confirmed',
+          kind: item.vuln_class || 'Finding',
+          evidence: item.summary || ((item.signals || []).map((signal) => `${signal.signal_id}: ${signal.matched_text}`).join('；')),
+          reproduction: (item.poc_call_sequence || []).map((call) => call.name || call.kind).filter(Boolean).join(' → ') || 'See findings.json / generated PoC',
+          confidence: item.confidence,
+          signals: item.signals || [],
+          remediation: item.remediation_hint || ''
+        })),
+        static_hits: Array.isArray(data.static_hits) ? data.static_hits : []
+      };
+    }
+
+    let state = { data: null };
+
+    function setOptions(data) {
+      const surfaces = [...new Set(data.entries.map((item) => item.surface).filter(Boolean))].sort();
+      $('surface').innerHTML = '<option value="all">全部</option>' + surfaces.map((surface) => `<option value="${escapeHtml(surface)}">${escapeHtml(surface)}</option>`).join('');
+      const targets = Array.isArray(data.targets) ? data.targets : [];
+      const endpointMap = new Map();
+      targets.forEach((target) => endpointMap.set(`${target.port}|${target.version}`, `${target.port} / ${target.version}`));
+      data.entries.forEach((item) => {
+        (item.ports || []).forEach((port, index) => {
+          const version = (item.versions || [])[index] || (item.versions || [])[0];
+          if (version) endpointMap.set(`${port}|${version}`, `${port} / ${version}`);
+        });
+      });
+      $('endpoint').innerHTML = '<option value="all">全部</option>' + [...endpointMap.entries()]
+        .sort((a, b) => a[1].localeCompare(b[1], undefined, {numeric: true}))
+        .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join('');
+    }
+
+    function renderSummary(data) {
+      const isAudit = data.kind === 'mcpwn_audit_review';
+      const targetCount = (data.targets || []).length || new Set(data.entries.flatMap((item) => item.ports || [])).size;
+      $('summary').innerHTML = `<div class="summary-main">
+        <h2>${escapeHtml(isAudit ? '2026-09-10 DVMCP / Excel MCP 审计批次' : '已加载 McPwn 扫描产物')}</h2>
+        <div class="summary-meta"><span>run_id: <code>${escapeHtml(data.run_id || '未记录')}</code></span><span>状态: ${escapeHtml(data.status || '未记录')}</span><span>目标: ${targetCount}</span><span>${escapeHtml(data.scope || '')}</span><span>报告: <code>${escapeHtml(data.source?.report || '未记录')}</code></span><span>trace: <code>${escapeHtml(data.source?.trace || '未记录')}</code></span></div>
+      </div><div class="summary-status">${isAudit ? '证据已脱敏' : '只读产物查看'}</div>`;
+    }
+
+    function renderStats(data) {
+      const entries = data.entries;
+      const confirmed = entries.filter((item) => item.status !== 'fix_verification');
+      const count = (level) => entries.filter((item) => item.severity === level).length;
+      $('confirmed-total').textContent = confirmed.length;
+      $('entry-total').textContent = entries.length;
+      $('critical-count').textContent = count('Critical');
+      $('high-count').textContent = count('High');
+      $('medium-count').textContent = count('Medium');
+      $('low-count').textContent = count('Low');
+      $('info-count').textContent = count('Info');
+    }
+
+    function renderSurfaceSummary(data) {
+      const surfaces = [...new Set(data.entries.map((item) => item.surface))].sort();
+      $('surface-summary').innerHTML = surfaces.map((surface) => {
+        const entries = data.entries.filter((item) => item.surface === surface);
+        const confirmed = entries.filter((item) => item.status !== 'fix_verification').length;
+        const fixes = entries.filter((item) => item.status === 'fix_verification').length;
+        const ports = [...new Set(entries.flatMap((item) => item.ports || []))].sort((a, b) => a - b).join('、') || '由产物记录';
+        return `<article class="panel surface-card"><header><h3>${escapeHtml(surface)}</h3><span>${confirmed} confirmed</span></header><p>${escapeHtml(ports)} · ${fixes ? `${fixes} 条修复验证` : '无修复验证项'} · ${entries.length} 条目</p></article>`;
+      }).join('');
+    }
+
+    function matchesEndpoint(item, value) {
+      if (value === 'all') return true;
+      const [port, version] = value.split('|');
+      return (item.ports || []).map(String).some((itemPort, index) => {
+        const itemVersion = (item.versions || [])[index] || (item.versions || [])[0];
+        return itemPort === port && itemVersion === version;
+      });
+    }
+
+    function filteredEntries(data) {
+      const query = $('query').value.trim().toLowerCase();
+      const surface = $('surface').value;
+      const severity = $('severityFilter').value;
+      const status = $('statusFilter').value;
+      const endpoint = $('endpoint').value;
+      return data.entries.filter((item) => {
+        const haystack = [item.id, item.title, item.surface, item.kind, item.evidence, item.reproduction, ...(item.ports || []), ...(item.versions || [])].join(' ').toLowerCase();
+        return (!query || haystack.includes(query)) && (surface === 'all' || item.surface === surface) && (severity === 'all' || item.severity === severity) && (status === 'all' || item.status === status) && matchesEndpoint(item, endpoint);
+      }).sort((a, b) => (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9) || a.id.localeCompare(b.id, undefined, {numeric: true}));
+    }
+
+    function findingCard(item, index) {
+      const fix = item.status === 'fix_verification';
+      const severity = normalizeSeverity(item.severity);
+      const status = statusLabel(item.status);
+      const confidence = Number.isFinite(Number(item.confidence)) ? `<span>confidence ${Number(item.confidence).toFixed(2)}</span>` : '';
+      const signals = (item.signals || []).map((signal) => `<li><code>${escapeHtml(signal.signal_id)}</code> ${escapeHtml(signal.matched_text)}</li>`).join('');
+      const remediation = item.remediation ? `<div><div class="detail-label">修复建议</div><p>${escapeHtml(item.remediation)}</p></div>` : '';
+      return `<article class="finding" data-severity="${escapeHtml(severity)}">
+        <button class="finding-main" type="button" aria-expanded="false" aria-controls="detail-${index}">
+          <div class="finding-top"><span class="id">${escapeHtml(item.id)}</span><span class="severity ${escapeHtml(severity)}">${escapeHtml(fix ? 'FIX VERIFIED' : severity.toUpperCase())}</span></div>
+          <h3>${escapeHtml(item.title || item.id)}</h3>
+          <div class="meta"><span>${escapeHtml(item.surface || '未分类')}</span><span>${escapeHtml(targetLabel(item))}</span><span class="${fix ? 'status-fix' : ''}">${status}</span>${confidence}</div>
+        </button>
+        <div class="detail" id="detail-${index}"><div class="detail-grid">
+          <div><div class="detail-label">漏洞详情 / 脱敏证据</div><p class="evidence">${escapeHtml(findingEvidence(item))}</p></div>
+          <div><div class="detail-label">最小复现操作</div><p><code>${escapeHtml(findingReproduction(item))}</code></p></div>
+          <div><div class="detail-label">分类与目标</div><p>${escapeHtml(item.kind || '未记录')} · ${escapeHtml(targetLabel(item))}</p></div>
+          <div><div class="detail-label">验收状态</div><p>${escapeHtml(fix ? '同样的路径在 0.1.8 被拒绝；这是修复验证，不计入漏洞。' : '已确认漏洞；该条目计入 19 个确认漏洞。')}</p></div>
+          ${signals ? `<div><div class="detail-label">命中信号</div><ul>${signals}</ul></div>` : ''}
+          ${remediation}
+        </div></div>
+      </article>`;
+    }
+
+    function renderFindings(data) {
+      const items = filteredEntries(data);
+      $('count').textContent = `${items.length} / ${data.entries.length} 条目`;
+      $('findings').innerHTML = items.length ? items.map(findingCard).join('') : '<div class="empty">没有匹配项。调整筛选条件后再试。</div>';
+      document.querySelectorAll('.finding-main').forEach((button) => button.addEventListener('click', () => {
+        const parent = button.closest('.finding');
+        const open = parent.classList.toggle('open');
+        button.setAttribute('aria-expanded', String(open));
+      }));
+    }
+
+    function renderStaticHits(data) {
+      const hits = Array.isArray(data.static_hits) ? data.static_hits : [];
+      $('static-hits').innerHTML = hits.length ? `<table><thead><tr><th>严重级</th><th>规则</th><th>对象</th><th>摘要</th></tr></thead><tbody>${hits.map((hit) => `<tr><td>${escapeHtml(hit.severity)}</td><td><code>${escapeHtml(hit.rule_id)}</code></td><td>${escapeHtml(hit.subject)}</td><td>${escapeHtml(hit.summary)}</td></tr>`).join('')}</tbody></table>` : '<p>本批次没有单独记录的静态预筛命中。</p>';
+    }
+
+    function renderNotes(data) {
+      const notes = [data.source?.evidence_policy, ...(data.notes || [])].filter(Boolean);
+      $('notes').innerHTML = notes.length ? notes.map((note) => `<li>${escapeHtml(note)}</li>`).join('') : '<li>没有额外范围说明。</li>';
+    }
+
+    function render(data) {
+      state.data = data;
+      setOptions(data);
+      renderSummary(data);
+      renderStats(data);
+      renderSurfaceSummary(data);
+      renderFindings(data);
+      renderStaticHits(data);
+      renderNotes(data);
+      $('error').classList.add('hidden');
+    }
+
+    function showError(message) {
+      $('error').textContent = `加载失败：${message}`;
+      $('error').classList.remove('hidden');
+    }
+
+    function restoreAudit() {
+      try {
+        if (!window.MCPWN_AUDIT_REVIEW) throw new Error('未找到内置审计数据文件');
+        $('source-mode').textContent = '本批次审计';
+        render(normalizeData(window.MCPWN_AUDIT_REVIEW));
+      } catch (error) { showError(error.message); }
+    }
+
+    $('artifact').addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          $('source-mode').textContent = file.name;
+          render(normalizeData(JSON.parse(reader.result)));
+        } catch (error) { showError(error.message); }
+      };
+      reader.readAsText(file);
+    });
+    $('restore').addEventListener('click', restoreAudit);
+    ['query', 'surface', 'severityFilter', 'statusFilter', 'endpoint'].forEach((id) => $(id).addEventListener('input', () => state.data && renderFindings(state.data)));
+    $('reset').addEventListener('click', () => {
+      $('query').value = '';
+      $('surface').value = 'all';
+      $('severityFilter').value = 'all';
+      $('statusFilter').value = 'all';
+      $('endpoint').value = 'all';
+      if (state.data) renderFindings(state.data);
+    });
+    restoreAudit();
+  </script>
+</body>
+</html>

@@ -11,6 +11,7 @@ shared TokenBudget + WallClock, and writes trace/finding artefacts to disk.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 import uuid
@@ -23,10 +24,11 @@ from mcp_redteam.agent.llm_points import (
     evidence_verdict,
     generate_hypotheses,
     retrospective_hypotheses,
+    scout_hypotheses,
     tool_summary,
 )
 from mcp_redteam.agent.planner import PlannedCandidate, plan, plan_llm
-from mcp_redteam.agent.recon import recon
+from mcp_redteam.agent.recon import Candidate, recon
 from mcp_redteam.agent.supplychain import vet_target_spec
 from mcp_redteam.agent.verifier import (
     _METADATA_ONLY_SIGNALS,
@@ -49,6 +51,11 @@ from mcp_redteam.orchestrator.scan_meta import (
     safe_git_sha,
     stop_reason,
 )
+from mcp_redteam.security import (
+    redact_scan_result,
+    target_artifact_references,
+    target_secret_values,
+)
 from mcp_redteam.targets.mcp_client import McpSession
 from mcp_redteam.vulns.registry import lint_all_cards
 
@@ -64,6 +71,20 @@ DEFAULT_MAX_CANDIDATES = 20
 # roughly 60% to complete their probe chains. Tuned on the fetch real target
 # (llm round: wrong lead truncated at pool, recon SSRF then executes).
 _LLM_HYP_BUDGET_FRACTION = 0.4
+
+# Default per-trace token cap as a share of the scan budget (see
+# scan(..., trace_token_cap)). Same 40% as the llm-hyp pool: one trace may use
+# up to its share but cannot silently eat the whole plan - the real 9010
+# llm-points regression burned the full 40k budget on a single 50-call trace
+# with 0 findings, and half the DVMCP ports stop at budget_tokens with later
+# candidates unexecuted.
+_TRACE_CAP_FRACTION = 0.4
+
+# Structured-delegation hypothesis scout (eval/unknown_shape/scout_exp PLAN):
+# off by default; enabled per-run via MCPWN_HYP_SCOUT=1. The framework spawns
+# a live-probing scout subagent BEFORE generate_hypotheses so its grounded
+# candidates survive dedup over schema guesses.
+_HYP_SCOUT_ENABLED = os.environ.get("MCPWN_HYP_SCOUT", "").strip() == "1"
 
 
 def _resolve_llm_hyp_budget(max_tokens: int, override: int | None) -> int | None:
@@ -82,6 +103,24 @@ def _resolve_llm_hyp_budget(max_tokens: int, override: int | None) -> int | None
     if override is not None:
         return override
     return int(max_tokens * _LLM_HYP_BUDGET_FRACTION)
+
+
+def _resolve_trace_token_cap(max_tokens: int, override: int | None) -> int | None:
+    """Per-trace token cap handed to ``execute_one``.
+
+    - ``None`` (default): auto = 40% of max_tokens. One trace may spend up to
+      its share; reaching the cap stops that trace so the remaining planned
+      candidates keep budget.
+    - ``-1``: disable the cap (legacy unbounded per-trace spend) - used by
+      unknown-shape experiments (vault/delegate) whose discovery REQUIRES
+      free single-trace exploration.
+    - any other int: explicit cap.
+    """
+    if override == -1:
+        return None
+    if override is not None:
+        return override
+    return int(max_tokens * _TRACE_CAP_FRACTION)
 
 _log = logging.getLogger(__name__)
 
@@ -192,6 +231,7 @@ async def scan(
     seed: int | None = None,
     graph: bool = False,
     llm_hyp_budget: int | None = None,
+    trace_token_cap: int | None = None,
 ) -> ScanResult:
     """Scan one MCP target (SSE / streamable HTTP URL, stdio command, or
     ``TargetSpec``). Write traces/findings under `out_dir`.
@@ -208,6 +248,12 @@ async def scan(
     experiments whose discovery requires free LLM-hypothesis exploration);
     pass 0 to make every LLM-hypothesis candidate skip immediately; any other
     int is an explicit pool size.
+
+    ``trace_token_cap`` bounds how much attacker budget ONE trace may spend
+    (default: 40% of ``max_tokens``). Reaching the cap stops that trace and
+    rotates to the next candidate instead of letting a single wrong lead eat
+    the whole plan. Pass ``-1`` to disable (unknown-shape experiments); any
+    other int is an explicit cap.
     """
     if graph:
         return await _scan_graph(
@@ -225,6 +271,7 @@ async def scan(
             llm_points=llm_points,
             seed=seed,
             llm_hyp_budget=llm_hyp_budget,
+            trace_token_cap=trace_token_cap,
         )
     out_dir.mkdir(parents=True, exist_ok=True)
     trace_dir = out_dir / "traces"
@@ -243,6 +290,7 @@ async def scan(
 
     budget = TokenBudget(max_tokens_total=max_tokens)
     budget.llm_hyp_remaining = _resolve_llm_hyp_budget(max_tokens, llm_hyp_budget)
+    resolved_trace_cap = _resolve_trace_token_cap(max_tokens, trace_token_cap)
     clock = WallClock(wall_seconds=wall_seconds)
     attacker = make_client("attacker", temperature=attacker_temperature, seed=seed)
     judge_fn = _make_judge_fn_or_none()
@@ -270,20 +318,50 @@ async def scan(
             # plaintext remote URL) joins the surface hits.
             static_hits = static_hits + vet_target_spec(spec)
 
-            # Stage-2 LLM decision point 1: hypothesis generation. Additive
-            # only - never reorders candidates (M3 permutation lesson).
-            if llm_points:
-                extra = generate_hypotheses(
+            # Structured-delegation hypothesis scout (MCPWN_HYP_SCOUT=1): runs
+            # BEFORE the schema-guessing decision point. When the scout
+            # produced grounded candidates it REPLACES generate_hypotheses
+            # (same decision point, live-probing implementation); the 2-sample
+            # generator only runs as fallback when the scout yielded nothing.
+            scout_extra: list[Candidate] = []
+            if _HYP_SCOUT_ENABLED:
+                scout_extra = await scout_hypotheses(
+                    session,
                     candidates,
                     tools_seen,
                     resources_seen,
                     attacker[0],
                     attacker[1],
                     budget=budget,
+                    clock=clock,
                     tool_descriptions=tool_summary(recon_calls),
                     sse_url=endpoint,
                 )
-                candidates = candidates + extra
+                candidates = candidates + scout_extra
+
+            # Stage-2 LLM decision point 1: hypothesis generation. Additive
+            # only - never reorders candidates (M3 permutation lesson).
+            # With the scout enabled and productive, it REPLACES this
+            # schema-guessing decision point (same slot, live-probing
+            # implementation); generation only runs as fallback.
+            if llm_points:
+                if _HYP_SCOUT_ENABLED and scout_extra:
+                    _log.info(
+                        "hypothesis generation skipped: scout produced %d grounded candidate(s)",
+                        len(scout_extra),
+                    )
+                else:
+                    extra = generate_hypotheses(
+                        candidates,
+                        tools_seen,
+                        resources_seen,
+                        attacker[0],
+                        attacker[1],
+                        budget=budget,
+                        tool_descriptions=tool_summary(recon_calls),
+                        sse_url=endpoint,
+                    )
+                    candidates = candidates + extra
 
             if planner_mode == "llm":
                 planned = plan_llm(
@@ -351,6 +429,7 @@ async def scan(
                     recon_calls=recon_calls,
                     max_inner_steps=max_inner_steps,
                     sandbox_root=sandbox_root,
+                    trace_token_cap=resolved_trace_cap,
                 )
                 traces.append(trace)
                 # Evidence-judge THIS trace now (zero-signal only) so the
@@ -409,6 +488,7 @@ async def scan(
                             recon_calls=recon_calls,
                             max_inner_steps=max_inner_steps,
                             sandbox_root=sandbox_root,
+                            trace_token_cap=resolved_trace_cap,
                         )
                         traces.append(follow_trace)
     except Exception as exc:
@@ -417,6 +497,8 @@ async def scan(
     findings, _ = build_findings(
         traces, trace_dir=trace_dir, budget=budget, judge_fn=judge_fn,
         sandbox_root=sandbox_root, evidence_judge_fn=evidence_judge_fn,
+        artifact_secrets=target_secret_values(spec),
+        artifact_references=target_artifact_references(spec),
     )
     wall_elapsed = time.perf_counter() - wall_start
 
@@ -429,6 +511,8 @@ async def scan(
         wall_seconds=wall_elapsed,
         attacker_tokens=budget.attacker_tokens,
         judge_tokens=budget.judge_tokens,
+        attacker_cache_hit_tokens=budget.attacker_cache_hit_tokens,
+        attacker_tokens_effective=budget.attacker_tokens_effective,
         tools_seen=tools_seen,
         resources_seen=resources_seen,
         traces=traces,
@@ -446,7 +530,7 @@ async def scan(
     )
 
     (out_dir / "scan_result.json").write_text(
-        result.model_dump_json(indent=2), encoding="utf-8"
+        redact_scan_result(result).model_dump_json(indent=2), encoding="utf-8"
     )
     return result
 
@@ -466,6 +550,7 @@ async def _scan_graph(
     llm_points: bool = False,
     seed: int | None = None,
     llm_hyp_budget: int | None = None,
+    trace_token_cap: int | None = None,
 ) -> ScanResult:
     """LangGraph-shaped twin of ``scan`` (grill decision 7a / graph=True).
 
@@ -524,6 +609,7 @@ async def _scan_graph(
         seed=seed,
         llm_points=llm_points,
         spec=spec,
+        trace_token_cap=_resolve_trace_token_cap(max_tokens, trace_token_cap),
     )
 
     initial_state: McPwnState = {
@@ -563,7 +649,7 @@ async def _scan_graph(
                 partial = dict(initial_state)
         deps.result = assemble_result(deps, partial, error=error)
         (out_dir / "scan_result.json").write_text(
-            deps.result.model_dump_json(indent=2), encoding="utf-8"
+            redact_scan_result(deps.result).model_dump_json(indent=2), encoding="utf-8"
         )
 
     assert deps.result is not None, "graph scan produced no result"

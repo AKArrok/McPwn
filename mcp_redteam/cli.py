@@ -21,6 +21,8 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
+from mcp_redteam import __version__
+
 load_dotenv()
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -30,6 +32,22 @@ app.add_typer(eval_app, name="eval")
 eval_app.add_typer(dvmcp_app, name="dvmcp")
 
 console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
+@app.callback()
+def _main_callback(
+    version: bool = typer.Option(
+        False, "--version", callback=_version_callback, is_eager=True,
+        help="Print the installed McPwn version and exit.",
+    ),
+) -> None:
+    """McPwn: authorized MCP security assessment CLI."""
 
 
 def _parse_headers(raw: str | None) -> dict[str, str]:
@@ -156,9 +174,8 @@ def scan_cmd(
         None,
         "--env",
         help="Comma-separated k=v env vars for a --command stdio child, "
-        "e.g. EXCEL_FILES_PATH=/tmp/sandbox. WARNING: values are stored "
-        "in PLAINTEXT in scan_result.json and the generated PoC scripts "
-        "(needed for replay) - never pass secrets here.",
+        "e.g. EXCEL_FILES_PATH=/tmp/sandbox. Persisted artifacts replace "
+        "values with ${KEY} references; set those variables before replay.",
     ),
     target_config: Path | None = typer.Option(
         None,
@@ -387,6 +404,7 @@ def static_scan_cmd(
     from mcp_redteam.agent.static_scan import scan_surface_static
     from mcp_redteam.agent.supplychain import vet_target_spec
     from mcp_redteam.contracts import StaticHit, TargetSpec
+    from mcp_redteam.security import redact_text, redact_url
     from mcp_redteam.targets.mcp_client import McpSession
 
     if not command and not target:
@@ -422,13 +440,18 @@ def static_scan_cmd(
         table.add_row(h.severity, h.rule_id, h.subject, h.where, h.summary)
     if hits:
         console.print(table)
-    console.print(f"[green]{len(hits)}[/green] static hit(s) on {spec.display}")
+    safe_display = (
+        redact_url(spec.url) if spec.url else redact_text(spec.display)
+    )
+    console.print(f"[green]{len(hits)}[/green] static hit(s) on {safe_display}")
     if out:
         import json as _json
 
         from mcp_redteam.report.sarif import to_sarif
 
-        pseudo = _StaticScanResult(target=spec.display, transport=spec.transport.value, hits=hits)
+        pseudo = _StaticScanResult(
+            target=safe_display, transport=spec.transport.value, hits=hits
+        )
         out.write_text(
             _json.dumps(to_sarif(pseudo), indent=2, ensure_ascii=False), encoding="utf-8"
         )
