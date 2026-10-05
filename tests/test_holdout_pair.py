@@ -16,6 +16,7 @@ local cache_server subprocess but needs no external services.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from eval.holdout.runner import (
     ControlReplay,
@@ -54,6 +55,19 @@ def _finding(signal_id: str | None = None, *, grounded: bool = True) -> Finding:
     )
 
 
+def _result(secret_at: int = 0) -> SimpleNamespace:
+    """Duck-typed scan result in the NEW grounding index space: the trace's
+    FULL attack_calls carry the exploit read at ``secret_at`` — grounding no
+    longer checks the trimmed PoC sequence (that mismatch was the 0/5 false
+    FAIL in the first complete llm round)."""
+    calls = [
+        _call("cache_get", {"owner": "bob", "key": "config"},
+              "SECRET-CONF-ALICE-2026" if i == secret_at else f"benign response {i}")
+        for i in range(2)
+    ]
+    return SimpleNamespace(traces=[SimpleNamespace(attack_calls=calls)])
+
+
 CACHE_PAIR = {
     "pair_id": "cache-tenant-collision",
     "expected_vuln_classes": ["auth_bypass"],
@@ -89,19 +103,19 @@ def test_cache_fixed_denial_fires_zero_signals():
 def test_holdout_pair_accepts_grounded_llm_evidence():
     """allow_llm_evidence pair accepts a grounded llm verdict as the positive."""
     f = _finding("llm_evidence_verdict", grounded=True)
-    assert finding_matches_pair(f, CACHE_PAIR)
+    assert finding_matches_pair(f, CACHE_PAIR, _result())
 
 
 def test_holdout_pair_rejects_ungrounded_llm_evidence():
     """An llm signal without a call index must NOT count as detection."""
     f = _finding("llm_evidence_verdict", grounded=False)
-    assert not finding_matches_pair(f, CACHE_PAIR)
+    assert not finding_matches_pair(f, CACHE_PAIR, _result())
 
 
 def test_pair_rejects_wrong_vuln_class():
     f = _finding("llm_evidence_verdict", grounded=True)
     f = f.model_copy(update={"vuln_class": VulnClass.PATH_TRAVERSAL})
-    assert not finding_matches_pair(f, CACHE_PAIR)
+    assert not finding_matches_pair(f, CACHE_PAIR, _result())
 
 
 # ── exploit_evidence_grounded ────────────────────────────────────────────────
@@ -109,11 +123,11 @@ def test_pair_rejects_wrong_vuln_class():
 def test_deterministic_signal_needs_call_index():
     """A deterministic signal without a source call index is not grounded."""
     f = _finding("sandbox_escape_write", grounded=False)
-    assert exploit_evidence_grounded(f) is False
+    assert exploit_evidence_grounded(f, None) is False
 
 
 def test_no_signals_is_not_grounded():
-    assert exploit_evidence_grounded(_finding(None)) is False
+    assert exploit_evidence_grounded(_finding(None), None) is False
 
 
 # ── control replay edges ─────────────────────────────────────────────────────
@@ -129,7 +143,8 @@ class _FixedSession:
 
 async def test_control_replay_denial_counts_as_blocked():
     replay = await replay_finding_on_control(
-        _finding("llm_evidence_verdict", grounded=True), _FixedSession(), CACHE_PAIR
+        _finding("llm_evidence_verdict", grounded=True), _FixedSession(), CACHE_PAIR,
+        vulnerable_result=_result(),
     )
     assert replay.control_blocked is True
     assert replay.same_signal_reproduced is False
@@ -147,6 +162,7 @@ async def test_control_replay_fails_when_fix_still_leaks():
     replay = await replay_finding_on_control(
         _finding("llm_evidence_verdict", grounded=True),
         _ReplayingSession(), CACHE_PAIR,
+        vulnerable_result=_result(),
     )
     assert replay.control_blocked is False
     assert replay.passed is False
@@ -174,7 +190,7 @@ def test_run_fails_when_control_replay_missing():
     f = _finding("llm_evidence_verdict", grounded=True)
     verdict = evaluate_pair_run(
         CACHE_PAIR,
-        SimpleNamespace(findings=[f]),
+        SimpleNamespace(findings=[f], traces=_result().traces),
         SimpleNamespace(findings=[]),
         [],
     )
@@ -197,7 +213,7 @@ def test_run_fails_when_control_replay_not_passed():
         same_signal_reproduced=True, passed=False,
     )
     verdict = evaluate_pair_run(
-        CACHE_PAIR, SimpleNamespace(findings=[f]), SimpleNamespace(findings=[]), [bad]
+        CACHE_PAIR, SimpleNamespace(findings=[f], traces=_result().traces), SimpleNamespace(findings=[]), [bad]
     )
     assert verdict["status"] == "FAIL"
     assert verdict["control_replay_passed"] is False
@@ -246,7 +262,7 @@ async def test_replay_on_real_fixed_server_denies_exploit():
 
     async with fresh_cache_target(19217, fixed=True) as sse_url, McpSession(sse_url) as session:
         replay = await replay_finding_on_control(
-            _cache_exploit_finding(), session, CACHE_PAIR
+            _cache_exploit_finding(), session, CACHE_PAIR, vulnerable_result=_result(secret_at=1)
         )
     assert replay.calls_replayed == 2
     assert replay.control_blocked is True
@@ -263,7 +279,7 @@ async def test_replay_on_real_vulnerable_server_leaks():
 
     async with fresh_cache_target(19218) as sse_url, McpSession(sse_url) as session:
         replay = await replay_finding_on_control(
-            _cache_exploit_finding(), session, CACHE_PAIR
+            _cache_exploit_finding(), session, CACHE_PAIR, vulnerable_result=_result(secret_at=1)
         )
     assert replay.calls_replayed == 2
     assert replay.control_blocked is False

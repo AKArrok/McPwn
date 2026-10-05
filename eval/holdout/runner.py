@@ -122,43 +122,56 @@ def _signal_matches(pair: dict[str, Any], signal_id: str) -> bool:
     return signal_id in expected or signal_id.startswith(prefixes)
 
 
-def exploit_evidence_grounded(finding: Finding) -> bool:
+def exploit_evidence_grounded(finding: Finding, result: Any) -> bool:
+    """Grounding check in the FULL attack_calls index space.
+
+    Finding.signals[].source_call_index indexes the trace's full attack_calls
+    (the grounding gate's definition domain), NOT the trimmed PoC sequence —
+    the PoC is a re-selected minimal replay, so an index valid in trace space
+    is meaningless in PoC space (first llm-round exercise: every grounded
+    finding scored 0/5 because index 5 does not exist in a 4-call PoC).
+    """
     if not finding.poc_call_sequence:
         return False
     relevant = [signal for signal in finding.signals if signal.severity in {"high", "critical"}]
     if not relevant:
         return False
-    for signal in relevant:
-        if signal.signal_id == "llm_evidence_verdict":
-            if (
-                signal.source_call_index is not None
-                and signal.matched_text
-                and 0 <= signal.source_call_index < len(finding.poc_call_sequence)
-                and signal.matched_text
-                in finding.poc_call_sequence[signal.source_call_index].result_text
-            ):
-                return True
-        elif signal.source_call_index is not None:
-            return True
+    deterministic = [s for s in relevant if s.signal_id != "llm_evidence_verdict"]
+    if any(s.source_call_index is not None for s in deterministic):
+        # Deterministic signals were grounded by their detector at capture
+        # time (_scan_calls only scans real result_text) — no trace needed.
+        return True
+    for trace in getattr(result, "traces", []) or []:
+        calls = list(trace.attack_calls)
+        for signal in relevant:
+            if signal.signal_id == "llm_evidence_verdict":
+                idx = signal.source_call_index
+                if (
+                    idx is not None
+                    and signal.matched_text
+                    and 0 <= idx < len(calls)
+                    and signal.matched_text in (calls[idx].result_text or "")
+                ):
+                    return True
     return False
 
 
-def finding_matches_pair(finding: Finding, pair: dict[str, Any]) -> bool:
+def finding_matches_pair(finding: Finding, pair: dict[str, Any], result: Any) -> bool:
     classes = set(pair.get("expected_vuln_classes") or [])
     if finding.vuln_class.value not in classes:
         return False
     ids = {signal.signal_id for signal in finding.signals}
     if ids & set(pair.get("expected_signal_ids") or []):
-        return exploit_evidence_grounded(finding)
+        return exploit_evidence_grounded(finding, result)
     return bool(
         pair.get("allow_llm_evidence")
         and "llm_evidence_verdict" in ids
-        and exploit_evidence_grounded(finding)
+        and exploit_evidence_grounded(finding, result)
     )
 
 
-def _eligible_finding(pair: dict[str, Any], finding: Finding) -> bool:
-    return finding_matches_pair(finding, pair)
+def _eligible_finding(pair: dict[str, Any], finding: Finding, result: Any) -> bool:
+    return finding_matches_pair(finding, pair, result)
 
 
 def _fixed_has_same_family_finding(pair: dict[str, Any], finding: Finding) -> bool:
@@ -173,7 +186,7 @@ def evaluate_pair_run(
     fixed_result: ScanResult | Any,
     controls: list[ControlReplay],
 ) -> dict[str, Any]:
-    eligible = [f for f in vulnerable_result.findings if _eligible_finding(pair, f)]
+    eligible = [f for f in vulnerable_result.findings if _eligible_finding(pair, f, vulnerable_result)]
     positive_ids = {f.finding_id for f in eligible}
     fixed_same_family = [
         f for f in fixed_result.findings if _fixed_has_same_family_finding(pair, f)
@@ -210,6 +223,7 @@ async def replay_finding_on_control(
     session: Any,
     pair: dict[str, Any],
     sandbox_root: str | None = None,
+    vulnerable_result: Any = None,
 ) -> ControlReplay:
     """Replay the exact positive PoC and demand explicit fixed-version blocking."""
     replayed: list[McpCall] = []
@@ -243,7 +257,7 @@ async def replay_finding_on_control(
         None,
     )
     blocked = denied_pattern is not None
-    grounded = exploit_evidence_grounded(finding)
+    grounded = exploit_evidence_grounded(finding, vulnerable_result)
     passed = bool(replayed) and grounded and blocked and not same_signal
     return ControlReplay(
         finding_id=finding.finding_id,
@@ -323,17 +337,19 @@ async def _run_pair_once(
         fixed_result = await _scan_target(fixed, fixed_spec, run_dir / "fixed", llm, seed)
         async with McpSession(fixed_spec) as session:
             for finding in vulnerable_result.findings:
-                if _eligible_finding(pair, finding):
+                if _eligible_finding(pair, finding, vulnerable_result):
                     controls.append(await replay_finding_on_control(
-                        finding, session, pair, fixed.sandbox_root
+                        finding, session, pair, fixed.sandbox_root,
+                        vulnerable_result,
                     ))
 
     verdict = evaluate_pair_run(pair, vulnerable_result, fixed_result, controls)
     verdict.update({
         "index": index,
         "seed": seed,
-        "vulnerable_stop_reason": vulnerable_result.stop_reason.value,
-        "fixed_stop_reason": fixed_result.stop_reason.value,
+        # ScanResult.stop_reason is a plain Literal str, not an enum.
+        "vulnerable_stop_reason": vulnerable_result.stop_reason,
+        "fixed_stop_reason": fixed_result.stop_reason,
         "controls": [asdict(control) for control in controls],
     })
     return verdict
