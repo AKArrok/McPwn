@@ -186,7 +186,7 @@ pip install -e ".[dev]"
 | role | provider | model | key_env |
 |---|---|---|---|
 | attacker | DeepSeek 官方 API | `deepseek-v4-flash` | `DEEPSEEK_API_KEY` |
-| judge | 阿里云百炼 DashScope | `qwen3.8-27b` | `DASHSCOPE_API_KEY` |
+| judge | 阿里云百炼 DashScope | `qwen-flash` | `DASHSCOPE_API_KEY` |
 
 ### 冒烟测试
 
