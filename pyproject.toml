@@ -18,7 +18,7 @@ dependencies = [
     "rich",
     "python-dotenv",
     "jsonschema>=4",
-    "pandas>=2.2",
+    "pandas>=3.0.6",
     "matplotlib>=3.8",
     "typer>=0.12",
     "langgraph>=1.2,<2",
