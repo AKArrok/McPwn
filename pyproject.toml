@@ -17,7 +17,7 @@ dependencies = [
     "jinja2",
     "rich",
     "python-dotenv",
-    "jsonschema>=4",
+    "jsonschema>=4.26.0",
     "pandas>=2.2",
     "matplotlib>=3.8",
     "typer>=0.12",
