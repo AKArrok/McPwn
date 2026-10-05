@@ -43,3 +43,11 @@ eval/fetch_ssrf/.venv/
 .coverage
 coverage.xml
 htmlcov/
+
+# Personal study notes & session-local tooling (never push)
+导学-ct-guide.md
+面经-ct-guide.md
+.zcodeignore
+.tmp-pytest/
+.codex-*/
+.tmp-subagent-check-*/

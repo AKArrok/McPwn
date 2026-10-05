@@ -34,8 +34,33 @@ grounded findings, replayable PoCs, machine-readable artifacts, and severity gat
 
 ---
 
+## TL;DR (English)
+
+McPwn is an autonomous red-team agent for MCP (Model Context Protocol) servers:
+given only a transport endpoint (SSE / streamable HTTP / stdio), it runs a
+bounded recon → hypothesis → attack → verify → report loop and emits
+human-readable `findings.md`, machine-readable artifacts (`findings.json` +
+SARIF), and replayable PoC scripts.
+
+- **Agent engineering first** — bounded function-calling attack loop, plus an
+  explicit LangGraph state machine parity-tested against the hand-written
+  runner; per-trace token caps, context compaction, prompt-bundle slimming,
+  and effective-cost metering that discounts provider prefix-cache hits.
+- **Grounded evidence, no LLM self-grading** — every claim must be a verbatim
+  substring of a real MCP call result; weighted-signal confidence
+  (`1 - prod(1 - w_i)`), evidence-event dedup, and a narrow L2 judge whose
+  blast radius is capped by deterministic co-occurrence rules.
+- **Auditable eval discipline** — frozen sha256-locked holdout, paired
+  vulnerable/fixed fixtures, N=3 repeats, strict-better (falsifiable)
+  criteria. DVMCP regression set @N=3: runner **30/30**, graph **29/30**,
+  FPR **0** across ~200 scans, effective tokens/finding **-68%/-80%** vs
+  baseline. Honest scope: this is a regression set, not a generalization claim.
+
+---
+
 ## 目录
 
+- [TL;DR (English)](#tldr-english)
 - [为什么是 McPwn](#为什么是-mcpwn)
 - [Engineering credibility](#engineering-credibility)
 - [特性](#特性)
@@ -109,6 +134,7 @@ flowchart LR
 | **三层预算闸门** | turns / tokens / wall-time 任一超限即停;judge 的 LLM token 独立计数,不挤占攻击预算 |
 | **可复现扫描** | `ScanResult` 记录 git_sha / config_snapshot / model / seed / attack_messages_sha1,数月后仍可还原"是哪份代码+哪个模型产出该结论" |
 | **LangGraph 双路径** | 默认手写循环 + `--graph` 显式状态机 (跨 trace 记忆 / checkpoint / 复盘),finding 集合等价由 parity 测试守护 |
+| **预算/成本工程** | per-trace token 子闸门 (默认 40% 预算) + 上下文压缩 + 提示词瘦身 (bundle -19%);DeepSeek 前缀缓存有效成本计量 (命中按 1/10 折算),effective tok/finding 3.4k-3.6k,对照基线 **-68%/-80%** |
 | **真实世界靶机** | excel-mcp-server CVE-2026-40576 正向/负向双版本对照回归 |
 
 ## 快速开始
@@ -132,7 +158,7 @@ pip install -e ".[dev]"
 | role | provider | model | key_env |
 |---|---|---|---|
 | attacker | DeepSeek 官方 API | `deepseek-v4-flash` | `DEEPSEEK_API_KEY` |
-| judge | 火山 Ark (Coding/Agent Plan) | `doubao-seed-2.0-lite` | `ARK_API_KEY` |
+| judge | 阿里云百炼 DashScope | `qwen3.8-27b` | `DASHSCOPE_API_KEY` |
 
 ### 冒烟测试
 
@@ -229,12 +255,12 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
 | **冻结 holdout** | 独立测试集 | 从未调参样本上的外推证据 | 失败后调参仍沿用同一 lock |
 | **N≥5 重复** | 同目标运行方差 | LLM 在同一目标上的稳定性 | 样本量增加 |
 
-因此 `8/10`、`9/10`、`FPR 0`、`replay 5/5` 只证明当前版本没有破坏这些
-已知回归案例,不能外推为"面对陌生 MCP 有 80%-90% 召回"。
+因此 `30/30`、`29/30`、`FPR 0`、`replay 15/15` 只证明当前版本没有破坏这些
+已知回归案例,不能外推为"面对陌生 MCP 有近 100% 召回"。
 
 | 评估 | 靶机 | 结果 |
 |---|---|---|
-| **DVMCP 回归测试集(已见/反复调参)** | 10 个漏洞端口 (9001-9010) | recall **8/10** (runner) / **9/10** (graph), FPR **0.00**, replay **5/5** |
+| **DVMCP 回归测试集(已见/反复调参)** | 10 个漏洞端口 (9001-9010) × N=3 | recall **30/30 = 1.00** (runner) / **29/30 = 0.97** (graph), FPR **恒 0** (v1-v9 约 200 次 scan), replay **15/15** |
 | **真实世界** | excel-mcp-server CVE-2026-40576 | 0.1.7 **exploited** / 0.1.8 **blocked** 双 PASS (docker 双核对) |
 | **未知形状** | vault-mcp (CWE-639 子串鉴权) | baseline 0 findings → LLM 版 **3/3 PASS** + 提示词消融 **D 3/3** |
 | **跨形状开发验证** | delegate-mcp (CWE-639 授权作用域) | **3/3 PASS** (strict-better, 但已经历调参,不作独立泛化结论) |

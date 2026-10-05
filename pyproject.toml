@@ -1,6 +1,6 @@
 [project]
 name = "mcpwn"
-version = "0.2.0"
+version = "0.3.0"
 description = "MCP red-team agent: autonomous vulnerability discovery for MCP servers (agent-first; DVMCP as regression fixture)"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -73,6 +73,7 @@ target-version = "py313"
 
 [tool.ruff.lint.per-file-ignores]
 "mcp_redteam/agent/executor.py" = ["BLE001"]
+"mcp_redteam/agent/llm_points.py" = ["BLE001"]
 "mcp_redteam/cli.py" = ["BLE001", "B008"]
 "mcp_redteam/orchestrator/runner.py" = ["BLE001"]
 "mcp_redteam/orchestrator/reset_hook.py" = ["PLW1510"]

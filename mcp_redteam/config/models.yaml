@@ -1,7 +1,7 @@
 # 模型注册表:key 是逻辑名,value 描述 OpenAI 兼容端点。API key 走环境变量。
 # 可选字段: seed (int) - LLM 采样种子, 仅当端点支持 OpenAI `seed` 参数时设置;
 # DeepSeek 不支持 seed, 留空即可 (Stage-3 "同 seed" 如实记录, 漂移看 attack_messages_sha1)。
-# Judge 端点不可用时 (如 ARK CodingPlan 订阅过期) 可设 MCPWN_JUDGE=attacker,
+# Judge 端点不可用时可设 MCPWN_JUDGE=attacker,
 # 把 judge 角色整体降级到 attacker 的模型 spec (见 models/chat.py::load_spec)。
 attacker:
   provider: deepseek
@@ -14,7 +14,7 @@ attacker:
 judge:
   provider: dashscope
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-  # 阿里云百炼的 Qwen 模型，替代订阅失效的 ARK CodingPlan/doubao (2026-10-02)。
+  # 阿里云百炼 DashScope 的 Qwen 模型 (judge 二审/证据判定)。
   model: qwen3.8-27b
   temperature: 0.0
   timeout: 60
