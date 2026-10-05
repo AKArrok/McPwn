@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>McPwn · 扫描控制台预览</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand">
+          <span class="brand-symbol" aria-hidden="true">M<span>·</span></span
+          ><span class="brand-copy"
+            ><strong>McPwn</strong><small>本地扫描控制台</small></span
+          >
+        </div>
+        <div class="sidebar-label">工作空间 <span>01</span></div>
+        <nav class="nav-list" aria-label="页面">
+          <button
+            type="button"
+            class="nav-link active"
+            data-page="overview"
+            aria-current="page"
+          >
+            <span class="nav-glyph">▦</span><span>总览</span>
+          </button>
+          <button type="button" class="nav-link" data-page="targets">
+            <span class="nav-glyph">◎</span><span>目标</span>
+          </button>
+          <button type="button" class="nav-link" data-page="runs">
+            <span class="nav-glyph">≡</span><span>运行记录</span>
+          </button>
+          <button type="button" class="nav-link" data-page="findings">
+            <span class="nav-glyph">◇</span><span>发现项</span>
+          </button>
+          <button type="button" class="nav-link" data-page="offline">
+            <span class="nav-glyph">⇧</span><span>离线导入</span>
+          </button>
+        </nav>
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-foot">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <div>
+            <strong>界面预览模式</strong><small>尚未连接扫描后端</small>
+          </div>
+        </div>
+        <div class="sidebar-note">
+          仅用于本机单用户<br />所有示例数据均为排版演示
+        </div>
+      </aside>
+
+      <main class="main" id="main">
+        <header class="topbar">
+          <div class="breadcrumb">
+            McPwn <span>/</span> <strong id="breadcrumb-page">总览</strong>
+          </div>
+          <div class="topbar-right">
+            <span class="env-chip"
+              ><span aria-hidden="true"></span> 演示预览</span
+            ><button type="button" class="top-action" data-page="new-scan">
+              ＋ 新建扫描
+            </button>
+          </div>
+        </header>
+        <div class="page-wrap">
+          <div class="preview-note" role="status">
+            <span class="preview-icon">i</span>
+            <div>
+              <strong>这是界面设计预览</strong
+              ><span
+                >当前 D 盘分支没有 Web
+                后端；下方目标、运行与发现项均是示意数据，不代表真实扫描结果。</span
+              >
+            </div>
+          </div>
+
+          <section
+            class="page active"
+            id="page-overview"
+            aria-labelledby="overview-title"
+          >
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">WORKSPACE / OVERVIEW</p>
+                <h1 id="overview-title">
+                  扫描态势<span class="title-dot">.</span>
+                </h1>
+                <p class="page-subtitle">
+                  先看运行是否完成，再判断发现项的证据强度。
+                </p>
+              </div>
+              <span class="heading-aside">本机 · 单用户</span>
+            </div>
+            <div class="metric-grid" id="metrics"></div>
+            <div class="overview-grid">
+              <section class="panel activity-panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="panel-kicker">RECENT ACTIVITY</p>
+                    <h2>最近运行</h2>
+                  </div>
+                  <button class="text-link" type="button" data-page="runs">
+                    查看全部 <span aria-hidden="true">→</span>
+                  </button>
+                </div>
+                <div id="overview-runs"></div>
+              </section>
+              <div class="overview-side">
+                <section class="panel evidence-panel">
+                  <p class="panel-kicker">EVIDENCE FIRST</p>
+                  <h2>结论分层</h2>
+                  <p class="panel-description">
+                    “疑似”只表示证据命中。只有独立真实重放成功，才能标成“已验证”。
+                  </p>
+                  <div class="status-breakdown" id="status-breakdown"></div>
+                  <button
+                    class="outline-link"
+                    type="button"
+                    data-page="findings"
+                  >
+                    查看发现项 <span aria-hidden="true">↗</span>
+                  </button>
+                </section>
+                <section class="panel scope-panel">
+                  <div class="panel-heading">
+                    <div>
+                      <p class="panel-kicker">SCOPE</p>
+                      <h2>目标覆盖</h2>
+                    </div>
+                  </div>
+                  <div id="scope-list"></div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <section
+            class="page"
+            id="page-targets"
+            aria-labelledby="targets-title"
+          >
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">ASSET INVENTORY</p>
+                <h1 id="targets-title">目标<span class="title-dot">.</span></h1>
+                <p class="page-subtitle">
+                  一个登记目标对应一个明确的 MCP 入口和授权边界。
+                </p>
+              </div>
+              <span class="heading-aside">连接信息已脱敏</span>
+            </div>
+            <div class="section-intro">
+              <span class="section-icon">◎</span>
+              <div>
+                <strong>从登记到扫描</strong
+                ><span
+                  >生产版应先确认授权范围、连接方式和预算；这里只展示布局与状态。</span
+                >
+              </div>
+            </div>
+            <div class="panel table-panel">
+              <div class="table-top">
+                <div>
+                  <h2>已登记目标</h2>
+                  <p>按连接方式和最近活动快速定位。</p>
+                </div>
+                <span class="count-pill" id="target-count"></span>
+              </div>
+              <div class="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>目标</th>
+                      <th>连接方式</th>
+                      <th>端点</th>
+                      <th>最近探测</th>
+                      <th>最近扫描</th>
+                    </tr>
+                  </thead>
+                  <tbody id="target-table"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section class="page" id="page-runs" aria-labelledby="runs-title">
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">EXECUTION HISTORY</p>
+                <h1 id="runs-title">
+                  运行记录<span class="title-dot">.</span>
+                </h1>
+                <p class="page-subtitle">
+                  失败、取消和预算终止都必须保留原始状态。
+                </p>
+              </div>
+              <span class="heading-aside">按时间倒序</span>
+            </div>
+            <div class="workspace-grid">
+              <section class="panel list-panel">
+                <div class="toolbar">
+                  <label class="search-field"
+                    ><span aria-hidden="true">⌕</span
+                    ><span class="sr-only">搜索运行</span
+                    ><input
+                      id="run-search"
+                      type="search"
+                      placeholder="搜索目标或运行编号" /></label
+                  ><label class="select-field"
+                    ><span class="sr-only">筛选运行状态</span
+                    ><select id="run-status">
+                      <option value="">全部状态</option>
+                      <option value="completed">已完成</option>
+                      <option value="inconclusive">无定论</option>
+                      <option value="cancelled">已取消</option>
+                      <option value="failed">失败</option>
+                    </select></label
+                  >
+                </div>
+                <div class="list-heading">
+                  <span>运行 / 目标</span><span>状态</span>
+                </div>
+                <div id="run-list" class="select-list"></div>
+                <div class="list-footer" id="run-count"></div>
+              </section>
+              <aside
+                class="panel detail-panel"
+                id="run-detail"
+                aria-live="polite"
+              ></aside>
+            </div>
+          </section>
+
+          <section
+            class="page"
+            id="page-findings"
+            aria-labelledby="findings-title"
+          >
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">EVIDENCE REVIEW</p>
+                <h1 id="findings-title">
+                  发现项<span class="title-dot">.</span>
+                </h1>
+                <p class="page-subtitle">
+                  先筛出需要复核的疑似问题，再看调用证据和处置建议。
+                </p>
+              </div>
+              <span class="heading-aside">动态发现 · 静态命中分区</span>
+            </div>
+            <div class="workspace-grid findings-grid">
+              <section class="panel list-panel">
+                <div class="toolbar toolbar-wrap">
+                  <label class="search-field"
+                    ><span aria-hidden="true">⌕</span
+                    ><span class="sr-only">搜索发现项</span
+                    ><input
+                      id="finding-search"
+                      type="search"
+                      placeholder="搜索漏洞类别、目标或工具" /></label
+                  ><label class="select-field"
+                    ><span class="sr-only">筛选严重度</span
+                    ><select id="finding-severity">
+                      <option value="">全部级别</option>
+                      <option value="高">高危</option>
+                      <option value="中">中危</option>
+                      <option value="低">低危</option>
+                    </select></label
+                  >
+                </div>
+                <div class="filter-caption">
+                  动态发现 <span id="finding-count"></span>
+                </div>
+                <div id="finding-list" class="select-list"></div>
+                <div class="static-divider">
+                  <span>静态命中</span><small>本次演示无静态命中</small>
+                </div>
+              </section>
+              <aside
+                class="panel detail-panel"
+                id="finding-detail"
+                aria-live="polite"
+              ></aside>
+            </div>
+          </section>
+
+          <section class="page" id="page-new-scan" aria-labelledby="scan-title">
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">NEW ASSESSMENT</p>
+                <h1 id="scan-title">
+                  新建扫描<span class="title-dot">.</span>
+                </h1>
+                <p class="page-subtitle">
+                  选择登记目标，确认授权与预算后才能启动。
+                </p>
+              </div>
+            </div>
+            <div class="setup-grid">
+              <section class="panel form-panel">
+                <span class="step-label">01 / 目标与强度</span>
+                <h2>扫描配置</h2>
+                <label class="field"
+                  ><span>登记目标</span
+                  ><select id="scan-target"></select
+                ></label>
+                <div class="field">
+                  <span>扫描强度</span>
+                  <div class="segmented" id="scan-presets">
+                    <button class="selected" type="button" data-preset="quick">
+                      快速</button
+                    ><button type="button" data-preset="balanced">均衡</button
+                    ><button type="button" data-preset="deep">深入</button>
+                  </div>
+                </div>
+                <label class="checkline"
+                  ><input type="checkbox" id="scan-auth" /><span
+                    >我确认已获得对该目标的扫描授权</span
+                  ></label
+                ><button class="primary-button" type="button" disabled>
+                  连接后端后可启动
+                </button>
+                <p class="form-help">
+                  此预览不执行 MCP 调用，也不保存扫描配置。
+                </p>
+              </section>
+              <aside class="panel budget-panel">
+                <span class="step-label">02 / 启动前核对</span>
+                <h2>预算摘要</h2>
+                <div id="budget-summary"></div>
+                <div class="budget-note">
+                  运行中若触发预算闸门，最终状态应显示“无定论”，不能显示“安全”。
+                </div>
+              </aside>
+            </div>
+          </section>
+
+          <section
+            class="page"
+            id="page-offline"
+            aria-labelledby="offline-title"
+          >
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">OFFLINE ARTIFACT</p>
+                <h1 id="offline-title">
+                  离线导入<span class="title-dot">.</span>
+                </h1>
+                <p class="page-subtitle">
+                  在浏览器本地查看 findings.json，文件不会上传。
+                </p>
+              </div>
+            </div>
+            <section class="panel import-panel">
+              <div class="import-mark">⇧</div>
+              <h2>打开本地扫描产物</h2>
+              <p>
+                选择 McPwn 生成的
+                findings.json。原始文本只按普通文字显示，不执行其中任何内容。
+              </p>
+              <label class="file-button"
+                >选择 JSON 文件<input
+                  id="artifact-file"
+                  type="file"
+                  accept=".json,application/json"
+              /></label>
+              <div id="import-status" role="status"></div>
+            </section>
+            <section class="panel import-results" id="import-results" hidden>
+              <div class="panel-heading">
+                <div>
+                  <p class="panel-kicker">LOCAL ONLY</p>
+                  <h2>导入预览</h2>
+                </div>
+              </div>
+              <div id="import-list"></div>
+            </section>
+          </section>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>
