@@ -442,3 +442,21 @@ judge 按判据诚实判负 —— 温度 0.7 下的行为方差, 非缺陷。
 4. 诚实口径: holdout llm 轮当前结论 = **FAIL (1/5, judge FP 主导)**,
    不写"泛化成功"。下一动作: judge 恢复强档后重跑, 或把"judge 敏感性"
    显式作为评测维度记录。
+
+---
+
+## 14. 陌生官方 server 实测 (FPR showcase, 2026-10-05)
+
+> 从未参与调参的两个官方 server, stdio 经 uvx 拉起, 全程本地。产物
+> `runs/showcase_time/` / `runs/showcase_git2/` (gitignore)。
+
+| target | 工具面 | stop | findings | tok | wall |
+|---|---|---|---|---|---|
+| `mcp-server-time` | get_current_time / convert_time | completed | **0** | 7.9k | 12.3s |
+| `mcp-server-git` (指向本仓库) | git_status/log/diff/commit/branch 等 **12 个** | completed | **0** | 22.1k | 18.2s |
+
+- 两个 0-finding 结果是跨 server FPR 的补强证据 (与 clean_baseline 三变体、
+  filesystem 修复版 4/4 同口径)。
+- `mcp-server-memory` 包当前无可执行入口, uvx 直接失败 (未跑, 如实记录)。
+- 工程注记: stdio `--command` 里 Windows 路径必须用正斜杠——spawner 的
+  shlex 会吃反斜杠, `--repository D:\...` → spawn 即 error, 正斜杠解决。
