@@ -38,6 +38,8 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - name: Export locked runtime dependencies
-        run: uv export --locked --no-dev --format requirements.txt --output-file /tmp/mcpwn-requirements.txt
+        # --no-emit-project drops the editable mcpwn line: pip cannot install
+        # an editable requirement under --require-hashes (pip-audit's mode).
+        run: uv export --locked --no-dev --no-emit-project --format requirements.txt --output-file /tmp/mcpwn-requirements.txt
       - name: Audit exported dependencies
         run: uvx --from pip-audit pip-audit -r /tmp/mcpwn-requirements.txt
