@@ -332,8 +332,9 @@ async def _run_pair_once(
     verdict.update({
         "index": index,
         "seed": seed,
-        "vulnerable_stop_reason": vulnerable_result.stop_reason.value,
-        "fixed_stop_reason": fixed_result.stop_reason.value,
+        # ScanResult.stop_reason is a plain Literal str, not an enum.
+        "vulnerable_stop_reason": vulnerable_result.stop_reason,
+        "fixed_stop_reason": fixed_result.stop_reason,
         "controls": [asdict(control) for control in controls],
     })
     return verdict
