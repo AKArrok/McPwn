@@ -62,6 +62,7 @@ SARIF), and replayable PoC scripts.
 
 - [TL;DR (English)](#tldr-english)
 - [为什么是 McPwn](#为什么是-mcpwn)
+- [三个可以追问到底的设计](#三个可以追问到底的设计)
 - [Engineering credibility](#engineering-credibility)
 - [特性](#特性)
 - [快速开始](#快速开始)
@@ -113,6 +114,33 @@ reviewer-facing evidence and boundaries are collected here:
 - [`docs/operations.md`](docs/operations.md) — safe CI deployment, secrets, and production boundary
 - [`docs/artifact-viewer.html`](docs/artifact-viewer.html) — local, read-only findings.json viewer for review/demo
 - [`docs/case_study_excel.md`](docs/case_study_excel.md) — one grounded vulnerable/fixed case
+
+## 三个可以追问到底的设计
+
+**1. Grounding 闸门——为什么不信任 LLM 的总结**
+红队 agent 最大的假阳来源是 attacker LLM 自己的"成功汇报"。McPwn 的规则是:
+一切证据必须是真实 `McpCall.result_text` 的逐字子串,LLM 说"我拿到了
+/etc/passwd"不算数。连带三条封顶规则:L2 judge 引用的 `evidence_call_index`
+越界即降级为不产信号;同一返回文本命中的多条泄露信号视为同一证据事件只计
+最高权重;attacker 声称拿到敏感物但零信号时 trace 打 `suspected_hallucination`
+标记(只进 traces,永不进 findings)。结果:约 200 次扫描 FPR 恒 0。
+
+**2. 可证伪的评测判据——为什么是"严格更优"而不是"不劣于"**
+LLM planner 实验(M3)的判据曾是"不劣于硬编版",跑出"等价也 pass"——那是
+自欺,负结果原文留档。此后所有提能实验一律 strict-better(baseline=0、每 run
+≥1、miss 即 fail)且预注册:冻结 holdout 的 manifest sha256 一旦漂移,run
+直接中止,防止"看过结果再调规则"。证据分层同样讲清楚:DVMCP 是回归集,
+漏洞版/修复版配对是因果验证,只有冻结 holdout 支持泛化声明。
+
+**3. 预算与成本工程——token 花在哪了**
+三层闸门(turns/tokens/wall-time)+ per-trace token 子闸门(40% 预算,触顶即
+收敛轮转)+ 上下文压缩(近 2 轮全文、历史 digest,证据链仍读全量)。一个反直觉
+发现:提示词瘦身省下的 per-call 开销被"更便宜→更多次调用"吃掉(Jevons),
+真正的大头是 DeepSeek 前缀缓存——有效成本口径(命中按 1/10 折算)下
+tok/finding 3.4k-3.6k,对照基线 **-68%/-80%**,归因被缓存命中率(67-69%)直接
+证实。
+
+详细版面试问答稿见 [`docs/interview_qa.md`](docs/interview_qa.md)。
 
 ```mermaid
 flowchart LR
@@ -209,7 +237,13 @@ mcpwn scan --target-config mcpwn.yaml --out runs/config_demo
 
 ## Demo
 
-对 DVMCP 9001 (直接 prompt injection) 的一次真实扫描:
+<p align="center">
+  <img src="docs/assets/scan-demo.svg" alt="mcpwn scan of official mcp-server-fetch (stdio): completed, 1 finding (ssrf 0.75), 19.8k tokens, 123s" width="660">
+</p>
+
+> 上图是 2026-10-05 对**官方** `mcp-server-fetch` (stdio 拉起, 非 fixture) 的一次
+> 真实扫描: `completed`,1 条 finding(`ssrf` 0.75, 真实内网服务命中),
+> 19.8k tokens / 123s。下面是对 DVMCP 9001 (直接 prompt injection) 的一次真实扫描:
 
 ```text
 $ mcpwn scan http://127.0.0.1:9001/sse --out runs/demo_9001
