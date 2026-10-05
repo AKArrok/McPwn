@@ -83,7 +83,7 @@ targets:
     env: {MCPWN_FS_INDEX_OLD: server-filesystem@0.6.2 dist/index.js 路径}
 
   - name: cache
-    label: cache-mcp 漏洞版 (冻结 holdout: 多租户缓存键碰撞)
+    label: "cache-mcp 漏洞版 (冻结 holdout: 多租户缓存键碰撞)"
     spawn: cache
     prove: true
     prove_script: eval/holdout/prove.py
