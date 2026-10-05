@@ -3,6 +3,24 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/).
 
+## [0.3.1] - 2026-10-05
+
+### Fixed
+
+- **holdout llm 轮三基建修复** (首次完整实跑暴露, 全部有单测):
+  - `eval/targets/manifest.yaml` label 未引号冒号 → YAML ScannerError;
+  - 配对汇总 `ScanResult.stop_reason` 按 enum 取 `.value` (实为 Literal str);
+  - **`exploit_evidence_grounded` 索引空间错误**: 以裁剪 PoC 序列验证全量
+    attack_calls 下标 → grounded finding 恒判 False (0/5 假 FAIL)。
+- judge 角色降档 `qwen3.8-27b` → `qwen-flash` (免费额度), README 模型表同步。
+
+### Changed
+
+- 评测文档回填: holdout llm 轮 N=5 诚实结果 (检出 5/5、对照回放 5/5、
+  fixed_clean 1/5 → FAIL, judge 模型敏感性归因) + 陌生官方 server FPR
+  showcase (mcp-server-time / mcp-server-git 均 0 findings)。
+- 新增 `docs/interview_qa.md` 面试问答稿与 README Highlights 三条设计故事。
+
 ## [0.3.0] - 2026-10-05
 
 ### Added
