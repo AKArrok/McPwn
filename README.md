@@ -300,7 +300,7 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
 | **跨形状开发验证** | delegate-mcp (CWE-639 授权作用域) | **3/3 PASS** (strict-better, 但已经历调参,不作独立泛化结论) |
 | **SSRF 真靶** | 官方 mcp-server-fetch | scan **1 finding** (`ssrf/fetch` 0.75, 真实内网服务命中) |
 | **干净基线** | 无漏洞 server 变体 | 3 变体 **0 findings** (FPR 可信度) |
-| **冻结 holdout** | cache-mcp 配对 | 协议/fixture 已冻结; LLM N≥5 待跑 |
+| **冻结 holdout** | cache-mcp 配对 | llm 轮 N=5 (qwen-flash judge): 漏洞版检出 **5/5** (grounding 过 `llm_evidence_verdict`), 对照回放 **5/5**, fixed_clean **1/5** → **FAIL**——4 run 为 judge 在修复版上的语义 FP (qwen3.8 同判据 5/5 干净), 归因与诚实口径见 [`docs/pwn_results.md`](docs/pwn_results.md) §13 |
 
 > 判据设计:提能实验一律"**严格更优**" (baseline=0、每 run ≥1、N=3 miss 即 fail),
 > 拒绝"不劣于"自欺——M3 的负面结果教训见 [`docs/experiment_methodology.md`](docs/experiment_methodology.md)。

@@ -389,3 +389,56 @@ judge 按判据诚实判负 —— 温度 0.7 下的行为方差, 非缺陷。
 至此「预算效率 + recall」双目标闭环: judge/信号层的三处结构性死锁
 (作者判据、单点失败、标记格式) 与两处短语缺口是本轮真正的方法论产出 ——
 **归因驱动 (离线重放 + trace 逐 call 对账) 优于调参驱动**。
+
+---
+
+## 13. 冻结 holdout 首轮 llm 轮: 三个基建 bug + judge 模型敏感性 (2026-10-05)
+
+> 协议 lock 全程未动 (manifest sha256 `e46e55f9…` 两轮一致)。judge 先后为
+> qwen3.8-27b / qwen-flash (DashScope 免费额度, 前者中途 `FreeTierOnly` 403),
+> attacker 恒 deepseek-v4-flash。产物 `runs/holdout/` (第二轮覆盖第一轮,
+> 数字以第二轮 summary.json 为准; 第一轮 0/5 已确认为 checker 假 FAIL)。
+
+### 13.1 首轮暴露的三个基建 bug (只有实跑才能踩到)
+
+1. **manifest YAML 崩溃**: cache 配对 label 值含未引号冒号 (`holdout: `),
+   `load_target_manifest` 直接 ScannerError。hermetic 测试不加载完整
+   manifest, CI 测不到。(已修, fa32c34)
+2. **stop_reason .value**: `ScanResult.stop_reason` 是 Literal str 不是
+   enum, 配对汇总 AttributeError。(已修, 6a78b94)
+3. **grounding 校验索引空间错误 (核心)**: `exploit_evidence_grounded` 把
+   `signal.source_call_index` (全量 attack_calls 空间, grounding 闸门的
+   定义域) 拿去查裁剪后的 PoC 序列, 恒越界 → 全部 grounded finding 判
+   False → 0/5 假 FAIL。run_0 实证: matched_text 在 attack_calls[idx=5]
+   逐字命中。(已修 + 测试桩补 traces, a9768e1)
+
+### 13.2 修复后 N=5 (qwen-flash judge): 检测端 5/5, fixed_clean 1/5 → FAIL
+
+| 闸门 | 结果 | 说明 |
+|---|---|---|
+| positive (漏洞版检出) | **5/5** | 全部为 grounding 过的 `llm_evidence_verdict`, 跨租户 cache_get 命中 |
+| control replay (对照回放) | **5/5** | 修复版拒绝 + 无禁止信号重现 |
+| fixed_clean (修复版零期望类 finding) | **1/5** | 4 个 run 里 judge 在修复版上产出 auth_bypass finding |
+| overall | **FAIL (1/5)** | PASS 要求 5/5 |
+
+### 13.3 fixed_clean 挂因: judge 模型敏感性 (不是检测回归)
+
+4 个 FAIL run 模式一致: attacker 在修复版上探测
+`cache_get(owner='admin', key='secret')` (返回 admin 自己命名空间的
+`admin_private_data`) 与 `cache_list(owner=…)` (返回 `cached: secret`
+条目名), qwen-flash judge 将其判为 auth_bypass finding。逐字证据真实
+存在于 cache_list 返回体, grounding 字面成立; 争议在语义——"声明 owner
+即可读该 owner 命名空间"在无认证 fixture 语义下是正确行为还是 bypass,
+恰是 qwen3.8 (同判据下修复版 5/5 干净) 与 qwen-flash (1/5) 的分歧点。
+
+**结论**:
+1. 检测端稳定: 索引 bug 修复后 positive 与 control replay 双 5/5。
+2. judge 模型是评测基础设施的一部分——换 judge = 换测量仪器, 结论随档位
+   漂移。judge 选型需与判据一起记录 (`ScanResult.evidence_judge_model`
+   已有字段)。
+3. fixture 语义边界暴露: (owner,key) 隔离只修 key 碰撞; "声明任意 owner"
+   的无鉴权面在冻结判据里未定义, judge 对它的态度不定。留给下一版
+   fixture 明确。
+4. 诚实口径: holdout llm 轮当前结论 = **FAIL (1/5, judge FP 主导)**,
+   不写"泛化成功"。下一动作: judge 恢复强档后重跑, 或把"judge 敏感性"
+   显式作为评测维度记录。

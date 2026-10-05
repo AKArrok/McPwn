@@ -265,9 +265,12 @@ CWE-639/345 家族但机制全不同)。修复版按 `(owner, key)` 命名空间
   前提成立(与 vault/delegate 的 baseline=0 同义);
 - hermetic 回归 `tests/test_holdout_pair.py`:冻结 cache 漏洞 trace 零信号前提
   + 真实 fixed server 回放阻断闭环;
-- **llm 轮待跑**:judge 已切换到阿里云百炼 Qwen(`mcp_redteam/config/models.yaml`,
-  `qwen3.8-27b` @ DashScope 兼容端点),证据判定通道恢复;待跑
-  `--mode llm --n 5` cache 配对,数字以 runs/ 产物为准。
+- **llm 轮已完成 (2026-10-05, FAIL 1/5)**: 漏洞版检出 5/5 (grounding 过的
+  `llm_evidence_verdict`)、对照回放 5/5、fixed_clean 1/5——4 run 为
+  qwen-flash judge 在修复版上的语义 FP (qwen3.8 同判据 5/5 干净, 中途免费
+  额度 403 换档)。三个基建 bug (manifest YAML / stop_reason / grounding
+  索引空间) 与完整归因见 [`docs/pwn_results.md`](../docs/pwn_results.md) §13;
+  下一动作: judge 恢复强档重跑, 或把 judge 敏感性显式作为评测维度。
 
 ---
 
