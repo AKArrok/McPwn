@@ -300,7 +300,7 @@ McPwn 用多类 fixture 回归验证 agent 有效性,产出独立指标 (不做 
 | **跨形状开发验证** | delegate-mcp (CWE-639 授权作用域) | **3/3 PASS** (strict-better, 但已经历调参,不作独立泛化结论) |
 | **SSRF 真靶** | 官方 mcp-server-fetch | scan **1 finding** (`ssrf/fetch` 0.75, 真实内网服务命中) |
 | **干净基线** | 无漏洞 server 变体 | 3 变体 **0 findings** (FPR 可信度) |
-| **冻结 holdout** | cache-mcp 配对 | llm 轮 N=5 (qwen-flash judge): 漏洞版检出 **5/5** (grounding 过 `llm_evidence_verdict`), 对照回放 **5/5**, fixed_clean **1/5** → **FAIL**——4 run 为 judge 在修复版上的语义 FP (qwen3.8 同判据 5/5 干净), 归因与诚实口径见 [`docs/pwn_results.md`](docs/pwn_results.md) §13 |
+| **冻结 holdout** | cache-mcp 配对 | llm 轮 N=5 × 三轮 judge 对照: 漏洞版检出 **5/5** + 对照回放 **5/5** (强档/flash 档均稳定), fixed_clean 1/5 → **FAIL**——flash 档 judge 在修复版上确定性误判 (自种自读/自有数据判为 bypass, 逐 run 复现), 完整判定链解剖见 [`docs/pwn_results.md`](docs/pwn_results.md) §13 |
 | **陌生官方 server (FPR)** | mcp-server-time / mcp-server-git (stdio, uvx, 从未调参) | **0 findings / 0 findings** (git 12 工具全枚举), 2026-10-05; memory 靶因包无可执行入口未跑 (stdio `--command` 的 Windows 路径需用正斜杠, shlex 会吃反斜杠) |
 
 > 判据设计:提能实验一律"**严格更优**" (baseline=0、每 run ≥1、N=3 miss 即 fail),
