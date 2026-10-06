@@ -265,12 +265,13 @@ CWE-639/345 家族但机制全不同)。修复版按 `(owner, key)` 命名空间
   前提成立(与 vault/delegate 的 baseline=0 同义);
 - hermetic 回归 `tests/test_holdout_pair.py`:冻结 cache 漏洞 trace 零信号前提
   + 真实 fixed server 回放阻断闭环;
-- **llm 轮已完成 (2026-10-05, FAIL 1/5)**: 漏洞版检出 5/5 (grounding 过的
-  `llm_evidence_verdict`)、对照回放 5/5、fixed_clean 1/5——4 run 为
-  qwen-flash judge 在修复版上的语义 FP (qwen3.8 同判据 5/5 干净, 中途免费
-  额度 403 换档)。三个基建 bug (manifest YAML / stop_reason / grounding
-  索引空间) 与完整归因见 [`docs/pwn_results.md`](../docs/pwn_results.md) §13;
-  下一动作: judge 恢复强档重跑, 或把 judge 敏感性显式作为评测维度。
+- **llm 轮已完成 (2026-10-05/06, 三轮 judge 对照, FAIL 1/5)**: 漏洞版检出
+  5/5 (grounding 过的 `llm_evidence_verdict`)、对照回放 5/5 三轮稳定;
+  fixed_clean 1/5——flash 档 judge (qwen-flash / qwen3.8-flash) 在修复版上
+  确定性误判 (自种自读/自有数据判为 bypass, 逐 run 复现), qwen3.8-27b 强档
+  同判据 5/5 干净。三个基建 bug (manifest YAML / stop_reason / grounding
+  索引空间) 与完整判定链解剖见 [`docs/pwn_results.md`](../docs/pwn_results.md)
+  §13; 下一动作: 强档 judge 重跑, 或下一版协议显式定义 fixed 侧复核门。
 
 ---
 
