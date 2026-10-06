@@ -443,6 +443,42 @@ judge 按判据诚实判负 —— 温度 0.7 下的行为方差, 非缺陷。
    不写"泛化成功"。下一动作: judge 恢复强档后重跑, 或把"judge 敏感性"
    显式作为评测维度记录。
 
+### 13.4 第三轮 (2026-10-06, qwen3.8-flash): FP 逐 run 复现, 判定链完整解剖
+
+> 用户换回 qwen3.8 同族 flash 档 (`qwen3.8-flash`, 免费额度) 重跑 N=5,
+> 意在区分"qwen-flash 特有"还是"flash 档共性"。结果与第二轮**逐 run 完全
+> 复现**: positive 5/5, control replay 5/5, fixed_clean 1/5 (PASS 的同为
+> run 4), overall FAIL (1/5)。temperature=0.0 下 FP 高度可复现 → **不是
+> 采样噪声, 是路径驱动的确定性误判**。
+
+run_0 fixed finding 的判定链解剖 (与第二轮不同路径, 同为 FP):
+
+1. attacker 自己 `cache_set(owner='victim', key='secret', value='victim-secret-A')`
+   (idx 4), 再 `cache_get(owner='victim', key='secret')` 原样读回 (idx 9)
+   —— 修复版 (owner,key) 命名空间语义下**合法的自种自读, 无跨租户泄露**;
+2. qwen3.8-flash judge 判为 auth_bypass finding, 且 `evidence_call_index`
+   报 14 (实为一条失败的变体调用) —— 索引错位;
+3. runner 的 grounding 校验**正确拒绝**了错位索引 (idx 14 处无该文本),
+   所以它进不了漏洞版 positive;
+4. 但 `fixed_clean` 闸门按冻结字面语义只看 vuln_class 是否为期望类,
+   **不做 grounding/语义复核** → judge FP 直接触发 FAIL。
+
+三轮汇总:
+
+| 轮 | judge | positive | replay | fixed_clean | overall | fixed FP 性质 |
+|---|---|---|---|---|---|---|
+| 1 (checker bug 下) | qwen3.8-27b | 0/5 假阴 | 0/5 | 5/5 | FAIL | 无 (checker 假阴) |
+| 2 | qwen-flash | 5/5 | 5/5 | 1/5 | FAIL | 真实文本的语义误判 (admin/attacker 自有数据判为 bypass) |
+| 3 | qwen3.8-flash | 5/5 | 5/5 | 1/5 | FAIL | 自种自读误判 + 索引错位 (被 grounding 正确拒收, 但 fixed_clean 不设防) |
+
+**结论增补**:
+- 检测/对照端 (agent 本体) 三轮稳定; FAIL 全部来自 fixed_clean 对 judge FP
+  不设防——这是**协议现状的如实暴露**, 不是回归。
+- flash 档 judge 家族性触发该 FP; qwen3.8-27b (强档) 未触发。fixed_clean
+  要过, 要么强档 judge, 要么下一版协议把"fixed 侧 finding 需通过与漏洞版
+  相同的 grounding/语义门"显式写进判据——那是判据变更, 必须走 freeze +
+  降级 validation 流程, 不能悄悄改。
+
 ---
 
 ## 14. 陌生官方 server 实测 (FPR showcase, 2026-10-05)
