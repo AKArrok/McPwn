@@ -21,7 +21,7 @@ dependencies = [
     "pandas>=2.2",
     "matplotlib>=3.8",
     "typer>=0.12",
-    "langgraph>=1.2,<2",
+    "langgraph>=1.2.12,<2",
 ]
 
 [project.optional-dependencies]
