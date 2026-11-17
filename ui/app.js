@@ -173,7 +173,17 @@ const pages = {
   "new-scan": "新建扫描",
   offline: "离线导入",
 };
-/* ── API 模式状态 ──────────────────────────────────────────────────────── */
+/* ── 数据模式状态 ────────────────────────────────────────────────────────
+ * demo   : 无后端无快照,使用上方演示数据(离线预览)。
+ * api    : mcpwn ui 同源 /api/* 实时索引。
+ * export : mcpwn export-ui 生成的静态快照,数据来自 data.js
+ *          (window.MCPWN_EXPORT_DATA,只含摘要投影,不含完整 trace)。
+ * 三种模式共用同一套映射与渲染;compare/holdout 在 api 模式走后端,
+ * 在 export 模式用快照数据本地计算(投影齐全,无需重算判定)。 */
+const EXPORT = window.MCPWN_EXPORT_DATA || null;
+const DATA_MODE = {
+  kind: EXPORT && Array.isArray(EXPORT.runs) ? "export" : "demo",
+};
 const API = { available: false, skipped: 0 };
 const apiRunDetailCache = new Map();
 let apiDetailToken = 0;
@@ -483,6 +493,16 @@ function renderApiRunDetail(run) {
     ),
   );
   const token = ++apiDetailToken;
+  if (DATA_MODE.kind !== "api") {
+    /* 静态快照:只含摘要投影,完整 trace 留在仓库 runs/ 产物里。 */
+    detail.append(
+      section(
+        "产物位置",
+        `runs/${s.scan_dir}/ · 静态快照不含完整调用链 trace;本地运行 mcpwn ui 可查看判定链与 PoC 清单。`,
+      ),
+    );
+    return;
+  }
   loadRunDetail(run.id)
     .then((data) => {
       if (token !== apiDetailToken || !data) return;
@@ -588,6 +608,15 @@ function renderApiFindingDetail(f) {
     ]),
   );
   const token = ++findingDetailToken;
+  if (DATA_MODE.kind !== "api") {
+    detail.append(
+      section(
+        "验证状态",
+        "静态快照只含摘要投影;完整信号命中与调用序列见仓库 runs/ 产物,或本地运行 mcpwn ui 查看。此发现尚未经过独立真实重放。",
+      ),
+    );
+    return;
+  }
   loadRunDetail(f.run)
     .then((data) => {
       if (token !== findingDetailToken || !data) return;
@@ -673,9 +702,13 @@ function compareRow(run) {
 function renderCompare() {
   const list = $("compare-list");
   const result = $("compare-result");
-  if (!API.available) {
+  if (DATA_MODE.kind === "demo") {
     list.replaceChildren(
-      node("div", "empty-state", "运行对比需要本地后端：先运行 mcpwn ui。"),
+      node(
+        "div",
+        "empty-state",
+        "运行对比需要本地后端（mcpwn ui）或静态快照（mcpwn export-ui）。",
+      ),
     );
     result.replaceChildren();
     return;
@@ -694,9 +727,26 @@ function renderCompare() {
     result.replaceChildren(node("div", "empty-state", "再勾选一次运行即可对比。"));
   }
 }
+function localCompareColumns(ids) {
+  /* export 模式:投影齐全,并排投影直接在前端组装(不重算判定)。 */
+  return ids.map((id) => {
+    const run = runs.find((r) => r.id === id);
+    if (!run) return { run_id: id, missing: true };
+    return {
+      summary: run.summary,
+      findings: findings
+        .filter((f) => (f.raw || {}).run_id === id)
+        .map((f) => f.raw),
+    };
+  });
+}
 async function runCompare() {
   const result = $("compare-result");
-  if (!API.available || compareSelected.size < 2) return;
+  if (DATA_MODE.kind === "demo" || compareSelected.size < 2) return;
+  if (DATA_MODE.kind === "export") {
+    renderCompareResult(localCompareColumns([...compareSelected]));
+    return;
+  }
   result.replaceChildren(node("div", "empty-state", "读取中…"));
   try {
     const res = await fetch(
@@ -764,6 +814,10 @@ function renderCompareResult(columns) {
 }
 /* ── holdout 汇总页 ───────────────────────────────────────────────────── */
 async function loadHoldout() {
+  if (DATA_MODE.kind === "export") {
+    /* export 模式:applyRealData 已把快照放进 holdoutCache。 */
+    return holdoutCache || { summaries: [] };
+  }
   if (holdoutCache) return holdoutCache;
   const res = await fetch("./api/holdout");
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -772,9 +826,13 @@ async function loadHoldout() {
 }
 async function renderHoldout() {
   const list = $("holdout-list");
-  if (!API.available) {
+  if (DATA_MODE.kind === "demo") {
     list.replaceChildren(
-      node("div", "empty-state", "holdout 汇总需要本地后端：先运行 mcpwn ui。"),
+      node(
+        "div",
+        "empty-state",
+        "holdout 汇总需要本地后端（mcpwn ui）或静态快照（mcpwn export-ui）。",
+      ),
     );
     return;
   }
@@ -870,7 +928,7 @@ function renderRuns() {
     );
     return;
   }
-  if (API.available && run.summary) {
+  if (DATA_MODE.kind !== "demo" && run.summary) {
     renderApiRunDetail(run);
     return;
   }
@@ -970,7 +1028,7 @@ function renderFindings() {
     );
     return;
   }
-  if (API.available && f.raw) {
+  if (DATA_MODE.kind !== "demo" && f.raw) {
     renderApiFindingDetail(f);
     return;
   }
@@ -1130,8 +1188,40 @@ $("artifact-file").addEventListener("change", async (event) => {
     $("import-status").textContent = `导入失败：${error.message}`;
   }
 });
-/* ── API 接入：成功则用真实产物替换演示数据并重渲染 ───────────────────── */
+/* ── 真实数据接入：api / export 模式共用 ─────────────────────────────── */
+function applyRealData(runsList, findingsList, holdoutSummaries, mode) {
+  API.available = mode === "api";
+  DATA_MODE.kind = mode;
+  const realRuns = (runsList || []).map(runFromSummary);
+  if (realRuns.length) {
+    runs.length = 0;
+    runs.push(...realRuns);
+  }
+  const realFindings = (findingsList || []).map(findingFromSummary);
+  findings.length = 0;
+  findings.push(...realFindings);
+  const realTargets = rebuildTargetsFromRuns();
+  if (realTargets.length) {
+    targets.length = 0;
+    targets.push(...realTargets);
+  }
+  holdoutCache = holdoutSummaries ? { summaries: holdoutSummaries } : null;
+  compareSelected.clear();
+  selectedRun = runs[0]?.id;
+  selectedFinding = findings[0]?.id;
+  updateChrome();
+  renderOverview();
+  renderRuns();
+  renderFindings();
+  renderCompare();
+  renderHoldout();
+}
 async function upgradeFromApi() {
+  if (DATA_MODE.kind === "export") {
+    /* 静态快照:数据已随 data.js 就位,无需网络。 */
+    applyRealData(EXPORT.runs || [], EXPORT.findings || [], EXPORT.holdout || [], "export");
+    return;
+  }
   try {
     const res = await fetch("./api/platform");
     if (!res.ok) return;
@@ -1144,41 +1234,38 @@ async function upgradeFromApi() {
     if (!runsRes.ok || !findingsRes.ok) return;
     const runsData = await runsRes.json();
     const findingsData = await findingsRes.json();
-    API.available = true;
+    applyRealData(runsData.runs, findingsData.findings, null, "api");
     API.skipped = runsData.skipped || 0;
-    const realRuns = (runsData.runs || []).map(runFromSummary);
-    if (realRuns.length) {
-      runs.length = 0;
-      runs.push(...realRuns);
-    }
-    const realFindings = (findingsData.findings || []).map(findingFromSummary);
-    findings.length = 0;
-    findings.push(...realFindings);
-    const realTargets = rebuildTargetsFromRuns();
-    if (realTargets.length) {
-      targets.length = 0;
-      targets.push(...realTargets);
-    }
-    selectedRun = runs[0]?.id;
-    selectedFinding = findings[0]?.id;
-    updateChrome();
-    renderOverview();
-    renderRuns();
-    renderFindings();
-    renderCompare();
-    renderHoldout();
   } catch {
     /* 离线模式：保留演示数据。CSP 拦截或 404 都会落到这里。 */
   }
 }
 function updateChrome() {
-  if (!API.available) return;
-  $("connection-title").textContent = "已连接运行索引";
-  $("connection-note").textContent = "只读 · 本地 runs/";
-  $("env-chip").textContent = "本地后端";
-  $("preview-note-title").textContent = "已接入本地运行索引";
-  $("preview-note-body").textContent =
-    "运行与发现项来自 runs/ 目录的只读实时索引；演示数据已替换为真实产物。判定与置信度一律来自产物原文，中台不重算。";
+  const mode = DATA_MODE.kind;
+  if (mode === "demo") return;
+  const texts =
+    mode === "api"
+      ? {
+          title: "已连接运行索引",
+          note: "只读 · 本地 runs/",
+          chip: "本地后端",
+          bannerTitle: "已接入本地运行索引",
+          bannerBody:
+            "运行与发现项来自 runs/ 目录的只读实时索引；演示数据已替换为真实产物。判定与置信度一律来自产物原文，中台不重算。",
+        }
+      : {
+          title: "静态快照",
+          note: "只读 · export-ui 导出",
+          chip: "静态快照",
+          bannerTitle: "静态快照（mcpwn export-ui）",
+          bannerBody:
+            "本页由 mcpwn export-ui 生成，只含运行/发现项摘要投影，不含完整调用链 trace；判定与置信度一律来自产物原文，快照不重算。发布前请自行确认目标已授权且内容已脱敏。",
+        };
+  $("connection-title").textContent = texts.title;
+  $("connection-note").textContent = texts.note;
+  $("env-chip").textContent = texts.chip;
+  $("preview-note-title").textContent = texts.bannerTitle;
+  $("preview-note-body").textContent = texts.bannerBody;
 }
 function renderOverview() {
   const completed = runs.filter((r) => r.status === "completed").length;

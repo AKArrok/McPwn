@@ -93,7 +93,7 @@ def create_app(runs_dir: Path, ui_dir: Path) -> FastAPI:
     async def list_findings(
         severity: str = "",
         vuln_class: str = "",
-        limit: int = Query(default=500, le=5000, ge=1),
+        limit: int = Query(default=5000, le=50000, ge=1),
     ) -> dict:
         await run_in_threadpool(index.refresh)
         items = index.findings()

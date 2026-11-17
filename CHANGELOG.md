@@ -16,6 +16,11 @@ versioning follows [SemVer](https://semver.org/).
   不重算)。响应模型 `RunSummary` / `FindingSummary` / `HoldoutSummaryView`
   等集中在 `contracts.py`; `mcp_redteam/web/AGENTS.md` 五字段规约。
   无后端时控制台自动降级为演示预览 (离线导入仍可用), CSP 由服务端下发。
+- **`mcpwn export-ui` 静态快照** (形态参考 `inspect view bundle`): 自包含
+  静态站 (index.html + data.js) 直接托管 GitHub Pages; 只含摘要投影
+  (traces/attacker messages/完整 scan_result.json 不出库), 内嵌 meta CSP
+  `connect-src 'none'` 零网络请求; compare/holdout 在快照模式下用投影
+  本地组装, 默认拒绝覆盖 (--force); 已存在目录需显式 --force。
 - dashscope judge 调用关闭 hidden thinking (`no_thinking_kwargs`,
   provider 门控), `eval/jev_probe/` 实测依据 (N=25: 122 tok / 2.7s,
   24/25 与 thinking-ON verdict 一致)。

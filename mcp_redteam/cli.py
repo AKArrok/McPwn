@@ -647,6 +647,54 @@ def ui_cmd(
     uvicorn.run(platform, host=host, port=port, log_level="warning")
 
 
+@app.command("export-ui")
+def export_ui_cmd(
+    out: Path = typer.Option(
+        Path("site"), "--out", "-o", help="Export directory (created fresh)."
+    ),
+    runs_dir: Path = typer.Option(
+        Path("runs"), "--runs-dir", help="Runs root to index."
+    ),
+    ui_dir: Path | None = typer.Option(
+        None,
+        "--ui-dir",
+        help="Static console directory (default: the repo's ui/ next to the package).",
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite an existing export directory."
+    ),
+) -> None:
+    """Export a self-contained static snapshot site (GitHub Pages ready).
+
+    Copies the ui/ console and writes data.js with summary-level projections
+    (run summaries, findings, holdout aggregates). No traces, attacker
+    messages or full scan_result.json are exported. The snapshot embeds its
+    own CSP and needs no backend. Note: publishing a snapshot is an outbound
+    action - confirm targets are authorized and content redacted first.
+    """
+    from mcp_redteam.web.export import export_static_site
+
+    resolved_ui = ui_dir or Path(__file__).resolve().parent.parent / "ui"
+    try:
+        report = export_static_site(
+            runs_dir=runs_dir, ui_dir=resolved_ui, out_dir=out, force=force
+        )
+    except FileExistsError as exc:
+        console.print(f"[red]FAIL[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    except FileNotFoundError as exc:
+        console.print(f"[red]FAIL[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    table = Table("field", "value")
+    for key, value in report.items():
+        table.add_row(key, str(value))
+    console.print(table)
+    console.print(f"[green]wrote[/green] {out}/ (index.html + data.js, self-contained)")
+    console.print(
+        "[dim]快照只含摘要投影;发布到 Pages 等静态托管前,请自行确认目标已授权且内容已脱敏。[/dim]"
+    )
+
+
 # ─── eval dvmcp ─────────────────────────────────────────────────────────────
 
 

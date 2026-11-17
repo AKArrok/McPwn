@@ -5,13 +5,16 @@
 键识别;其他实验的同名文件忽略)。全部为已落盘的产物,本模块不触发任何扫描。
 
 **输出**:GET-only JSON API(`/api/platform` `/api/runs` `/api/findings`
-`/api/runs/{run_id}` `/api/compare` `/api/holdout`)+ 静态托管 `ui/` 控制台。
-响应模型 `RunSummary / FindingSummary / HoldoutSummaryView` 等定义在
+`/api/runs/{run_id}` `/api/compare` `/api/holdout`)+ 静态托管 `ui/` 控制台;
+`export.py` 的 `mcpwn export-ui` 产出自包含静态快照站(index.html + data.js,
+只含摘要投影,内嵌 meta CSP `connect-src 'none'`)。响应模型
+`RunSummary / FindingSummary / HoldoutSummaryView` 等定义在
 `contracts.py`,不本地重定义。
 
-**状态**:仅内存——`RunIndex` 的 mtime+size 缓存(每次请求重 stat,
-变更文件重解析)与 run 详情的请求级缓存。**不写任何文件**;detail 接口
-按请求实时重读磁盘,API 永远呈现盘上真实内容。
+**状态**:API 服务仅内存——`RunIndex` 的 mtime+size 缓存(每次请求重 stat,
+变更文件重解析)与 run 详情的请求级缓存。**唯一写盘路径是 `export-ui`**:
+新建导出目录,已存在需 `--force`,失败清理半成品。API 的 detail 接口
+按请求实时重读磁盘,永远呈现盘上真实内容。
 
 **变换**:文件 → `RunSummary`(容错投影:历史产物缺字段取默认值,结构不可用
 则跳过并计入 `skipped`,绝不 500)→ API 过滤/对比投影;holdout summary
@@ -20,9 +23,13 @@
 
 **边界**:
 - 只读:`runs_dir` 下零写入、零删除;不执行扫描、不调用 LLM、不联网。
+  例外仅 `export-ui`(见上,写新建目录)。
 - CLI 默认绑 `127.0.0.1`;响应头与 `ui/serve.py` 同源(CSP/nosniff/
   no-referrer),唯一差别 `connect-src 'self'` 以允许同源 API。
 - 产物本身在落盘时已经 `security.redact_scan_result` 脱敏,本层原样转发,
-  不做二次改写(改写属于 report 层职责)。
+  不做二次改写(改写属于 report 层职责)。**快照导出只含摘要投影**
+  (RunSummary/FindingSummary/HoldoutView),traces / attacker_messages /
+  完整 scan_result.json 永不出库;发布行为由使用者自行承担合规确认
+  (目标授权 + 脱敏),CLI 输出附带该提醒。
 - `ui/` 目录不入 wheel:从源码检出运行,或 `--ui-dir` 显式指定。
 - API key 仅从 env 读取(本模块完全不读 key)。

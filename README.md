@@ -532,6 +532,21 @@ holdout `summary.json` 实时索引成只读 JSON API,并托管 `ui/` 中文控�
 | `--host` | `127.0.0.1` | 绑定地址;保持 loopback 默认 |
 | `--ui-dir` | 仓库 `ui/` | 静态控制台目录 (wheel 安装时需显式指定) |
 
+### `mcpwn export-ui [--out site]`
+
+`mcpwn ui` 的**静态快照**形态(参考 `inspect view bundle`):把运行摘要 /
+发现项 / holdout 汇总的只读投影写成自包含静态站(`index.html + data.js`),
+无需后端即可打开,可直接托管到 GitHub Pages 等静态平台。
+
+- **只含摘要投影**:traces / attacker messages / 完整 `scan_result.json`
+  不出库;快照页内嵌 meta CSP(`connect-src 'none'`),零网络请求
+- 已有导出目录需 `--force` 覆盖;发布是外发动作,发布前自行确认目标已授权、
+  内容已脱敏(CLI 输出会附带该提醒)
+
+```bash
+mcpwn export-ui --out site    # 生成后可用任意静态服务器托管或直接打开
+```
+
 ### `mcpwn eval dvmcp ...` / `mcpwn eval realworld ...`
 
 回归评估子命令,见 [`docs/eval_guide.md`](docs/eval_guide.md)。
