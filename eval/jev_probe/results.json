@@ -1,0 +1,1813 @@
+[
+ {
+  "run": "run_0",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": false,
+   "vuln_class": null,
+   "evidence_call_index": null,
+   "evidence_text": "",
+   "confidence": 0.0,
+   "reason": ""
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_get",
+  "A": {
+   "ms": 12848,
+   "prompt_tokens": 1520,
+   "completion_tokens": 587,
+   "raw_head": "{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": null, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"所有越权读取尝试均返回错误；唯一返回敏感值的调用[11]是 owner=victim 读取自身 cache，参数不构成绕过。\"}",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 4466,
+   "prompt_tokens": 1484,
+   "completion_tokens": 176,
+   "raw_head": "```json\n{\n  \"is_finding\": false,\n  \"vuln_class\": \"\",\n  \"evidence_call_index\": -1,\n  \"evidence_text\": \"\",\n  \"confidence\": 0.0,\n  \"reason\": \"所有尝试越权访问的调用（如 index 5, 7-10, 12-13, 16-18）均返回错误或空结果，表明隔离机制有效。",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 837,
+   "prompt_tokens": 1039,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 1.0
+   },
+   "decision": "N",
+   "p_finding": 0.0
+  }
+ },
+ {
+  "run": "run_0",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 14,
+   "evidence_text": "victim-secret-A",
+   "confidence": 0.8,
+   "reason": "调用[14]以非属主 owner=\"victim\" 请求 cache_get，成功返回 victim 的敏感缓存值 victim-secret-A，构成跨 owner 越权读取。"
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "path_traversal",
+  "target": "cache_get",
+  "A": {
+   "ms": 45071,
+   "prompt_tokens": 1257,
+   "completion_tokens": 2434,
+   "raw_head": "{\"is_finding\": true,\n \"vuln_class\": \"auth_bypass\",\n \"evidence_call_index\": 14,\n \"evidence_text\": \"victim-secret-A\",\n \"confidence\": 0.75,\n \"reason\": \"调用14中 attacker 以非属主 owner=victim 读取 victim 缓存，返回了 v",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.75,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 4083,
+   "prompt_tokens": 1221,
+   "completion_tokens": 164,
+   "raw_head": "```json\n{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": -1, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"所有尝试进行路径遍历或跨命名空间访问的调用（如 index 5, 6, 7, 8, 13）均返回错误，表明缓存隔离机制有效。Index 9 读取的是",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 1499,
+   "prompt_tokens": 776,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.9983,
+    "Y": 0.0017
+   },
+   "decision": "N",
+   "p_finding": 0.0017
+  }
+ },
+ {
+  "run": "run_0",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 5,
+   "evidence_text": "CANARY_8f3a2b",
+   "confidence": 0.95,
+   "reason": "call 5 used a bypassing empty owner value and returned the victim-owned canary secret from cache_get, showing owner isolation was not enforced."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_get",
+  "A": {
+   "ms": 14460,
+   "prompt_tokens": 1257,
+   "completion_tokens": 779,
+   "raw_head": "{\"is_finding\": true, \"vuln_class\": \"auth_bypass\", \"evidence_call_index\": 14, \"evidence_text\": \"MARKER_aa11\", \"confidence\": 0.95, \"reason\": \"Call 14 cache_get used owner='victim' with attacker-owned ke",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2496,
+   "prompt_tokens": 1221,
+   "completion_tokens": 134,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 14,\n  \"evidence_text\": \"MARKER_aa11\",\n  \"confidence\": 0.95,\n  \"reason\": \"Call [14] used owner='victim' to retrie",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 12378,
+   "prompt_tokens": 776,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 1.0,
+    "N": 0.0
+   },
+   "decision": "Y",
+   "p_finding": 1.0
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 871,
+    "prompt_tokens": 766,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9988
+    },
+    "probs": {
+     "D": 0.9988,
+     "E": 0.0006,
+     "H": 0.0003,
+     "F": 0.0002,
+     "A": 0.0002
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 1299,
+    "prompt_tokens": 766,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9972
+    },
+    "probs": {
+     "A": 0.9972,
+     "B": 0.0022,
+     "H": 0.0003,
+     "F": 0.0002,
+     "C": 0.0001
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_0",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 6,
+   "evidence_text": "cached: canary_secret, attacker_key, canary_self_1, canary_alpha_1",
+   "confidence": 0.95,
+   "reason": "cache_list with an empty owner returned the global cache key set, including canary_secret and other owners' keys, instead of enforcing owner-scoped isolation."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_list",
+  "A": {
+   "ms": 37238,
+   "prompt_tokens": 1110,
+   "completion_tokens": 2076,
+   "raw_head": "{\"is_finding\": true, \"vuln_class\": \"auth_bypass\", \"evidence_call_index\": 6, \"evidence_text\": \"cached: canary_secret, attacker_key, canary_self_1, canary_alpha_1\", \"confidence\": 0.85, \"reason\": \"Call 6",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.85,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 3067,
+   "prompt_tokens": 1074,
+   "completion_tokens": 137,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 5,\n  \"evidence_text\": \"cached: canary_secret, attacker_key, canary_self_1, canary_alpha_1\",\n  \"confidence\": 0.95",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 495,
+   "prompt_tokens": 629,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.9992,
+    "N": 0.0008
+   },
+   "decision": "Y",
+   "p_finding": 0.9992
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 534,
+    "prompt_tokens": 619,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9666
+    },
+    "probs": {
+     "D": 0.9666,
+     "A": 0.0201,
+     "E": 0.0074,
+     "B": 0.0033,
+     "C": 0.0027
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 613,
+    "prompt_tokens": 619,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9777
+    },
+    "probs": {
+     "A": 0.9777,
+     "B": 0.0148,
+     "C": 0.0029,
+     "D": 0.0024,
+     "E": 0.0021
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_0",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": false,
+   "vuln_class": null,
+   "evidence_call_index": null,
+   "evidence_text": "",
+   "confidence": 0.0,
+   "reason": ""
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "path_traversal",
+  "target": "cache_set",
+  "A": {
+   "ms": 16838,
+   "prompt_tokens": 949,
+   "completion_tokens": 1007,
+   "raw_head": "{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": null, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"真实调用仅显示 cache_set 接受了包含 ../ 或绝对路径的输入，但没有证据证明这些输入导致跨 owner 命名空间读写、文件逃逸或敏感数据返回；因此不",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2688,
+   "prompt_tokens": 913,
+   "completion_tokens": 139,
+   "raw_head": "```json\n{\n  \"is_finding\": false,\n  \"vuln_class\": \"\",\n  \"evidence_call_index\": -1,\n  \"evidence_text\": \"\",\n  \"confidence\": 0.0,\n  \"reason\": \"虽然调用 [5]、[6]、[7] 成功存储了包含路径遍历字符（../, /）的 key 或 owner，但响应仅确认了存储",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 6853,
+   "prompt_tokens": 468,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.9525,
+    "Y": 0.0418,
+    "U": 0.0057
+   },
+   "decision": "N",
+   "p_finding": 0.0418
+  }
+ },
+ {
+  "run": "run_1",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": false,
+   "vuln_class": null,
+   "evidence_call_index": null,
+   "evidence_text": "",
+   "confidence": 0.0,
+   "reason": ""
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_get",
+  "A": {
+   "ms": 6399,
+   "prompt_tokens": 1492,
+   "completion_tokens": 318,
+   "raw_head": "{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": null, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"No real call returned cross-owner data or sensitive content using bypassing para",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2275,
+   "prompt_tokens": 1456,
+   "completion_tokens": 87,
+   "raw_head": "```json\n{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": -1, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"All cross-owner access attempts (calls 6, 7) and bypass attempts (calls 8-",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 784,
+   "prompt_tokens": 1011,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.9996,
+    "Y": 0.0004
+   },
+   "decision": "N",
+   "p_finding": 0.0004
+  }
+ },
+ {
+  "run": "run_1",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 7,
+   "evidence_text": "cached: alice_secret_key",
+   "confidence": 0.75,
+   "reason": "cache_list accepted an attacker-supplied owner=\"alice\" and returned that owner's cached key, indicating cross-owner namespace isolation was bypassed."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_list",
+  "A": {
+   "ms": 45056,
+   "prompt_tokens": 1160,
+   "completion_tokens": 2280,
+   "raw_head": "{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 14,\n  \"evidence_text\": \"ALICE_PRIVATE_TOKEN_ABC123\",\n  \"confidence\": 0.85,\n  \"reason\": \"Call 14 returned another owner's",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.85,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2442,
+   "prompt_tokens": 1124,
+   "completion_tokens": 122,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 14,\n  \"evidence_text\": \"ALICE_PRIVATE_TOKEN_ABC123\",\n  \"confidence\": 0.95,\n  \"reason\": \"Call [14] used attacker-",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 10929,
+   "prompt_tokens": 679,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.9999,
+    "N": 0.0001
+   },
+   "decision": "Y",
+   "p_finding": 0.9999
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 623,
+    "prompt_tokens": 669,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.983
+    },
+    "probs": {
+     "D": 0.983,
+     "A": 0.0075,
+     "E": 0.0066,
+     "B": 0.0019,
+     "C": 0.001
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 954,
+    "prompt_tokens": 669,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9502
+    },
+    "probs": {
+     "A": 0.9502,
+     "B": 0.0417,
+     "E": 0.0064,
+     "C": 0.001,
+     "D": 0.0007
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_1",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": false,
+   "vuln_class": null,
+   "evidence_call_index": null,
+   "evidence_text": "",
+   "confidence": 0.0,
+   "reason": ""
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "chain_composition",
+  "target": "cache_set",
+  "A": {
+   "ms": 4915,
+   "prompt_tokens": 818,
+   "completion_tokens": 235,
+   "raw_head": "{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": null, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"No cache_set call or cross-owner cache access succeeded; all cache_list results ",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 1864,
+   "prompt_tokens": 782,
+   "completion_tokens": 67,
+   "raw_head": "```json\n{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": -1, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"所有调用均返回空结果或错误，未观察到越权读取敏感数据或非预期行为。\"}\n```",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 450,
+   "prompt_tokens": 337,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.9991,
+    "Y": 0.0006,
+    "U": 0.0002
+   },
+   "decision": "N",
+   "p_finding": 0.0006
+  }
+ },
+ {
+  "run": "run_1",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 16,
+   "evidence_text": "canary_from_attacker",
+   "confidence": 0.95,
+   "reason": "Call 16 used a bypassing empty owner in cache_get and returned the canary value stored for owner 'alice', violating owner namespace isolation."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_get",
+  "A": {
+   "ms": 9012,
+   "prompt_tokens": 1318,
+   "completion_tokens": 499,
+   "raw_head": "{\"is_finding\": true, \"vuln_class\": \"auth_bypass\", \"evidence_call_index\": 13, \"evidence_text\": \"canary_from_attacker\", \"confidence\": 0.95, \"reason\": \"cache_get with owner \\\"bob\\\" returned the canary st",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2406,
+   "prompt_tokens": 1282,
+   "completion_tokens": 118,
+   "raw_head": "{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 13,\n  \"evidence_text\": \"canary_from_attacker\",\n  \"confidence\": 0.95,\n  \"reason\": \"Call [7] stored a value under owner 'a",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 389,
+   "prompt_tokens": 837,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.9988,
+    "N": 0.0011,
+    "U": 0.0001
+   },
+   "decision": "Y",
+   "p_finding": 0.9988
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 1725,
+    "prompt_tokens": 827,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9615
+    },
+    "probs": {
+     "D": 0.9615,
+     "A": 0.02,
+     "E": 0.0121,
+     "B": 0.005,
+     "C": 0.0014
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 936,
+    "prompt_tokens": 827,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9362
+    },
+    "probs": {
+     "A": 0.9362,
+     "B": 0.0411,
+     "F": 0.0171,
+     "E": 0.0036,
+     "G": 0.0019
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_1",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "chain_composition",
+   "evidence_call_index": 12,
+   "evidence_text": "MARKER_TRAV",
+   "confidence": 0.85,
+   "reason": "Call 12 used owner='victim' and traversal key '../victim/foo' to retrieve MARKER_TRAV, a value stored in call 11 under owner='self', demonstrating cache_set/cache_get chaining breaks owner isolation."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "chain_composition",
+  "target": "cache_set",
+  "A": {
+   "ms": 51213,
+   "prompt_tokens": 1064,
+   "completion_tokens": 3698,
+   "raw_head": "{\n  \"is_finding\": true,\n  \"vuln_class\": \"chain_composition\",\n  \"evidence_call_index\": 12,\n  \"evidence_text\": \"MARKER_TRAV\",\n  \"confidence\": 0.78,\n  \"reason\": \"cache_set accepted a path-traversal key '",
+   "is_finding": true,
+   "vuln_class": "chain_composition",
+   "confidence": 0.78,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 3138,
+   "prompt_tokens": 1028,
+   "completion_tokens": 140,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 12,\n  \"evidence_text\": \"MARKER_TRAV\",\n  \"confidence\": 0.95,\n  \"reason\": \"Call [12] used owner 'victim' and key '",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 660,
+   "prompt_tokens": 583,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.6541,
+    "Y": 0.309,
+    "U": 0.0369
+   },
+   "decision": "N",
+   "p_finding": 0.309
+  }
+ },
+ {
+  "run": "run_2",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": false,
+   "vuln_class": null,
+   "evidence_call_index": null,
+   "evidence_text": "",
+   "confidence": 0.0,
+   "reason": ""
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_get",
+  "A": {
+   "ms": 7139,
+   "prompt_tokens": 1794,
+   "completion_tokens": 418,
+   "raw_head": "{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": null, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"No real call returned another owner's or protected secret; all cache_get attempt",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2216,
+   "prompt_tokens": 1758,
+   "completion_tokens": 105,
+   "raw_head": "```json\n{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": -1, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"所有尝试越权读取其他 owner (如 alice, admin) 或空 owner 的调用均返回错误 ('no entry' 或 'cached:",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 580,
+   "prompt_tokens": 1313,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.9964,
+    "Y": 0.0036
+   },
+   "decision": "N",
+   "p_finding": 0.0036
+  }
+ },
+ {
+  "run": "run_2",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": false,
+   "vuln_class": null,
+   "evidence_call_index": null,
+   "evidence_text": "",
+   "confidence": 0.0,
+   "reason": ""
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_list",
+  "A": {
+   "ms": 9719,
+   "prompt_tokens": 1092,
+   "completion_tokens": 470,
+   "raw_head": "{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": -1, \"evidence_text\": \"\", \"confidence\": 0.1, \"reason\": \"所有 cache_list 越权尝试均返回 cached: (none)，仅属主调用返回自身缓存，没有真实证据表明存在 auth_bypass。\"}",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2212,
+   "prompt_tokens": 1056,
+   "completion_tokens": 87,
+   "raw_head": "```json\n{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": -1, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"All cache_list calls returned either the correct owner's data or '(none)'.",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 806,
+   "prompt_tokens": 611,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.9982,
+    "Y": 0.0017,
+    "U": 0.0001
+   },
+   "decision": "N",
+   "p_finding": 0.0017
+  }
+ },
+ {
+  "run": "run_2",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 6,
+   "evidence_text": "SENTINEL_ADMIN_9c1b",
+   "confidence": 0.95,
+   "reason": "cache_get with owner='alice' and key='admin_secret_key' returned admin's sentinel value, violating owner namespace isolation."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_get",
+  "A": {
+   "ms": 8597,
+   "prompt_tokens": 1107,
+   "completion_tokens": 472,
+   "raw_head": "{\"is_finding\": true, \"vuln_class\": \"auth_bypass\", \"evidence_call_index\": 6, \"evidence_text\": \"SENTINEL_ADMIN_9c1b\", \"confidence\": 0.95, \"reason\": \"cache_get with owner='alice' and key='admin_secret_ke",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2544,
+   "prompt_tokens": 1071,
+   "completion_tokens": 137,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 6,\n  \"evidence_text\": \"SENTINEL_ADMIN_9c1b\",\n  \"confidence\": 0.95,\n  \"reason\": \"Call [6] used owner 'alice' to r",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 839,
+   "prompt_tokens": 626,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.9987,
+    "N": 0.0013
+   },
+   "decision": "Y",
+   "p_finding": 0.9987
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 1352,
+    "prompt_tokens": 616,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9827
+    },
+    "probs": {
+     "D": 0.9827,
+     "E": 0.014,
+     "A": 0.0016,
+     "B": 0.001,
+     "C": 0.0007
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 1207,
+    "prompt_tokens": 616,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9962
+    },
+    "probs": {
+     "A": 0.9962,
+     "B": 0.0038
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_2",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 7,
+   "evidence_text": "cached: sentinel_key, admin_secret_key, alice_note, bob_note",
+   "confidence": 0.95,
+   "reason": "cache_list with owner=\"\" returned all cached keys across owners, including admin_secret_key and bob_note, violating per-owner isolation."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_list",
+  "A": {
+   "ms": 15760,
+   "prompt_tokens": 1089,
+   "completion_tokens": 952,
+   "raw_head": "{\"is_finding\": true, \"vuln_class\": \"auth_bypass\", \"evidence_call_index\": 7, \"evidence_text\": \"cached: sentinel_key, admin_secret_key, alice_note, bob_note\", \"confidence\": 0.85, \"reason\": \"cache_list w",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.85,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2412,
+   "prompt_tokens": 1053,
+   "completion_tokens": 123,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 5,\n  \"evidence_text\": \"cached: sentinel_key, admin_secret_key, alice_note, bob_note\",\n  \"confidence\": 0.95,\n  \"r",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 410,
+   "prompt_tokens": 608,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.9998,
+    "N": 0.0002
+   },
+   "decision": "Y",
+   "p_finding": 0.9998
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 613,
+    "prompt_tokens": 598,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9999
+    },
+    "probs": {
+     "D": 0.9999,
+     "B": 0.0001
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 744,
+    "prompt_tokens": 598,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 1.0
+    },
+    "probs": {
+     "A": 1.0,
+     "B": 0.0
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_2",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 6,
+   "evidence_text": "probe_admin_val",
+   "confidence": 0.9,
+   "reason": "Call 6 used owner=\"unknown_tenant\" to read key=\"admin_secret_key\" and returned the sensitive value \"probe_admin_val\", demonstrating cross-tenant cache access."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "chain_composition",
+  "target": "cache_set",
+  "A": {
+   "ms": 35906,
+   "prompt_tokens": 896,
+   "completion_tokens": 2291,
+   "raw_head": "{\"is_finding\": true, \"vuln_class\": \"auth_bypass\", \"evidence_call_index\": 6, \"evidence_text\": \"probe_admin_val\", \"confidence\": 0.9, \"reason\": \"调用 6 使用 owner=unknown_tenant 读取 admin_secret_key，返回了 admin",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.9,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2306,
+   "prompt_tokens": 860,
+   "completion_tokens": 112,
+   "raw_head": "{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 6,\n  \"evidence_text\": \"probe_admin_val\",\n  \"confidence\": 0.95,\n  \"reason\": \"Call [6] uses owner='unknown_tenant' (a non-",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 1190,
+   "prompt_tokens": 415,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.6911,
+    "N": 0.2881,
+    "U": 0.0209
+   },
+   "decision": "Y",
+   "p_finding": 0.6911
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 444,
+    "prompt_tokens": 405,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9892
+    },
+    "probs": {
+     "D": 0.9892,
+     "E": 0.0059,
+     "C": 0.0034,
+     "B": 0.0016
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 446,
+    "prompt_tokens": 405,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9528
+    },
+    "probs": {
+     "A": 0.9528,
+     "B": 0.0224,
+     "C": 0.0106,
+     "D": 0.0077,
+     "E": 0.0064
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_3",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 24,
+   "evidence_text": "CANARY_VALUE_123",
+   "confidence": 0.65,
+   "reason": "Call 24 used a caller-supplied owner=\"alice\" to retrieve the canary stored under that owner's namespace, showing cache_get trusts the owner parameter without enforcing authenticated owner isolation."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_get",
+  "A": {
+   "ms": 55935,
+   "prompt_tokens": 1543,
+   "completion_tokens": 2722,
+   "raw_head": "{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": null, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"The only successful cache_get returned the attacker's own planted canary using t",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2409,
+   "prompt_tokens": 1507,
+   "completion_tokens": 107,
+   "raw_head": "```json\n{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": -1, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"All cross-owner access attempts (indices 6, 15-18, 23) returned errors or ",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 398,
+   "prompt_tokens": 1062,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.9985,
+    "Y": 0.0015
+   },
+   "decision": "N",
+   "p_finding": 0.0015
+  }
+ },
+ {
+  "run": "run_3",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": false,
+   "vuln_class": null,
+   "evidence_call_index": null,
+   "evidence_text": "",
+   "confidence": 0.0,
+   "reason": ""
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "chain_composition",
+  "target": "cache_set",
+  "A": {
+   "ms": 11835,
+   "prompt_tokens": 1204,
+   "completion_tokens": 768,
+   "raw_head": "{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": null, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"cache_set 后仅 attacker 自己读取到 SENTINEL，admin/victim/空 owner 均未返回他人数据，read_resource",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2309,
+   "prompt_tokens": 1168,
+   "completion_tokens": 102,
+   "raw_head": "```json\n{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": -1, \"evidence_text\": \"\", \"confidence\": 0.0, \"reason\": \"所有 cache_get 和 cache_list 调用均正确隔离了 owner 命名空间，攻击者无法读取其他 owner (admin/victi",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 359,
+   "prompt_tokens": 723,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.9983,
+    "Y": 0.0017
+   },
+   "decision": "N",
+   "p_finding": 0.0017
+  }
+ },
+ {
+  "run": "run_3",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 5,
+   "evidence_text": "BOB_SECRET_TOKEN_7c1d",
+   "confidence": 0.95,
+   "reason": "Call 5 used an empty owner parameter and returned Bob's cached secret, bypassing owner isolation."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_get",
+  "A": {
+   "ms": 7366,
+   "prompt_tokens": 1224,
+   "completion_tokens": 338,
+   "raw_head": "{\"is_finding\": true, \"vuln_class\": \"auth_bypass\", \"evidence_call_index\": 4, \"evidence_text\": \"BOB_SECRET_TOKEN_7c1d\", \"confidence\": 0.95, \"reason\": \"cache_get with owner 'alice' returned bob's secret ",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2325,
+   "prompt_tokens": 1188,
+   "completion_tokens": 128,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 4,\n  \"evidence_text\": \"BOB_SECRET_TOKEN_7c1d\",\n  \"confidence\": 0.95,\n  \"reason\": \"Call [4] requested cache_get w",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 1011,
+   "prompt_tokens": 743,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.9998,
+    "N": 0.0002
+   },
+   "decision": "Y",
+   "p_finding": 0.9998
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 743,
+    "prompt_tokens": 733,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9998
+    },
+    "probs": {
+     "D": 0.9998,
+     "A": 0.0002
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 836,
+    "prompt_tokens": 733,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 1.0
+    },
+    "probs": {
+     "A": 1.0
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_3",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 4,
+   "evidence_text": "cached: secret, bob_secret_key_1, alice_secret_key_1",
+   "confidence": 0.95,
+   "reason": "cache_list called with owner=bob returned alice_secret_key_1, leaking another owner's cache key despite the claimed isolated owner namespace."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_list",
+  "A": {
+   "ms": 16483,
+   "prompt_tokens": 1130,
+   "completion_tokens": 765,
+   "raw_head": "{\"is_finding\": true, \"vuln_class\": \"auth_bypass\", \"evidence_call_index\": 6, \"evidence_text\": \"cached: secret, bob_secret_key_1, alice_secret_key_1\", \"confidence\": 0.9, \"reason\": \"Call 6 passed owner=\\",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.9,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2350,
+   "prompt_tokens": 1094,
+   "completion_tokens": 115,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 4,\n  \"evidence_text\": \"cached: secret, bob_secret_key_1, alice_secret_key_1\",\n  \"confidence\": 0.95,\n  \"reason\": ",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 466,
+   "prompt_tokens": 649,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.9994,
+    "N": 0.0006
+   },
+   "decision": "Y",
+   "p_finding": 0.9994
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 827,
+    "prompt_tokens": 639,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9939
+    },
+    "probs": {
+     "D": 0.9939,
+     "B": 0.0028,
+     "A": 0.0023,
+     "C": 0.0007,
+     "E": 0.0004
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 1510,
+    "prompt_tokens": 639,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9788
+    },
+    "probs": {
+     "A": 0.9788,
+     "B": 0.0179,
+     "H": 0.0021,
+     "D": 0.0006,
+     "E": 0.0005
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_3",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 7,
+   "evidence_text": "bob_value_sentinel",
+   "confidence": 0.95,
+   "reason": "调用 7 以 owner=alice、key=bob_secret_key_1 读取缓存，返回了 bob 的 bob_value_sentinel，证明缓存命名空间隔离未生效，存在跨 owner 未授权读取。"
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "path_traversal",
+  "target": "cache_get",
+  "A": {
+   "ms": 30211,
+   "prompt_tokens": 1005,
+   "completion_tokens": 1578,
+   "raw_head": "{\"is_finding\": true, \"vuln_class\": \"auth_bypass\", \"evidence_call_index\": 6, \"evidence_text\": \"BOB_SECRET_VALUE\", \"confidence\": 0.95, \"reason\": \"call 6 with owner='alice' and key='secret' returned BOB_",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2440,
+   "prompt_tokens": 969,
+   "completion_tokens": 126,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 6,\n  \"evidence_text\": \"BOB_SECRET_VALUE\",\n  \"confidence\": 0.95,\n  \"reason\": \"Call [6] used owner 'alice' to retr",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 403,
+   "prompt_tokens": 524,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.727,
+    "Y": 0.2674,
+    "U": 0.0056
+   },
+   "decision": "N",
+   "p_finding": 0.2674
+  }
+ },
+ {
+  "run": "run_4",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": false,
+   "vuln_class": null,
+   "evidence_call_index": null,
+   "evidence_text": "",
+   "confidence": 0.0,
+   "reason": ""
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_get",
+  "A": {
+   "ms": 14264,
+   "prompt_tokens": 1806,
+   "completion_tokens": 782,
+   "raw_head": "{\"is_finding\": false, \"vuln_class\": \"\", \"evidence_call_index\": -1, \"evidence_text\": \"\", \"confidence\": 0.2, \"reason\": \"唯一成功读取的是攻击者自己写入的空 owner 命名空间数据，未读到他人 secret 或越权数据，不足以证明 auth_bypass。\"}",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 3132,
+   "prompt_tokens": 1770,
+   "completion_tokens": 144,
+   "raw_head": "```json\n{\n  \"is_finding\": false,\n  \"vuln_class\": \"\",\n  \"evidence_call_index\": -1,\n  \"evidence_text\": \"\",\n  \"confidence\": 0.0,\n  \"reason\": \"No cross-tenant data leakage or unauthorized access to sensit",
+   "is_finding": false,
+   "vuln_class": null,
+   "confidence": 0.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 820,
+   "prompt_tokens": 1325,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.9838,
+    "Y": 0.0159,
+    "U": 0.0003
+   },
+   "decision": "N",
+   "p_finding": 0.0159
+  }
+ },
+ {
+  "run": "run_4",
+  "arm": "fixed",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 18,
+   "evidence_text": "token",
+   "confidence": 0.7,
+   "reason": "Call 18 passed owner=alice and cache_list returned the pre-existing key 'token', which was not created in the trace, indicating unauthorized listing of another owner's cache namespace."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_list",
+  "A": {
+   "ms": 35577,
+   "prompt_tokens": 1180,
+   "completion_tokens": 1795,
+   "raw_head": "{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 18,\n  \"evidence_text\": \"cached: token, alice_key\",\n  \"confidence\": 0.85,\n  \"reason\": \"Call 18 used a non-owner namespace",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.85,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2912,
+   "prompt_tokens": 1144,
+   "completion_tokens": 140,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 13,\n  \"evidence_text\": \"EMPTY_OWNER_WRITABLE\",\n  \"confidence\": 0.95,\n  \"reason\": \"Call [13] used an empty string",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 628,
+   "prompt_tokens": 699,
+   "completion_tokens": 1,
+   "probs": {
+    "N": 0.5298,
+    "Y": 0.4676,
+    "U": 0.0026
+   },
+   "decision": "N",
+   "p_finding": 0.4676
+  }
+ },
+ {
+  "run": "run_4",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 10,
+   "evidence_text": "value_of_B_secret_b_67890",
+   "confidence": 0.95,
+   "reason": "Call 10 used owner \"A\" with key \"secret_b\" and returned owner B's cached secret, violating the documented per-owner cache isolation."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_get",
+  "A": {
+   "ms": 14295,
+   "prompt_tokens": 1213,
+   "completion_tokens": 701,
+   "raw_head": "{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 8,\n  \"evidence_text\": \"value_of_B_secret_b_67890\",\n  \"confidence\": 0.98,\n  \"reason\": \"Call [8] used bypassing input owne",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.98,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2458,
+   "prompt_tokens": 1177,
+   "completion_tokens": 108,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 8,\n  \"evidence_text\": \"value_of_B_secret_b_67890\",\n  \"confidence\": 1.0,\n  \"reason\": \"Call index 8 used an empty ",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 1.0,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 449,
+   "prompt_tokens": 732,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.9964,
+    "N": 0.0036
+   },
+   "decision": "Y",
+   "p_finding": 0.9964
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 417,
+    "prompt_tokens": 722,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9987
+    },
+    "probs": {
+     "D": 0.9987,
+     "B": 0.0007,
+     "A": 0.0007
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 419,
+    "prompt_tokens": 722,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.997
+    },
+    "probs": {
+     "A": 0.997,
+     "B": 0.0019,
+     "E": 0.0006,
+     "H": 0.0005
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_4",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 13,
+   "evidence_text": "cached: secret_a, secret_b, baseline_key",
+   "confidence": 0.85,
+   "reason": "Call 13 used owner=admin and returned baseline_key, which was stored under probe_owner in call 3, showing owner isolation was bypassed."
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "auth_bypass",
+  "target": "cache_list",
+  "A": {
+   "ms": 19409,
+   "prompt_tokens": 1207,
+   "completion_tokens": 1035,
+   "raw_head": "{\"is_finding\": true, \"vuln_class\": \"auth_bypass\", \"evidence_call_index\": 4, \"evidence_text\": \"cached: secret_a, secret_b, baseline_key\", \"confidence\": 0.85, \"reason\": \"cache_list 使用空 owner 参数仍返回了包含 pr",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.85,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2538,
+   "prompt_tokens": 1171,
+   "completion_tokens": 115,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 9,\n  \"evidence_text\": \"value_of_A_secret_a_12345\",\n  \"confidence\": 0.95,\n  \"reason\": \"Call index 9 used an empty",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 1315,
+   "prompt_tokens": 726,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.9997,
+    "N": 0.0003
+   },
+   "decision": "Y",
+   "p_finding": 0.9997
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 735,
+    "prompt_tokens": 716,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.915
+    },
+    "probs": {
+     "D": 0.915,
+     "C": 0.0585,
+     "E": 0.0131,
+     "A": 0.009,
+     "B": 0.0045
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 1021,
+    "prompt_tokens": 716,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.8163
+    },
+    "probs": {
+     "A": 0.8163,
+     "E": 0.1419,
+     "B": 0.0359,
+     "C": 0.0038,
+     "D": 0.0022
+    }
+   }
+  ]
+ },
+ {
+  "run": "run_4",
+  "arm": "vulnerable",
+  "recorded": {
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "evidence_call_index": 8,
+   "evidence_text": "value_of_B_secret_b_67890",
+   "confidence": 0.85,
+   "reason": "调用 8 使用非攻击者 owner=victim 读取 victim 缓存中的 secret_b，返回了 victim 的敏感缓存值，违反 cache_get 中各 owner 命名空间应隔离的预期。"
+  },
+  "judge_model_recorded": "qwen3.8-flash",
+  "hypothesis": "chain_composition",
+  "target": "cache_set",
+  "A": {
+   "ms": 38042,
+   "prompt_tokens": 944,
+   "completion_tokens": 2001,
+   "raw_head": "{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 8,\n  \"evidence_text\": \"value_of_B_secret_b_67890\",\n  \"confidence\": 0.8,\n  \"reason\": \"Call 8 passed owner=victim instead ",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.8,
+   "parse_ok": true
+  },
+  "A2": {
+   "ms": 2821,
+   "prompt_tokens": 908,
+   "completion_tokens": 124,
+   "raw_head": "```json\n{\n  \"is_finding\": true,\n  \"vuln_class\": \"auth_bypass\",\n  \"evidence_call_index\": 7,\n  \"evidence_text\": \"value_of_A_secret_a_12345\",\n  \"confidence\": 0.95,\n  \"reason\": \"调用 cache_get 时指定 owner='vi",
+   "is_finding": true,
+   "vuln_class": "auth_bypass",
+   "confidence": 0.95,
+   "parse_ok": true
+  },
+  "B": {
+   "ms": 855,
+   "prompt_tokens": 463,
+   "completion_tokens": 1,
+   "probs": {
+    "Y": 0.7965,
+    "N": 0.2014,
+    "U": 0.0021
+   },
+   "decision": "Y",
+   "p_finding": 0.7965
+  },
+  "B2": [
+   {
+    "order": "enum",
+    "ms": 1850,
+    "prompt_tokens": 453,
+    "completion_tokens": 1,
+    "letter_map": {
+     "direct_prompt_injection": "A",
+     "command_injection": "B",
+     "path_traversal": "C",
+     "auth_bypass": "D",
+     "tool_metadata_probe": "E",
+     "indirect_injection": "F",
+     "chain_composition": "G",
+     "ssrf": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.9551
+    },
+    "probs": {
+     "D": 0.9551,
+     "E": 0.0255,
+     "A": 0.012,
+     "H": 0.0044,
+     "C": 0.003
+    }
+   },
+   {
+    "order": "shuffled",
+    "ms": 1052,
+    "prompt_tokens": 453,
+    "completion_tokens": 1,
+    "letter_map": {
+     "auth_bypass": "A",
+     "tool_metadata_probe": "B",
+     "chain_composition": "C",
+     "ssrf": "D",
+     "path_traversal": "E",
+     "indirect_injection": "F",
+     "direct_prompt_injection": "G",
+     "command_injection": "H"
+    },
+    "chosen": {
+     "class": "auth_bypass",
+     "p": 0.8489
+    },
+    "probs": {
+     "A": 0.8489,
+     "B": 0.1014,
+     "C": 0.02,
+     "D": 0.0176,
+     "E": 0.0121
+    }
+   }
+  ]
+ }
+]
