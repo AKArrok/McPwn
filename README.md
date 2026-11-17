@@ -164,6 +164,7 @@ flowchart LR
 | **LangGraph 双路径** | 默认手写循环 + `--graph` 显式状态机 (跨 trace 记忆 / checkpoint / 复盘),finding 集合等价由 parity 测试守护 |
 | **预算/成本工程** | per-trace token 子闸门 (默认 40% 预算) + 上下文压缩 + 提示词瘦身 (bundle -19%);DeepSeek 前缀缓存有效成本计量 (命中按 1/10 折算),effective tok/finding 3.4k-3.6k,对照基线 **-68%/-80%** |
 | **真实世界靶机** | excel-mcp-server CVE-2026-40576 正向/负向双版本对照回归 |
+| **测评中台** | `mcpwn ui` 本地只读控制台:实时索引 `runs/` 产物,运行总览 / 详情下钻 / 多 run 对比 / 冻结 holdout 汇总;判定与置信度一律展示产物原文,中台不重算 |
 
 ## 快速开始
 
@@ -509,6 +510,28 @@ benchmark.md(能匹配 manifest 靶场时含判定,否则仅自评指标)。
 
 加载并校验全部策略卡 (四段标题齐全、无已知靶场明文答案)。
 
+### `mcpwn ui [--port 8765] [--runs-dir runs]`
+
+本地**测评中台**——把 `runs/` 下已有的 `scan_result.json` / `findings.json` /
+holdout `summary.json` 实时索引成只读 JSON API,并托管 `ui/` 中文控制台:
+
+- **运行总览**:全部实验目录的 run 索引(预算 / 停止原因 / 模型 / git_sha)
+- **发现项下钻**:信号命中、调用序列、PoC 清单与复现元信息
+- **运行对比**:勾选多次运行并排比较(judge / 策略改动复盘)
+- **holdout 汇总**:冻结协议的成对判定与 Wilson CI,**直接取自
+  summary.json,中台不重算任何判定**
+
+形态参考 `inspect view` / `promptfoo view`(本地评测结果查看器)。只读:
+不写盘、不触发扫描、不调用 LLM;默认只绑 `127.0.0.1`。无后端时 `ui/`
+自动降级为演示预览,离线导入 findings.json 仍可用。
+
+| 选项 | 默认 | 说明 |
+|---|---|---|
+| `--port` | 8765 | 本地端口 |
+| `--runs-dir` | `runs` | 索引根目录 (只读) |
+| `--host` | `127.0.0.1` | 绑定地址;保持 loopback 默认 |
+| `--ui-dir` | 仓库 `ui/` | 静态控制台目录 (wheel 安装时需显式指定) |
+
 ### `mcpwn eval dvmcp ...` / `mcpwn eval realworld ...`
 
 回归评估子命令,见 [`docs/eval_guide.md`](docs/eval_guide.md)。
@@ -561,6 +584,7 @@ mcp_redteam/
   models/chat.py          OpenAI-compat 工厂 + retry-with-backoff + 限流
   judge/                  L2 judge (prompt 外置 + JSON 解析)
   report/findings.py      ScanResult -> findings.md + findings.json + poc/*.py
+  web/                    测评中台 (mcpwn ui): runs/ 产物只读索引 + 本地控制台
 eval/
   dvmcp/                  DVMCP fixture + expected.yaml + runner + m3_judge
   realworld/              excel-mcp CVE 回归 (prove.py 双版本对照)

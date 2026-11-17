@@ -5,7 +5,7 @@ findings.md + poc/*.py + traces/*.json + scan_result.json under --out.
 <target> is an HTTP endpoint URL (SSE or streamable HTTP) or, with --command,
 a stdio launch command.
 
-Support commands: `ping-models`, `lint-cards`.
+Support commands: `ping-models`, `lint-cards`, `ui` (local eval platform).
 DVMCP-specific helpers live under `mcpwn eval dvmcp ...` (HANDOFF paragraph 2).
 """
 
@@ -606,6 +606,45 @@ def lint_cards() -> None:
             console.print(f"[red]FAIL[/red] {err}")
         raise typer.Exit(code=1)
     console.print(f"[green]ok[/green] all {len(VULN_SLUGS)} cards passed lint")
+
+
+@app.command("ui")
+def ui_cmd(
+    port: int = typer.Option(8765, "--port", help="Local port for the console UI."),
+    runs_dir: Path = typer.Option(
+        Path("runs"), "--runs-dir", help="Runs root to index (read-only)."
+    ),
+    ui_dir: Path | None = typer.Option(
+        None,
+        "--ui-dir",
+        help="Static console directory (default: the repo's ui/ next to the package).",
+    ),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Bind address. Keep the loopback default: the API serves scan "
+        "artifacts to anyone who can reach this address.",
+    ),
+) -> None:
+    """Read-only eval platform: index runs/ and serve the local console UI.
+
+    Browses existing scan_result.json / findings.json / holdout summary.json
+    artifacts (run list, detail drill-down, multi-run compare, holdout
+    aggregation). This command never writes to disk and never runs scans.
+    """
+    import uvicorn
+
+    from mcp_redteam.web.app import create_app
+
+    resolved_ui = ui_dir or Path(__file__).resolve().parent.parent / "ui"
+    try:
+        platform = create_app(runs_dir=runs_dir, ui_dir=resolved_ui)
+    except FileNotFoundError as exc:
+        console.print(f"[red]FAIL[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    console.print(f"[green]eval platform[/green] http://{host}:{port}/")
+    console.print(f"[dim]runs root: {runs_dir} (read-only, no scans, no writes)[/dim]")
+    uvicorn.run(platform, host=host, port=port, log_level="warning")
 
 
 # ─── eval dvmcp ─────────────────────────────────────────────────────────────

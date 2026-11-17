@@ -3,6 +3,23 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **测评中台 `mcpwn ui`** (本地只读 eval platform, 形态参考 `inspect view` /
+  `promptfoo view`): FastAPI 实时索引 `runs/**/scan_result.json` (mtime 缓存,
+  坏文件跳过不 500) 为只读 JSON API (`/api/runs` `/api/findings`
+  `/api/runs/{id}` `/api/compare` `/api/holdout` `/api/platform`), 并托管
+  `ui/` 中文控制台。新增视图: 运行总览/详情下钻 (信号/调用链/PoC/复现元信息)、
+  多 run 并排对比、冻结 holdout 汇总 (Wilson CI 直接取自 summary.json,
+  不重算)。响应模型 `RunSummary` / `FindingSummary` / `HoldoutSummaryView`
+  等集中在 `contracts.py`; `mcp_redteam/web/AGENTS.md` 五字段规约。
+  无后端时控制台自动降级为演示预览 (离线导入仍可用), CSP 由服务端下发。
+- dashscope judge 调用关闭 hidden thinking (`no_thinking_kwargs`,
+  provider 门控), `eval/jev_probe/` 实测依据 (N=25: 122 tok / 2.7s,
+  24/25 与 thinking-ON verdict 一致)。
+
 ## [0.3.1] - 2026-10-05
 
 ### Fixed

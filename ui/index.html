@@ -2,7 +2,8 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'" />
+    <!-- CSP 由服务端响应头下发：ui/serve.py 为 connect-src 'none'（离线模式），
+         mcpwn ui 为 connect-src 'self'（同源 API）。此处不再用 meta 重复声明。 -->
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <title>McPwn · 扫描控制台预览</title>
@@ -38,6 +39,12 @@
           <button type="button" class="nav-link" data-page="findings">
             <span class="nav-glyph">◇</span><span>发现项</span>
           </button>
+          <button type="button" class="nav-link" data-page="compare">
+            <span class="nav-glyph">⇄</span><span>运行对比</span>
+          </button>
+          <button type="button" class="nav-link" data-page="holdout">
+            <span class="nav-glyph">⊞</span><span>holdout 汇总</span>
+          </button>
           <button type="button" class="nav-link" data-page="offline">
             <span class="nav-glyph">⇧</span><span>离线导入</span>
           </button>
@@ -46,7 +53,8 @@
         <div class="sidebar-foot">
           <span class="connection-dot" aria-hidden="true"></span>
           <div>
-            <strong>界面预览模式</strong><small>尚未连接扫描后端</small>
+            <strong id="connection-title">界面预览模式</strong
+            ><small id="connection-note">尚未连接扫描后端</small>
           </div>
         </div>
         <div class="sidebar-note">
@@ -60,7 +68,7 @@
             McPwn <span>/</span> <strong id="breadcrumb-page">总览</strong>
           </div>
           <div class="topbar-right">
-            <span class="env-chip"
+            <span class="env-chip" id="env-chip"
               ><span aria-hidden="true"></span> 演示预览</span
             ><button type="button" class="top-action" data-page="new-scan">
               ＋ 新建扫描
@@ -71,10 +79,10 @@
           <div class="preview-note" role="status">
             <span class="preview-icon">i</span>
             <div>
-              <strong>这是界面设计预览</strong
-              ><span
-                >当前 D 盘分支没有 Web
-                后端；下方目标、运行与发现项均是示意数据，不代表真实扫描结果。</span
+              <strong id="preview-note-title">这是界面设计预览</strong
+              ><span id="preview-note-body"
+                >当前没有本地后端；下方目标、运行与发现项均是示意数据，不代表真实扫描结果。运行
+                mcpwn ui 后自动切换为真实运行索引。</span
               >
             </div>
           </div>
@@ -287,6 +295,65 @@
                 aria-live="polite"
               ></aside>
             </div>
+          </section>
+
+          <section class="page" id="page-compare" aria-labelledby="compare-title">
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">RUN COMPARISON</p>
+                <h1 id="compare-title">
+                  运行对比<span class="title-dot">.</span>
+                </h1>
+                <p class="page-subtitle">
+                  并排比较多次运行的预算、停止原因与发现项，用于复盘
+                  judge / 策略改动。
+                </p>
+              </div>
+              <span class="heading-aside">只读 · 本地后端</span>
+            </div>
+            <div class="workspace-grid">
+              <section class="panel list-panel">
+                <div class="toolbar">
+                  <div class="filter-caption">
+                    勾选 2–8 次运行
+                  </div>
+                  <button
+                    class="outline-link"
+                    type="button"
+                    id="compare-run-btn"
+                  >
+                    开始对比
+                  </button>
+                </div>
+                <div id="compare-list" class="select-list"></div>
+              </section>
+              <aside
+                class="panel detail-panel"
+                id="compare-result"
+                aria-live="polite"
+              ></aside>
+            </div>
+          </section>
+
+          <section
+            class="page"
+            id="page-holdout"
+            aria-labelledby="holdout-title"
+          >
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">PAIRED HOLDOUT</p>
+                <h1 id="holdout-title">
+                  holdout 汇总<span class="title-dot">.</span>
+                </h1>
+                <p class="page-subtitle">
+                  冻结协议的脆弱/修复成对判定汇总。速率与 CI 直接取自
+                  summary.json，本页不重算任何判定。
+                </p>
+              </div>
+              <span class="heading-aside">只读 · 本地后端</span>
+            </div>
+            <div id="holdout-list"></div>
           </section>
 
           <section class="page" id="page-new-scan" aria-labelledby="scan-title">
