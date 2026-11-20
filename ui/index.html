@@ -45,6 +45,9 @@
           <button type="button" class="nav-link" data-page="holdout">
             <span class="nav-glyph">⊞</span><span>holdout 汇总</span>
           </button>
+          <button type="button" class="nav-link" data-page="insights">
+            <span class="nav-glyph">◈</span><span>数据洞察</span>
+          </button>
           <button type="button" class="nav-link" data-page="offline">
             <span class="nav-glyph">⇧</span><span>离线导入</span>
           </button>
@@ -354,6 +357,27 @@
               <span class="heading-aside">只读 · 本地后端</span>
             </div>
             <div id="holdout-list"></div>
+          </section>
+
+          <section
+            class="page"
+            id="page-insights"
+            aria-labelledby="insights-title"
+          >
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">DATA INSIGHTS</p>
+                <h1 id="insights-title">
+                  数据洞察<span class="title-dot">.</span>
+                </h1>
+                <p class="page-subtitle">
+                  跨 run 的过程 / 成本 / 覆盖指标聚合（token 经济、judge 行为、
+                  漏洞类覆盖）。判定类数字仍只读 holdout 汇总，本页不重算。
+                </p>
+              </div>
+              <span class="heading-aside">只读 · 本地后端 / 快照</span>
+            </div>
+            <div id="insights-body"></div>
           </section>
 
           <section class="page" id="page-new-scan" aria-labelledby="scan-title">

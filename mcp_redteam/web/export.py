@@ -22,6 +22,7 @@ from pathlib import Path
 
 from mcp_redteam import __version__
 from mcp_redteam.web.indexer import RunIndex
+from mcp_redteam.web.metrics import build_metrics_bundle
 
 CONSOLE_FILES = ("index.html", "styles.css", "app.js")
 DATA_JS_PREFIX = "window.MCPWN_EXPORT_DATA = "
@@ -73,6 +74,7 @@ def export_static_site(
         "runs": [s.model_dump() for s in index.summaries()],
         "findings": [f.model_dump() for f in index.findings()],
         "holdout": [v.model_dump() for v in index.holdout()],
+        "metrics": build_metrics_bundle(index.metrics(), index.skipped).model_dump(),
     }
     out_dir.mkdir(parents=True)
     try:

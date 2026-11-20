@@ -1360,3 +1360,44 @@ summary {
     font-size: 11px;
   }
 }
+
+/* ── 数据洞察（数据中台看板）────────────────────────────────────────── */
+.chart {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.chart-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 220px) 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+.chart-label {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chart-track {
+  height: 14px;
+  background: var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.chart-bar {
+  height: 100%;
+  min-width: 2px;
+  background: var(--green);
+  border-radius: 7px;
+}
+.chart-value {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 16px;
+}
