@@ -26,6 +26,7 @@ from mcp_redteam.contracts import (
     HoldoutPairView,
     HoldoutRunView,
     HoldoutSummaryView,
+    RunMetrics,
     RunSummary,
 )
 
@@ -35,10 +36,85 @@ SCAN_RESULT_NAME = "scan_result.json"
 SUMMARY_NAME = "summary.json"
 
 
+def _metrics_from_raw(raw: dict[str, Any], summary: RunSummary) -> RunMetrics:
+    """Project one parsed scan_result.json into per-run process metrics.
+
+    Counters only (Langfuse-style rollups): token sums, judge behaviour
+    counts, per-class coverage. No verdict re-computation of any kind.
+    """
+    traces = [t for t in (raw.get("traces") or []) if isinstance(t, dict)]
+    findings = [f for f in (raw.get("findings") or []) if isinstance(f, dict)]
+    traces_by_class: dict[str, int] = {}
+    for t in traces:
+        vc = str(t.get("vuln_class", ""))
+        if vc:
+            traces_by_class[vc] = traces_by_class.get(vc, 0) + 1
+    findings_by_class: dict[str, int] = {}
+    findings_by_sev: dict[str, int] = {}
+    for f in findings:
+        vc = str(f.get("vuln_class", ""))
+        if vc:
+            findings_by_class[vc] = findings_by_class.get(vc, 0) + 1
+        sev = str(f.get("severity", ""))
+        if sev:
+            findings_by_sev[sev] = findings_by_sev.get(sev, 0) + 1
+    l2_total = l2_steered = ev_total = ev_finding = hallucinated = 0
+    ev_conf_sum = 0.0
+    tokens_in = tokens_out = 0
+    ev_finding_by_class: dict[str, int] = {}
+    for t in traces:
+        tokens_in += int(t.get("tokens_in") or 0)
+        tokens_out += int(t.get("tokens_out") or 0)
+        if t.get("suspected_hallucination"):
+            hallucinated += 1
+        jv = t.get("judge_verdict")
+        if isinstance(jv, dict):
+            l2_total += 1
+            if jv.get("steered"):
+                l2_steered += 1
+        lv = t.get("llm_evidence_verdict")
+        if isinstance(lv, dict):
+            ev_total += 1
+            if lv.get("is_finding"):
+                ev_finding += 1
+                ev_conf_sum += float(lv.get("confidence") or 0.0)
+                vc = str(lv.get("vuln_class") or t.get("vuln_class") or "")
+                if vc:
+                    ev_finding_by_class[vc] = ev_finding_by_class.get(vc, 0) + 1
+    return RunMetrics(
+        run_id=summary.run_id,
+        scan_dir=summary.scan_dir,
+        experiment=summary.experiment,
+        started_at=summary.started_at,
+        attacker_model=summary.attacker_model,
+        evidence_judge_model=summary.evidence_judge_model,
+        stop_reason=summary.stop_reason,
+        wall_seconds=summary.wall_seconds,
+        attacker_tokens=summary.attacker_tokens,
+        judge_tokens=summary.judge_tokens,
+        attacker_tokens_effective=int(raw.get("attacker_tokens_effective") or 0),
+        trace_count=summary.trace_count,
+        findings_count=summary.findings_count,
+        static_hits_count=summary.static_hits_count,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        traces_by_vuln_class=traces_by_class,
+        findings_by_vuln_class=findings_by_class,
+        findings_by_severity=findings_by_sev,
+        evidence_finding_by_vuln_class=ev_finding_by_class,
+        l2_total=l2_total,
+        l2_steered=l2_steered,
+        evidence_total=ev_total,
+        evidence_finding=ev_finding,
+        evidence_conf_sum=ev_conf_sum,
+        hallucinated=hallucinated,
+    )
+
+
 def _summary_from_raw(
     raw: dict[str, Any], scan_dir: str
-) -> tuple[RunSummary, list[FindingSummary]]:
-    """Project one parsed scan_result.json into summary + finding rows.
+) -> tuple[RunSummary, list[FindingSummary], RunMetrics]:
+    """Project one parsed scan_result.json into summary + findings + metrics.
 
     Raises on structurally unusable files (no run_id / not a dict); every
     other missing field degrades to its default so historical artifacts
@@ -80,7 +156,8 @@ def _summary_from_raw(
                 target=str(f.get("target", "")),
             )
         )
-    return summary, findings
+    metrics = _metrics_from_raw(raw, summary)
+    return summary, findings, metrics
 
 
 class RunIndex:
@@ -94,8 +171,10 @@ class RunIndex:
     def __init__(self, runs_dir: Path) -> None:
         self.runs_dir = Path(runs_dir)
         self._lock = threading.Lock()
-        # scan_dir -> (mtime, size, RunSummary, [FindingSummary, ...])
-        self._cache: dict[str, tuple[float, int, RunSummary, list[FindingSummary]]] = {}
+        # scan_dir -> (mtime, size, RunSummary, [FindingSummary, ...], RunMetrics)
+        self._cache: dict[
+            str, tuple[float, int, RunSummary, list[FindingSummary], RunMetrics]
+        ] = {}
         self.skipped = 0
         self.parses = 0
 
@@ -119,7 +198,7 @@ class RunIndex:
                     continue
                 try:
                     raw = json.loads(path.read_text(encoding="utf-8"))
-                    summary, findings = _summary_from_raw(raw, scan_dir)
+                    summary, findings, metrics = _summary_from_raw(raw, scan_dir)
                 except (OSError, ValueError, KeyError, TypeError):
                     # 历史产物容错：截断 JSON / 缺 run_id / 字段类型漂移都跳过。
                     self.skipped += 1
@@ -127,7 +206,13 @@ class RunIndex:
                     _log.warning("eval platform: skipping unparseable %s", path)
                     continue
                 self.parses += 1
-                self._cache[scan_dir] = (st.st_mtime, st.st_size, summary, findings)
+                self._cache[scan_dir] = (
+                    st.st_mtime,
+                    st.st_size,
+                    summary,
+                    findings,
+                    metrics,
+                )
             for gone in set(self._cache) - seen:
                 del self._cache[gone]
 
@@ -140,6 +225,14 @@ class RunIndex:
         """All cached finding projections, newest run first."""
         items = [f for c in self._cache.values() for f in c[3]]
         return sorted(items, key=lambda f: (f.run_id, f.finding_id), reverse=True)
+
+    def metrics(self) -> list[RunMetrics]:
+        """All cached per-run metrics, newest first."""
+        return sorted(
+            (c[4] for c in self._cache.values()),
+            key=lambda m: (m.started_at, m.run_id),
+            reverse=True,
+        )
 
     def _resolve(self, run_id: str) -> RunSummary | None:
         matches = [c[2] for c in self._cache.values() if c[2].run_id == run_id]

@@ -170,6 +170,7 @@ const pages = {
   findings: "发现项",
   compare: "运行对比",
   holdout: "holdout 汇总",
+  insights: "数据洞察",
   "new-scan": "新建扫描",
   offline: "离线导入",
 };
@@ -189,6 +190,7 @@ const apiRunDetailCache = new Map();
 let apiDetailToken = 0;
 let findingDetailToken = 0;
 let holdoutCache = null;
+let insightsCache = null;
 const compareSelected = new Set();
 const STOP_STATUS = {
   completed: "completed",
@@ -333,6 +335,7 @@ document.querySelectorAll(".eyebrow,.panel-kicker").forEach((n) => {
     "EVIDENCE REVIEW": "证据复核",
     "RUN COMPARISON": "运行对比",
     "PAIRED HOLDOUT": "成对冻结验证",
+    "DATA INSIGHTS": "数据洞察",
     "NEW ASSESSMENT": "创建评估",
     "OFFLINE ARTIFACT": "离线产物",
     "LOCAL ONLY": "仅本地读取",
@@ -812,6 +815,190 @@ function renderCompareResult(columns) {
     ),
   );
 }
+/* ── 数据洞察页（数据中台看板：过程 / 成本 / 覆盖指标）────────────────── */
+function chartBlock(title, rows) {
+  const sec = append(node("section", "detail-section"), node("h3", "", title));
+  const clean = rows.filter((r) => r.value > 0 || r.text);
+  if (!clean.length) {
+    sec.append(node("div", "empty-state", "该维度暂无数据。"));
+    return sec;
+  }
+  const max = Math.max(1, ...clean.map((r) => r.value));
+  const wrap = node("div", "chart");
+  clean.forEach((r) => {
+    const track = node("div", "chart-track");
+    const bar = node("div", "chart-bar");
+    bar.style.width = `${Math.max(2, Math.round((r.value / max) * 100))}%`;
+    track.append(bar);
+    wrap.append(
+      append(
+        node("div", "chart-row"),
+        node("span", "chart-label", r.label),
+        track,
+        node("span", "chart-value", r.text),
+      ),
+    );
+  });
+  sec.append(wrap);
+  return sec;
+}
+function renderInsightsData(b) {
+  const host = $("insights-body");
+  host.replaceChildren();
+  if (!b || !b.summary) {
+    host.append(node("div", "empty-state", "快照或后端未包含数据洞察指标。"));
+    return;
+  }
+  const s = b.summary;
+  const cards = node("div", "metric-grid");
+  [
+    ["总运行", s.runs, `${b.date_min || "—"} ~ ${b.date_max || "—"}`, "accent"],
+    ["疑似发现", s.findings, "来自 runs/ 产物 · 尚未经独立重放", "warning"],
+    [
+      "攻击 token",
+      fmtInt(s.attacker_tokens),
+      `裁决 token ${fmtInt(s.judge_tokens)}`,
+      "",
+    ],
+    [
+      "有效 token",
+      fmtInt(s.tokens_effective),
+      s.attacker_tokens
+        ? `缓存折算 ${Math.round((s.tokens_effective / s.attacker_tokens) * 100)}%`
+        : "—",
+      "accent",
+    ],
+    [
+      "每发现攻击 token",
+      s.tokens_per_finding ? fmtInt(s.tokens_per_finding) : "—",
+      "原始口径 · 按实验见下表",
+      "",
+    ],
+    [
+      "幻觉标记",
+      s.hallucinated,
+      "attacker 声称外传但证据未落地",
+      s.hallucinated ? "warning" : "",
+    ],
+  ].forEach(([label, value, note, cls]) =>
+    cards.append(
+      append(
+        node("div", `metric ${cls}`),
+        node("div", "metric-label", label),
+        node("div", "metric-number", String(value)),
+        node("div", "metric-note", note),
+      ),
+    ),
+  );
+  host.append(cards);
+  const tokRow = (g) => ({
+    label: g.label,
+    value: g.attacker_tokens,
+    text: `${fmtInt(g.attacker_tokens)} · ${g.findings} 发现`,
+  });
+  const runRow = (g) => ({
+    label: g.label,
+    value: g.runs,
+    text: `${g.runs} 次 · ${g.findings} 发现`,
+  });
+  const findRow = (g) => ({
+    label: g.label,
+    value: g.findings,
+    text: `${g.findings} 发现 · ${g.traces} 探查`,
+  });
+  const charts = node("div", "insight-grid");
+  charts.append(
+    chartBlock(
+      "攻击 token × 实验（top 10）",
+      (b.by_experiment || []).slice(0, 10).map(tokRow),
+    ),
+    chartBlock("运行数 × 日期（近 30 天有运行日）", (b.by_date || []).slice(-30).map(runRow)),
+    chartBlock(
+      "发现项 × 漏洞类",
+      (b.by_vuln_class || []).map(findRow),
+    ),
+    chartBlock("停止原因分布", (b.by_stop_reason || []).map(runRow)),
+    chartBlock("攻击模型", (b.by_model || []).map(runRow)),
+    chartBlock("judge 模型", (b.by_judge || []).map(runRow)),
+  );
+  host.append(charts);
+  const table = node("table");
+  const head = node("thead");
+  const hr = node("tr");
+  [
+    "实验",
+    "运行",
+    "发现",
+    "traces",
+    "攻击 tok",
+    "有效 tok",
+    "tok/发现",
+    "幻觉",
+  ].forEach((h) => hr.append(node("th", "", h)));
+  head.append(hr);
+  table.append(head);
+  const body = node("tbody");
+  (b.by_experiment || []).forEach((g) => {
+    const tr = node("tr");
+    [
+      g.label,
+      g.runs,
+      g.findings,
+      g.traces,
+      fmtInt(g.attacker_tokens),
+      fmtInt(g.tokens_effective),
+      g.tokens_per_finding ? fmtInt(g.tokens_per_finding) : "—",
+      g.hallucinated,
+    ].forEach((v) => tr.append(node("td", "", v)));
+    body.append(tr);
+  });
+  table.append(body);
+  host.append(
+    append(
+      node("section", "detail-section"),
+      node("h3", "", "按实验汇总"),
+      append(node("div", "table-scroll"), table),
+    ),
+  );
+  host.append(
+    section(
+      "指标口径",
+      "全部为本中台从 runs/ 产物计算的过程 / 成本 / 覆盖指标（求和，不重算判定）；"
+        + "tokens_per_finding 按原始攻击 token 口径（跨历史产物可比），缓存有效口径单列。"
+        + "通过率等判定数字一律见「holdout 汇总」页（直接取自冻结协议 summary.json）。",
+    ),
+  );
+}
+async function renderInsights() {
+  const host = $("insights-body");
+  if (DATA_MODE.kind === "demo") {
+    host.replaceChildren(
+      node(
+        "div",
+        "empty-state",
+        "数据洞察需要本地后端（mcpwn ui）或静态快照（mcpwn export-ui）。",
+      ),
+    );
+    return;
+  }
+  if (DATA_MODE.kind === "export") {
+    renderInsightsData(EXPORT.metrics || null);
+    return;
+  }
+  if (insightsCache) {
+    renderInsightsData(insightsCache);
+    return;
+  }
+  host.replaceChildren(node("div", "empty-state", "读取中…"));
+  try {
+    const res = await fetch("./api/metrics");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    insightsCache = await res.json();
+    renderInsightsData(insightsCache);
+  } catch (err) {
+    host.replaceChildren(node("div", "empty-state", `读取失败：${err.message}`));
+  }
+}
 /* ── holdout 汇总页 ───────────────────────────────────────────────────── */
 async function loadHoldout() {
   if (DATA_MODE.kind === "export") {
@@ -1206,6 +1393,7 @@ function applyRealData(runsList, findingsList, holdoutSummaries, mode) {
     targets.push(...realTargets);
   }
   holdoutCache = holdoutSummaries ? { summaries: holdoutSummaries } : null;
+  insightsCache = null; // export: renderInsightsData 直接用快照; api: 首次进入页面时拉取
   compareSelected.clear();
   selectedRun = runs[0]?.id;
   selectedFinding = findings[0]?.id;
@@ -1215,6 +1403,7 @@ function applyRealData(runsList, findingsList, holdoutSummaries, mode) {
   renderFindings();
   renderCompare();
   renderHoldout();
+  renderInsights();
 }
 async function upgradeFromApi() {
   if (DATA_MODE.kind === "export") {
@@ -1347,6 +1536,7 @@ renderFindings();
 renderBudget();
 renderCompare();
 renderHoldout();
+renderInsights();
 window.addEventListener("popstate", () =>
   setPage(location.hash.slice(1), false),
 );

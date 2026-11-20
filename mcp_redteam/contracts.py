@@ -625,6 +625,87 @@ class HoldoutSummaryView(BaseModel):
     pairs: list[HoldoutPairView] = Field(default_factory=list)
 
 
+class RunMetrics(BaseModel):
+    """Per-run process/cost/coverage metrics extracted at index time.
+
+    Data-platform layer (Langfuse-style dimension rollups over observability
+    data): everything here is a PROCESS metric - token economics, judge
+    behaviour counts, coverage. Verdict/pass-rate numbers stay verbatim in
+    HoldoutSummaryView; nothing in this model re-judges or re-scores.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    scan_dir: str
+    experiment: str
+    started_at: str = ""
+    attacker_model: str = ""
+    evidence_judge_model: str = ""
+    stop_reason: str = ""
+    wall_seconds: float = 0.0
+    attacker_tokens: int = 0
+    judge_tokens: int = 0
+    attacker_tokens_effective: int = 0
+    trace_count: int = 0
+    findings_count: int = 0
+    static_hits_count: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    traces_by_vuln_class: dict[str, int] = Field(default_factory=dict)
+    findings_by_vuln_class: dict[str, int] = Field(default_factory=dict)
+    findings_by_severity: dict[str, int] = Field(default_factory=dict)
+    evidence_finding_by_vuln_class: dict[str, int] = Field(default_factory=dict)
+    # Judge behaviour counters (process diagnostics, not verdicts).
+    l2_total: int = 0
+    l2_steered: int = 0
+    evidence_total: int = 0
+    evidence_finding: int = 0
+    evidence_conf_sum: float = 0.0
+    hallucinated: int = 0
+
+
+class GroupMetric(BaseModel):
+    """One aggregated row of the data platform (sums over RunMetrics)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    runs: int = 0
+    findings: int = 0
+    traces: int = 0
+    attacker_tokens: int = 0
+    judge_tokens: int = 0
+    tokens_effective: int = 0
+    tokens_per_finding: float = 0.0
+    evidence_finding: int = 0
+    hallucinated: int = 0
+
+
+class MetricsBundle(BaseModel):
+    """Aggregated metric rollups served by ``/api/metrics``.
+
+    Dimensions follow the Langfuse/MLflow convention (split observability
+    data by the dimensions that matter for iteration); aggregation itself is
+    plain sums over :class:`RunMetrics` - no re-scoring happens here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    generated_at: str = ""
+    run_count: int = 0
+    skipped: int = 0
+    date_min: str = ""
+    date_max: str = ""
+    summary: GroupMetric
+    by_experiment: list[GroupMetric] = Field(default_factory=list)
+    by_model: list[GroupMetric] = Field(default_factory=list)
+    by_judge: list[GroupMetric] = Field(default_factory=list)
+    by_date: list[GroupMetric] = Field(default_factory=list)
+    by_stop_reason: list[GroupMetric] = Field(default_factory=list)
+    by_vuln_class: list[GroupMetric] = Field(default_factory=list)
+
+
 class M3JudgeReport(BaseModel):
     """M3 acceptance judge output (HANDOFF_JUDGE + grill decisions).
 

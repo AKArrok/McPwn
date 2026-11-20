@@ -20,6 +20,7 @@ from starlette.responses import Response
 
 from mcp_redteam import __version__
 from mcp_redteam.web.indexer import RunIndex
+from mcp_redteam.web.metrics import build_metrics_bundle
 
 CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
@@ -133,6 +134,13 @@ def create_app(runs_dir: Path, ui_dir: Path) -> FastAPI:
         await run_in_threadpool(index.refresh)
         views = await run_in_threadpool(index.holdout)
         return {"summaries": [v.model_dump() for v in views]}
+
+    @app.get("/api/metrics")
+    async def metrics() -> dict:
+        await run_in_threadpool(index.refresh)
+        all_metrics = await run_in_threadpool(index.metrics)
+        bundle = await run_in_threadpool(build_metrics_bundle, all_metrics, index.skipped)
+        return bundle.model_dump()
 
     ui_path = Path(ui_dir)
     if not ui_path.is_dir():

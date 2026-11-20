@@ -165,6 +165,7 @@ flowchart LR
 | **预算/成本工程** | per-trace token 子闸门 (默认 40% 预算) + 上下文压缩 + 提示词瘦身 (bundle -19%);DeepSeek 前缀缓存有效成本计量 (命中按 1/10 折算),effective tok/finding 3.4k-3.6k,对照基线 **-68%/-80%** |
 | **真实世界靶机** | excel-mcp-server CVE-2026-40576 正向/负向双版本对照回归 |
 | **测评中台** | `mcpwn ui` 本地只读控制台:实时索引 `runs/` 产物,运行总览 / 详情下钻 / 多 run 对比 / 冻结 holdout 汇总;判定与置信度一律展示产物原文,中台不重算 |
+| **数据中台** | `/api/metrics` + 控制台"数据洞察"页:逐 run 过程 / 成本 / 覆盖指标(token 经济、judge 行为、幻觉标记、漏洞类覆盖矩阵)pandas 按维度聚合(实验 / 模型 / 日期),只求和不重算判定 |
 
 ## 快速开始
 
@@ -520,6 +521,10 @@ holdout `summary.json` 实时索引成只读 JSON API,并托管 `ui/` 中文控�
 - **运行对比**:勾选多次运行并排比较(judge / 策略改动复盘)
 - **holdout 汇总**:冻结协议的成对判定与 Wilson CI,**直接取自
   summary.json,中台不重算任何判定**
+- **数据洞察(数据中台)**:`/api/metrics` 把逐 run 过程指标(token 经济 /
+  judge 行为 / 幻觉标记 / 漏洞类覆盖矩阵)按实验 / 模型 / 日期 / 停止原因
+  维度聚合(pandas,Inspect AI `evals_df` 同款分析路径)。只算过程指标,
+  通过率等判定数字仍只读 holdout summary
 
 形态参考 `inspect view` / `promptfoo view`(本地评测结果查看器)。只读:
 不写盘、不触发扫描、不调用 LLM;默认只绑 `127.0.0.1`。无后端时 `ui/`
@@ -603,7 +608,8 @@ mcp_redteam/
   models/chat.py          OpenAI-compat 工厂 + retry-with-backoff + 限流
   judge/                  L2 judge (prompt 外置 + JSON 解析)
   report/findings.py      ScanResult -> findings.md + findings.json + poc/*.py
-  web/                    测评中台 (mcpwn ui): runs/ 产物只读索引 + 本地控制台
+  web/                    测评中台 (mcpwn ui/export-ui): runs/ 只读索引 + 控制台
+                          + 数据中台 (/api/metrics 指标聚合与洞察看板)
 eval/
   dvmcp/                  DVMCP fixture + expected.yaml + runner + m3_judge
   realworld/              excel-mcp CVE 回归 (prove.py 双版本对照)

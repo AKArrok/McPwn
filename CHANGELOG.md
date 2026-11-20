@@ -21,6 +21,12 @@ versioning follows [SemVer](https://semver.org/).
   (traces/attacker messages/完整 scan_result.json 不出库), 内嵌 meta CSP
   `connect-src 'none'` 零网络请求; compare/holdout 在快照模式下用投影
   本地组装, 默认拒绝覆盖 (--force); 已存在目录需显式 --force。
+- **数据中台 `/api/metrics` + 控制台"数据洞察"页** (维度聚合模式参考
+  Langfuse / Inspect AI `evals_df` / MLflow run-grouped aggregation):
+  逐 run `RunMetrics` (token 经济含 effective 口径 / L2+evidence judge 行为
+  计数 / 幻觉标记 / 漏洞类覆盖矩阵) 经 pandas 按实验 / 模型 / judge /
+  日期 / stop_reason 维度求和; 快照 data.js 携带同一聚合。红线: 只算
+  过程指标, 判定数字仍只读 holdout summary, 不重算。
 - dashscope judge 调用关闭 hidden thinking (`no_thinking_kwargs`,
   provider 门控), `eval/jev_probe/` 实测依据 (N=25: 122 tok / 2.7s,
   24/25 与 thinking-ON verdict 一致)。
