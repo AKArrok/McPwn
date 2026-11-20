@@ -29,7 +29,7 @@ from mcp_redteam.contracts import (
     VulnClass,
 )
 from mcp_redteam.judge.parse import parse_json_object
-from mcp_redteam.models.chat import chat_create_with_retry
+from mcp_redteam.models.chat import chat_create_with_retry, no_thinking_kwargs
 from mcp_redteam.orchestrator.budget import TokenBudget, WallClock
 from mcp_redteam.victims.agents.tool_schema_builder import build_openai_tools
 
@@ -625,6 +625,7 @@ def evidence_verdict(
                 {"role": "system", "content": _EVIDENCE_JUDGE_TMPL.render()},
                 {"role": "user", "content": user_message},
             ],
+            **no_thinking_kwargs(model_spec),
         )
     except Exception:
         _log.warning("evidence judge call failed")

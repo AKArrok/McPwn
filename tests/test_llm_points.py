@@ -1,19 +1,33 @@
 """Unit tests for Stage-2 LLM decision points (pure parse / validate / ground).
 
-The LLM wrappers themselves are not unit-tested (network); the parsing,
+The LLM wrappers' network behavior is not unit-tested; the parsing,
 target-validation and grounding gates are - they are where hallucination and
-ungrounded findings would leak in.
+ungrounded findings would leak in. One wrapper-level contract IS covered with
+a fake client (same pattern as test_m3_judge): evidence_verdict's judge call
+must disable DashScope hidden thinking and stay a no-op elsewhere
+(eval/jev_probe: 1240 tok / 22.5s per call ON vs 122 tok / 2.7s OFF).
 """
 
 from __future__ import annotations
 
+import types
+
+import pytest
+
 from mcp_redteam.agent.llm_points import (
+    evidence_verdict,
     ground_evidence_verdict,
     hypotheses_to_candidates,
     parse_evidence_verdict,
     parse_hypotheses,
 )
-from mcp_redteam.contracts import LlmEvidenceVerdict, LlmHypothesis, McpCall, VulnClass
+from mcp_redteam.contracts import (
+    AttackTrace,
+    LlmEvidenceVerdict,
+    LlmHypothesis,
+    McpCall,
+    VulnClass,
+)
 
 
 def _mkcall(text: str, name: str = "read_vault", args: dict | None = None) -> McpCall:
@@ -122,3 +136,74 @@ def test_ground_rejects_bad_index_and_empty_text():
         evidence_call_index=0, evidence_text="", confidence=0.9,
     )
     assert not ground_evidence_verdict(v2, calls)
+
+
+# ── evidence_verdict judge-call kwargs contract (fake client) ────────────────
+
+@pytest.fixture(autouse=True)
+def _no_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """chat_create_with_retry sleeps >=2s between calls; disable in tests."""
+    monkeypatch.setattr("mcp_redteam.models.chat._MIN_INTERVAL_SEC", 0.0)
+
+
+class _JudgeMsg:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class _JudgeChoice:
+    def __init__(self, content: str) -> None:
+        self.message = _JudgeMsg(content)
+
+
+class _JudgeResp:
+    def __init__(self, content: str) -> None:
+        self.choices = [_JudgeChoice(content)]
+        self.usage = None
+
+
+class _JudgeCompletions:
+    def __init__(self, response: _JudgeResp) -> None:
+        self.response = response
+        self.captured: dict = {}
+
+    def create(self, **kwargs: object) -> _JudgeResp:
+        self.captured = kwargs
+        return self.response
+
+
+class _JudgeClient:
+    def __init__(self, completions: _JudgeCompletions) -> None:
+        self.chat = types.SimpleNamespace(completions=completions)
+
+
+def _judge_spec(provider: str) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        model="judge-x", temperature=0.0, seed=None, provider=provider,
+    )
+
+
+def _empty_trace() -> AttackTrace:
+    # strategy_card_slug must equal vuln_class.value (AttackTrace validator).
+    return AttackTrace(
+        vuln_class=VulnClass.AUTH_BYPASS, target="read_vault",
+        strategy_card_slug="auth_bypass",
+    )
+
+
+@pytest.mark.parametrize("provider,expect_kwarg", [
+    ("dashscope", True),
+    ("deepseek", False),
+])
+def test_evidence_verdict_thinking_kwarg_per_provider(
+    provider: str, expect_kwarg: bool,
+):
+    completions = _JudgeCompletions(_JudgeResp('{"is_finding": false}'))
+    verdict = evidence_verdict(
+        _empty_trace(), _JudgeClient(completions), _judge_spec(provider),
+    )
+    assert verdict is not None and verdict.is_finding is False
+    if expect_kwarg:
+        assert completions.captured["extra_body"] == {"enable_thinking": False}
+    else:
+        assert "extra_body" not in completions.captured

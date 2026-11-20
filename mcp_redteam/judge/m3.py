@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from mcp_redteam.contracts import M3JudgeReport
 from mcp_redteam.judge.parse import parse_json_object
-from mcp_redteam.models.chat import chat_create_with_retry
+from mcp_redteam.models.chat import chat_create_with_retry, no_thinking_kwargs
 
 if TYPE_CHECKING:
     from openai import OpenAI
@@ -176,6 +176,7 @@ def make_m3_judge_fn(
                     {"role": "system", "content": _JUDGE_M3_SYSTEM_TMPL.render()},
                     {"role": "user", "content": _build_m3_user_message(inp)},
                 ],
+                **no_thinking_kwargs(spec),
             )
         except Exception:  # noqa: BLE001
             _log.exception("M3 judge LLM call failed; report assembled deterministically")

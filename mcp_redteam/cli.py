@@ -5,7 +5,7 @@ findings.md + poc/*.py + traces/*.json + scan_result.json under --out.
 <target> is an HTTP endpoint URL (SSE or streamable HTTP) or, with --command,
 a stdio launch command.
 
-Support commands: `ping-models`, `lint-cards`.
+Support commands: `ping-models`, `lint-cards`, `ui` (local eval platform).
 DVMCP-specific helpers live under `mcpwn eval dvmcp ...` (HANDOFF paragraph 2).
 """
 
@@ -606,6 +606,93 @@ def lint_cards() -> None:
             console.print(f"[red]FAIL[/red] {err}")
         raise typer.Exit(code=1)
     console.print(f"[green]ok[/green] all {len(VULN_SLUGS)} cards passed lint")
+
+
+@app.command("ui")
+def ui_cmd(
+    port: int = typer.Option(8765, "--port", help="Local port for the console UI."),
+    runs_dir: Path = typer.Option(
+        Path("runs"), "--runs-dir", help="Runs root to index (read-only)."
+    ),
+    ui_dir: Path | None = typer.Option(
+        None,
+        "--ui-dir",
+        help="Static console directory (default: the repo's ui/ next to the package).",
+    ),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Bind address. Keep the loopback default: the API serves scan "
+        "artifacts to anyone who can reach this address.",
+    ),
+) -> None:
+    """Read-only eval platform: index runs/ and serve the local console UI.
+
+    Browses existing scan_result.json / findings.json / holdout summary.json
+    artifacts (run list, detail drill-down, multi-run compare, holdout
+    aggregation). This command never writes to disk and never runs scans.
+    """
+    import uvicorn
+
+    from mcp_redteam.web.app import create_app
+
+    resolved_ui = ui_dir or Path(__file__).resolve().parent.parent / "ui"
+    try:
+        platform = create_app(runs_dir=runs_dir, ui_dir=resolved_ui)
+    except FileNotFoundError as exc:
+        console.print(f"[red]FAIL[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    console.print(f"[green]eval platform[/green] http://{host}:{port}/")
+    console.print(f"[dim]runs root: {runs_dir} (read-only, no scans, no writes)[/dim]")
+    uvicorn.run(platform, host=host, port=port, log_level="warning")
+
+
+@app.command("export-ui")
+def export_ui_cmd(
+    out: Path = typer.Option(
+        Path("site"), "--out", "-o", help="Export directory (created fresh)."
+    ),
+    runs_dir: Path = typer.Option(
+        Path("runs"), "--runs-dir", help="Runs root to index."
+    ),
+    ui_dir: Path | None = typer.Option(
+        None,
+        "--ui-dir",
+        help="Static console directory (default: the repo's ui/ next to the package).",
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite an existing export directory."
+    ),
+) -> None:
+    """Export a self-contained static snapshot site (GitHub Pages ready).
+
+    Copies the ui/ console and writes data.js with summary-level projections
+    (run summaries, findings, holdout aggregates). No traces, attacker
+    messages or full scan_result.json are exported. The snapshot embeds its
+    own CSP and needs no backend. Note: publishing a snapshot is an outbound
+    action - confirm targets are authorized and content redacted first.
+    """
+    from mcp_redteam.web.export import export_static_site
+
+    resolved_ui = ui_dir or Path(__file__).resolve().parent.parent / "ui"
+    try:
+        report = export_static_site(
+            runs_dir=runs_dir, ui_dir=resolved_ui, out_dir=out, force=force
+        )
+    except FileExistsError as exc:
+        console.print(f"[red]FAIL[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    except FileNotFoundError as exc:
+        console.print(f"[red]FAIL[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    table = Table("field", "value")
+    for key, value in report.items():
+        table.add_row(key, str(value))
+    console.print(table)
+    console.print(f"[green]wrote[/green] {out}/ (index.html + data.js, self-contained)")
+    console.print(
+        "[dim]快照只含摘要投影;发布到 Pages 等静态托管前,请自行确认目标已授权且内容已脱敏。[/dim]"
+    )
 
 
 # ─── eval dvmcp ─────────────────────────────────────────────────────────────

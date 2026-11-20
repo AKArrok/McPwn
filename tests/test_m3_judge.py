@@ -213,8 +213,8 @@ class _FakeClient:
         self.chat = types.SimpleNamespace(completions=completions)
 
 
-def _spec() -> types.SimpleNamespace:
-    return types.SimpleNamespace(model="m3-judge", temperature=0.0)
+def _spec(provider: str = "dashscope") -> types.SimpleNamespace:
+    return types.SimpleNamespace(model="m3-judge", temperature=0.0, provider=provider)
 
 
 def test_judge_fn_returns_none_when_llm_raises():
@@ -305,3 +305,21 @@ def test_write_m3_report_creates_parent_dirs(tmp_path):
     json_path, md_path = write_m3_report(report, out)
     assert json_path.parent == out
     assert json_path.exists() and md_path.exists()
+
+
+def test_judge_fn_disables_thinking_on_dashscope():
+    completions = _FakeCompletions(
+        _Resp('{"chain_9010_real": "pass", "reason": "r"}')
+    )
+    fn = make_m3_judge_fn(_FakeClient(completions), _spec(provider="dashscope"))
+    assert fn(_input()) is not None
+    assert completions.captured["extra_body"] == {"enable_thinking": False}
+
+
+def test_judge_fn_no_extra_body_for_other_providers():
+    completions = _FakeCompletions(
+        _Resp('{"chain_9010_real": "pass", "reason": "r"}')
+    )
+    fn = make_m3_judge_fn(_FakeClient(completions), _spec(provider="deepseek"))
+    assert fn(_input()) is not None
+    assert "extra_body" not in completions.captured

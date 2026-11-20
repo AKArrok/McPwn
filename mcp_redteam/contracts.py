@@ -516,6 +516,115 @@ class PlannerDecision(BaseModel):
     executed: bool = False
     skip_reason: str | None = None
 
+# ── Eval-platform (web) projections ──────────────────────────────────────────
+# Read-only API view models served by mcp_redteam.web (mcpwn ui). These are
+# display projections over runs/ artifacts, not scan contracts: scalar fields
+# are deliberately typed loosely (str over literals) so the indexer tolerates
+# historical artifacts instead of dropping them. Strict producers of scan
+# data still go through ScanResult / Finding / AttackTrace above.
+
+
+class RunSummary(BaseModel):
+    """Compact one-line index entry for one scan output directory.
+
+    One entry == one ``scan_result.json`` found under the runs root.
+    ``scan_dir`` is the artifact directory as a POSIX path relative to the
+    runs root and is the stable lookup key (``run_id`` can collide across
+    re-runs; directories cannot). ``experiment`` is the first path segment
+    (holdout / m2_dvmcp_full / ...).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    scan_dir: str
+    experiment: str
+    target: str
+    transport: str = ""
+    started_at: str = ""
+    wall_seconds: float = 0.0
+    attacker_tokens: int = 0
+    judge_tokens: int = 0
+    total_tokens: int = 0
+    stop_reason: str = ""
+    findings_count: int = 0
+    trace_count: int = 0
+    static_hits_count: int = 0
+    attacker_model: str = ""
+    evidence_judge_model: str = ""
+    git_sha: str = ""
+
+
+class FindingSummary(BaseModel):
+    """Flat finding projection for cross-run listing on the findings page.
+
+    Carries the run locator (``run_id`` + ``scan_dir``) so the UI can jump
+    from a finding to its originating scan without re-resolving paths.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str
+    run_id: str
+    scan_dir: str
+    vuln_class: str = ""
+    severity: str = ""
+    confidence: float = 0.0
+    title: str = ""
+    target: str = ""
+
+
+class HoldoutRunView(BaseModel):
+    """One repeated run inside a holdout pair, mirrored from summary.json."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    index: int = 0
+    status: str = ""
+    positive_detected: bool = False
+    fixed_clean: bool = False
+    control_replay_passed: bool = False
+    reasons: list[str] = Field(default_factory=list)
+
+
+class HoldoutPairView(BaseModel):
+    """One vulnerable/fixed pair aggregate, mirrored 1:1 from summary.json.
+
+    Rendering contract: every value is copied verbatim from the frozen-protocol
+    summary artifact - nothing in the web layer recomputes pass rates or CIs.
+    Aggregation authority stays with ``eval/holdout`` (report-layer rule:
+    expectation semantics belong to ``benchmark.expect_ok``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    pair_id: str
+    split: str = ""
+    passed: int = 0
+    total: int = 0
+    rate: float = 0.0
+    ci95: list[float] = Field(default_factory=list)
+    status: str = ""
+    runs: list[HoldoutRunView] = Field(default_factory=list)
+
+
+class HoldoutSummaryView(BaseModel):
+    """One holdout ``summary.json`` (protocol_version-locked shape), read-only.
+
+    Files without a ``protocol_version`` key (other experiments also write
+    ``summary.json``) are NOT holdout protocol summaries and are ignored.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+    protocol_version: int = 1
+    protocol_sha256: str = ""
+    repeats: int = 0
+    status: str = ""
+    pairs: list[HoldoutPairView] = Field(default_factory=list)
+
+
 class M3JudgeReport(BaseModel):
     """M3 acceptance judge output (HANDOFF_JUDGE + grill decisions).
 

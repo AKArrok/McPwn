@@ -12,7 +12,7 @@ import os
 import time
 from dataclasses import dataclass
 from importlib.resources import files
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from openai import OpenAI
@@ -113,6 +113,22 @@ def ping(role: Role, prompt: str = "ping") -> str:
         max_tokens=32,
     )
     return (resp.choices[0].message.content or "").strip()
+
+
+def no_thinking_kwargs(spec: ModelSpec) -> dict[str, Any]:
+    """``chat_create_with_retry`` kwargs that turn off hidden reasoning.
+
+    DashScope qwen3-family models default to thinking mode; a short structured
+    ruling then costs ~1240 completion tokens (mostly invisible reasoning) and
+    ~22s per call, vs 122 tokens / 2.7s with ``enable_thinking=false`` and
+    24/25 identical verdicts (eval/jev_probe, 2026-10-06). Providers without
+    that param reject unknown fields (DeepSeek 400s on them — same reason
+    ``seed`` is opt-in above), so this is provider-gated and a no-op elsewhere;
+    stub specs without a ``provider`` attribute count as non-DashScope.
+    """
+    if getattr(spec, "provider", "") == "dashscope":
+        return {"extra_body": {"enable_thinking": False}}
+    return {}
 
 
 # ── retry-with-backoff ────────────────────────────────────────────────────────

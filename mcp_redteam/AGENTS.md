@@ -15,6 +15,8 @@ poc/*.py}`;`mcpwn ci` 对 `findings.json` 产出稳定退出码。DVMCP 回归�
 **变换**:CLI (`scan`) → `orchestrator/runner.scan` → `agent.recon` →
 `agent.planner` → `agent.executor`(attacker LLM + `targets/mcp_client`) →
 `agent.verifier`(signals + LLM twin) → `report.findings`。
+旁路只读链:`web/`(mcpwn ui)把已落盘产物索引成 JSON API + 本地控制台,
+不参与扫描、不写盘。
 
 **边界**:
 - 不改 DVMCP 靶子源码。
