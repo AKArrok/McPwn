@@ -80,10 +80,15 @@ def export_static_site(
             shutil.copyfile(Path(ui_dir) / name, out_dir / name)
         html = (out_dir / "index.html").read_text(encoding="utf-8")
         # Static hosts send no CSP headers; embed the policy and load the
-        # data script before the deferred app.js.
+        # data script before the deferred app.js. Retitle for the public tab.
         html = html.replace(
             "<title>",
             f'{_CSP_META}\n    <script src="./data.js"></script>\n    <title>',
+            1,
+        )
+        html = html.replace(
+            "<title>McPwn · 扫描控制台预览</title>",
+            "<title>McPwn · 测评中台静态快照</title>",
             1,
         )
         (out_dir / "index.html").write_text(html, encoding="utf-8")

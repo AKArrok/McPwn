@@ -547,6 +547,10 @@ holdout `summary.json` 实时索引成只读 JSON API,并托管 `ui/` 中文控�
 mcpwn export-ui --out site    # 生成后可用任意静态服务器托管或直接打开
 ```
 
+本仓库的公开快照随 Pages 发布:`docs/site/`(legacy Pages,随 main 自动重建),
+入口 [https://akarrok.github.io/McPwn/](https://akarrok.github.io/McPwn/);
+刷新 = 重新生成到 `docs/site/` 并提交。
+
 ### `mcpwn eval dvmcp ...` / `mcpwn eval realworld ...`
 
 回归评估子命令,见 [`docs/eval_guide.md`](docs/eval_guide.md)。
