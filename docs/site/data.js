@@ -1,11 +1,49 @@
 /* McPwn 静态快照 — 由 mcpwn export-ui 生成;只读摘要投影,不含完整 trace。 */
 window.MCPWN_EXPORT_DATA = {
- "version": "0.3.1",
- "generated_at": "2026-11-20T18:19:06+00:00",
+ "version": "0.4.0",
+ "generated_at": "2026-11-21T17:16:21+00:00",
  "source_runs_dir": "runs",
- "run_count": 618,
+ "run_count": 620,
  "skipped": 0,
  "runs": [
+  {
+   "run_id": "scan-20261122-011128-fa548d",
+   "scan_dir": "e2e_v040_vault/vault",
+   "experiment": "e2e_v040_vault",
+   "target": "http://127.0.0.1:19205/sse",
+   "transport": "sse",
+   "started_at": "2026-11-21T17:11:28Z",
+   "wall_seconds": 45.84528639999917,
+   "attacker_tokens": 31757,
+   "judge_tokens": 3275,
+   "total_tokens": 35032,
+   "stop_reason": "budget_tokens",
+   "findings_count": 1,
+   "trace_count": 3,
+   "static_hits_count": 0,
+   "attacker_model": "deepseek-v4-flash",
+   "evidence_judge_model": "qwen3.8-flash",
+   "git_sha": "d35950d1fdb2785bff4a33f666bafe11688406be"
+  },
+  {
+   "run_id": "scan-20261122-011029-c18d6b",
+   "scan_dir": "e2e_v040_time",
+   "experiment": "e2e_v040_time",
+   "target": "stdio: uvx mcp-server-time",
+   "transport": "stdio",
+   "started_at": "2026-11-21T17:10:29Z",
+   "wall_seconds": 45.57089019999694,
+   "attacker_tokens": 9631,
+   "judge_tokens": 0,
+   "total_tokens": 9631,
+   "stop_reason": "completed",
+   "findings_count": 0,
+   "trace_count": 1,
+   "static_hits_count": 0,
+   "attacker_model": "deepseek-v4-flash",
+   "evidence_judge_model": "",
+   "git_sha": "d35950d1fdb2785bff4a33f666bafe11688406be"
+  },
   {
    "run_id": "scan-20261006-194738-d4408d",
    "scan_dir": "holdout/cache-tenant-collision/run_4/fixed",
@@ -11751,6 +11789,16 @@ window.MCPWN_EXPORT_DATA = {
  ],
  "findings": [
   {
+   "finding_id": "F-4387975c37",
+   "run_id": "scan-20261122-011128-fa548d",
+   "scan_dir": "e2e_v040_vault/vault",
+   "vuln_class": "auth_bypass",
+   "severity": "high",
+   "confidence": 0.75,
+   "title": "Auth Bypass on read_vault",
+   "target": "read_vault"
+  },
+  {
    "finding_id": "F-0779c3700b",
    "run_id": "scan-20261006-194738-d4408d",
    "scan_dir": "holdout/cache-tenant-collision/run_4/fixed",
@@ -18988,21 +19036,21 @@ window.MCPWN_EXPORT_DATA = {
   }
  ],
  "metrics": {
-  "generated_at": "2026-11-20T18:19:06+00:00",
-  "run_count": 618,
+  "generated_at": "2026-11-21T17:16:22+00:00",
+  "run_count": 620,
   "skipped": 0,
   "date_min": "2026-07-29",
-  "date_max": "2026-10-06",
+  "date_max": "2026-11-21",
   "summary": {
    "label": "全部运行",
-   "runs": 618,
-   "findings": 716,
-   "traces": 1247,
-   "attacker_tokens": 11334477,
-   "judge_tokens": 714263,
-   "tokens_effective": 1292428,
-   "tokens_per_finding": 15830.3,
-   "evidence_finding": 104,
+   "runs": 620,
+   "findings": 717,
+   "traces": 1251,
+   "attacker_tokens": 11375865,
+   "judge_tokens": 717538,
+   "tokens_effective": 1312275,
+   "tokens_per_finding": 15865.9,
+   "evidence_finding": 105,
    "hallucinated": 0
   },
   "by_experiment": [
@@ -19595,6 +19643,18 @@ window.MCPWN_EXPORT_DATA = {
     "hallucinated": 0
    },
    {
+    "label": "e2e_v040_vault",
+    "runs": 1,
+    "findings": 1,
+    "traces": 3,
+    "attacker_tokens": 31757,
+    "judge_tokens": 3275,
+    "tokens_effective": 15515,
+    "tokens_per_finding": 31757.0,
+    "evidence_finding": 1,
+    "hallucinated": 0
+   },
+   {
     "label": "regression_delegate_llm_0",
     "runs": 1,
     "findings": 1,
@@ -19967,6 +20027,18 @@ window.MCPWN_EXPORT_DATA = {
     "hallucinated": 0
    },
    {
+    "label": "e2e_v040_time",
+    "runs": 1,
+    "findings": 0,
+    "traces": 1,
+    "attacker_tokens": 9631,
+    "judge_tokens": 0,
+    "tokens_effective": 4332,
+    "tokens_per_finding": 0.0,
+    "evidence_finding": 0,
+    "hallucinated": 0
+   },
+   {
     "label": "e2e_streamable",
     "runs": 1,
     "findings": 0,
@@ -20066,14 +20138,14 @@ window.MCPWN_EXPORT_DATA = {
   "by_model": [
    {
     "label": "deepseek-v4-flash",
-    "runs": 545,
-    "findings": 663,
-    "traces": 1122,
-    "attacker_tokens": 10288879,
-    "judge_tokens": 699402,
-    "tokens_effective": 1292428,
-    "tokens_per_finding": 15518.7,
-    "evidence_finding": 104,
+    "runs": 547,
+    "findings": 664,
+    "traces": 1126,
+    "attacker_tokens": 10330267,
+    "judge_tokens": 702677,
+    "tokens_effective": 1312275,
+    "tokens_per_finding": 15557.6,
+    "evidence_finding": 105,
     "hallucinated": 0
    },
    {
@@ -20140,13 +20212,13 @@ window.MCPWN_EXPORT_DATA = {
   "by_judge": [
    {
     "label": "(未记录)",
-    "runs": 505,
+    "runs": 506,
     "findings": 618,
-    "traces": 1092,
-    "attacker_tokens": 8834347,
+    "traces": 1093,
+    "attacker_tokens": 8843978,
     "judge_tokens": 403964,
-    "tokens_effective": 1144629,
-    "tokens_per_finding": 14295.1,
+    "tokens_effective": 1148961,
+    "tokens_per_finding": 14310.6,
     "evidence_finding": 6,
     "hallucinated": 0
    },
@@ -20188,14 +20260,14 @@ window.MCPWN_EXPORT_DATA = {
    },
    {
     "label": "qwen3.8-flash",
-    "runs": 10,
-    "findings": 17,
-    "traces": 25,
-    "attacker_tokens": 321406,
-    "judge_tokens": 66598,
-    "tokens_effective": 147799,
-    "tokens_per_finding": 18906.2,
-    "evidence_finding": 17,
+    "runs": 11,
+    "findings": 18,
+    "traces": 28,
+    "attacker_tokens": 353163,
+    "judge_tokens": 69873,
+    "tokens_effective": 163314,
+    "tokens_per_finding": 19620.2,
+    "evidence_finding": 18,
     "hallucinated": 0
    }
   ],
@@ -20355,30 +20427,42 @@ window.MCPWN_EXPORT_DATA = {
     "tokens_per_finding": 18906.2,
     "evidence_finding": 17,
     "hallucinated": 0
+   },
+   {
+    "label": "2026-11-21",
+    "runs": 2,
+    "findings": 1,
+    "traces": 4,
+    "attacker_tokens": 41388,
+    "judge_tokens": 3275,
+    "tokens_effective": 19847,
+    "tokens_per_finding": 41388.0,
+    "evidence_finding": 1,
+    "hallucinated": 0
    }
   ],
   "by_stop_reason": [
    {
     "label": "budget_tokens",
-    "runs": 320,
-    "findings": 444,
-    "traces": 731,
-    "attacker_tokens": 8201201,
-    "judge_tokens": 621238,
-    "tokens_effective": 744004,
-    "tokens_per_finding": 18471.2,
-    "evidence_finding": 104,
+    "runs": 321,
+    "findings": 445,
+    "traces": 734,
+    "attacker_tokens": 8232958,
+    "judge_tokens": 624513,
+    "tokens_effective": 759519,
+    "tokens_per_finding": 18501.0,
+    "evidence_finding": 105,
     "hallucinated": 0
    },
    {
     "label": "completed",
-    "runs": 290,
+    "runs": 291,
     "findings": 271,
-    "traces": 512,
-    "attacker_tokens": 3078732,
+    "traces": 513,
+    "attacker_tokens": 3088363,
     "judge_tokens": 91637,
-    "tokens_effective": 548424,
-    "tokens_per_finding": 11360.6,
+    "tokens_effective": 552756,
+    "tokens_per_finding": 11396.2,
     "evidence_finding": 0,
     "hallucinated": 0
    },
@@ -20410,21 +20494,21 @@ window.MCPWN_EXPORT_DATA = {
   "by_vuln_class": [
    {
     "label": "auth_bypass",
-    "runs": 188,
-    "findings": 240,
-    "traces": 299,
+    "runs": 189,
+    "findings": 241,
+    "traces": 300,
     "attacker_tokens": 0,
     "judge_tokens": 0,
     "tokens_effective": 0,
     "tokens_per_finding": 0.0,
-    "evidence_finding": 101,
+    "evidence_finding": 102,
     "hallucinated": 0
    },
    {
     "label": "tool_metadata_probe",
-    "runs": 376,
+    "runs": 377,
     "findings": 81,
-    "traces": 376,
+    "traces": 377,
     "attacker_tokens": 0,
     "judge_tokens": 0,
     "tokens_effective": 0,
@@ -20434,9 +20518,9 @@ window.MCPWN_EXPORT_DATA = {
    },
    {
     "label": "path_traversal",
-    "runs": 176,
+    "runs": 177,
     "findings": 134,
-    "traces": 182,
+    "traces": 184,
     "attacker_tokens": 0,
     "judge_tokens": 0,
     "tokens_effective": 0,
