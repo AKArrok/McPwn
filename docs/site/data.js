@@ -1,7 +1,7 @@
 /* McPwn 静态快照 — 由 mcpwn export-ui 生成;只读摘要投影,不含完整 trace。 */
 window.MCPWN_EXPORT_DATA = {
  "version": "0.4.0",
- "generated_at": "2026-11-21T18:12:43+00:00",
+ "generated_at": "2026-11-21T18:15:07+00:00",
  "source_runs_dir": "runs",
  "run_count": 620,
  "skipped": 0,
@@ -19036,7 +19036,7 @@ window.MCPWN_EXPORT_DATA = {
   }
  ],
  "metrics": {
-  "generated_at": "2026-11-21T18:12:43+00:00",
+  "generated_at": "2026-11-21T18:15:07+00:00",
   "run_count": 620,
   "skipped": 0,
   "date_min": "2026-07-29",
