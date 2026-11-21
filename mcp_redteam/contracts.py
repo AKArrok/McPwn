@@ -682,6 +682,23 @@ class GroupMetric(BaseModel):
     hallucinated: int = 0
 
 
+class Recommendation(BaseModel):
+    """One data-grounded optimization suggestion from the metrics analysis.
+
+    Every recommendation carries its own evidence (the numbers that triggered
+    it) and a concrete action pointer. These are DIRECTION findings for the
+    next optimization session - the web layer never applies changes itself,
+    and verdict semantics are never touched.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    evidence: str
+    action: str
+    priority: Literal["high", "medium", "low"] = "medium"
+
+
 class MetricsBundle(BaseModel):
     """Aggregated metric rollups served by ``/api/metrics``.
 
@@ -704,6 +721,7 @@ class MetricsBundle(BaseModel):
     by_date: list[GroupMetric] = Field(default_factory=list)
     by_stop_reason: list[GroupMetric] = Field(default_factory=list)
     by_vuln_class: list[GroupMetric] = Field(default_factory=list)
+    recommendations: list[Recommendation] = Field(default_factory=list)
 
 
 class M3JudgeReport(BaseModel):

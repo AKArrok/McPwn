@@ -922,6 +922,34 @@ function renderInsightsData(b) {
     chartBlock("judge 模型", (b.by_judge || []).map(runRow)),
   );
   host.append(charts);
+  if ((b.recommendations || []).length) {
+    const rec = append(
+      node("section", "detail-section"),
+      node("h3", "", "优化建议（数据中台自动生成 · 方向而非结论）"),
+    );
+    b.recommendations.forEach((r) =>
+      rec.append(
+        append(
+          node("div", "evidence-block"),
+          append(
+            node("div"),
+            badge(
+              r.priority === "high"
+                ? "高优"
+                : r.priority === "medium"
+                  ? "中优"
+                  : "低优",
+              r.priority === "high" ? "high" : r.priority === "medium" ? "medium" : "low",
+            ),
+            node("strong", "", ` ${r.label}`),
+          ),
+          node("p", "", `依据：${r.evidence}`),
+          node("p", "", `行动：${r.action}`),
+        ),
+      ),
+    );
+    host.append(rec);
+  }
   const table = node("table");
   const head = node("thead");
   const hr = node("tr");

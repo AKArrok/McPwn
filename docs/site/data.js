@@ -1,7 +1,7 @@
 /* McPwn 静态快照 — 由 mcpwn export-ui 生成;只读摘要投影,不含完整 trace。 */
 window.MCPWN_EXPORT_DATA = {
  "version": "0.4.0",
- "generated_at": "2026-11-21T17:16:21+00:00",
+ "generated_at": "2026-11-21T18:12:43+00:00",
  "source_runs_dir": "runs",
  "run_count": 620,
  "skipped": 0,
@@ -19036,7 +19036,7 @@ window.MCPWN_EXPORT_DATA = {
   }
  ],
  "metrics": {
-  "generated_at": "2026-11-21T17:16:22+00:00",
+  "generated_at": "2026-11-21T18:12:43+00:00",
   "run_count": 620,
   "skipped": 0,
   "date_min": "2026-07-29",
@@ -20587,6 +20587,38 @@ window.MCPWN_EXPORT_DATA = {
     "tokens_per_finding": 0.0,
     "evidence_finding": 0,
     "hallucinated": 0
+   }
+  ],
+  "recommendations": [
+   {
+    "label": "预算截断占比过高",
+    "evidence": "budget_tokens 321/620 runs（52%），截断态 tok/finding 18,501 比完成态 11,396 贵 62%",
+    "action": "参照 trace_budget_dvmcp_v5/v9 已验证配置（trace cap 40% + 上下文压缩，tok/finding 12,301→9,080，-26% 且 findings 不降）；评估是否适用于当前预算计划",
+    "priority": "high"
+   },
+   {
+    "label": "indirect_injection 产出率偏低",
+    "evidence": "98 次探查仅 24 发现（产出率 24%），证据判定命中 0",
+    "action": "评审该类的信号覆盖与策略卡执行步骤；若属已知边界（如 indirect_injection 的 L2 gap），记入对应实验线而非改判据",
+    "priority": "medium"
+   },
+   {
+    "label": "tool_metadata_probe 产出率偏低",
+    "evidence": "377 次探查仅 81 发现（产出率 21%），证据判定命中 0",
+    "action": "评审该类的信号覆盖与策略卡执行步骤；若属已知边界（如 indirect_injection 的 L2 gap），记入对应实验线而非改判据",
+    "priority": "medium"
+   },
+   {
+    "label": "存在 error 终止的运行",
+    "evidence": "6 个 run 以 error 停止、0 findings",
+    "action": "检查 runs/ 对应目录内的日志与部分产物（连接失败/SDK 异常各占多少）",
+    "priority": "medium"
+   },
+   {
+    "label": "实验线 lg_b_verify 单位产出偏低",
+    "evidence": "12 runs / 8 findings，tok/finding 44,892 = 全局（15,866）的 3 倍",
+    "action": "对照全局最优实验（by_experiment 按 tok/finding 排序头部）拆解差距来源；实验线结论归实验线，不回灌主链路默认值",
+    "priority": "low"
    }
   ]
  }

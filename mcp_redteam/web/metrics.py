@@ -18,7 +18,12 @@ from typing import Any
 
 import pandas as pd
 
-from mcp_redteam.contracts import GroupMetric, MetricsBundle, RunMetrics
+from mcp_redteam.contracts import (
+    GroupMetric,
+    MetricsBundle,
+    Recommendation,
+    RunMetrics,
+)
 
 _FALLBACK_LABEL = "(未记录)"
 
@@ -55,6 +60,127 @@ def _scalar_rows(df: pd.DataFrame, dim: str, *, desc: bool = True) -> list[Group
     )
     g = g.sort_values(["findings", "attacker_tokens"], ascending=(not desc, not desc))
     return [_to_row(str(label), g.loc[label]) for label in g.index]
+
+
+# Recommendation thresholds. Each rule fires only above an explicit bar so
+# a healthy repo produces zero noise; every suggestion cites its numbers.
+BUDGET_TRUNCATED_SHARE = 0.40
+LOW_YIELD_RATE = 0.30
+LOW_YIELD_MIN_PROBES = 20
+JUDGE_SHARE_HIGH = 0.10
+SLOW_EXPERIMENT_FACTOR = 2.0
+SLOW_EXPERIMENT_MIN_RUNS = 5
+
+
+def _recommendations(
+    metrics: list[RunMetrics],
+    summary: GroupMetric,
+    by_stop_reason: list[GroupMetric],
+    by_vuln_class: list[GroupMetric],
+    by_experiment: list[GroupMetric],
+) -> list[Recommendation]:
+    """Data-grounded optimization directions (analysis → action pointers).
+
+    The web layer stops at directions: it cites the numbers, names the
+    validated remedy when one exists (e.g. the trace-cap experiments), and
+    never applies anything or touches verdict semantics.
+    """
+    out: list[Recommendation] = []
+    if summary.runs == 0:
+        return out
+    # 1. Budget-truncated runs dominate and cost more per finding.
+    truncated = {g.label: g for g in by_stop_reason}.get("budget_tokens")
+    completed = {g.label: g for g in by_stop_reason}.get("completed")
+    if truncated and truncated.runs / summary.runs >= BUDGET_TRUNCATED_SHARE:
+        pct = round(truncated.runs / summary.runs * 100)
+        if completed and completed.tokens_per_finding:
+            delta = round(
+                (truncated.tokens_per_finding / completed.tokens_per_finding - 1) * 100
+            )
+            cost = f"，截断态 tok/finding {truncated.tokens_per_finding:,.0f} 比完成态 {completed.tokens_per_finding:,.0f} 贵 {delta}%"
+        else:
+            cost = ""
+        out.append(
+            Recommendation(
+                label="预算截断占比过高",
+                evidence=f"budget_tokens {truncated.runs}/{summary.runs} runs（{pct}%）{cost}",
+                action="参照 trace_budget_dvmcp_v5/v9 已验证配置（trace cap 40% + 上下文压缩，"
+                "tok/finding 12,301→9,080，-26% 且 findings 不降）；评估是否适用于当前预算计划",
+                priority="high",
+            )
+        )
+    # 2. Low-yield vuln classes with heavy probing.
+    for g in by_vuln_class:
+        if g.traces < LOW_YIELD_MIN_PROBES:
+            continue
+        rate = g.findings / g.traces if g.traces else 0.0
+        if rate < LOW_YIELD_RATE:
+            out.append(
+                Recommendation(
+                    label=f"{g.label} 产出率偏低",
+                    evidence=f"{g.traces} 次探查仅 {g.findings} 发现（产出率 {round(rate * 100)}%），"
+                    f"证据判定命中 {g.evidence_finding}",
+                    action="评审该类的信号覆盖与策略卡执行步骤；若属已知边界（如 indirect_injection "
+                    "的 L2 gap），记入对应实验线而非改判据",
+                    priority="medium",
+                )
+            )
+    # 3. Judge token share.
+    if summary.attacker_tokens and summary.judge_tokens / summary.attacker_tokens > JUDGE_SHARE_HIGH:
+        pct = round(summary.judge_tokens / summary.attacker_tokens * 100)
+        out.append(
+            Recommendation(
+                label="judge 开销占比偏高",
+                evidence=f"judge {summary.judge_tokens:,} tok = 攻击侧的 {pct}%（judge_tokens 为 "
+                "prompt+completion 总口径）",
+                action="评审 judge 侧 prompt 构成（evidence judge system 模板 + trace 序列化）；"
+                "调整后必须用真实重跑验证 verdict 一致",
+                priority="low",
+            )
+        )
+    # 4. Hallucination markers need human review.
+    if summary.hallucinated > 0:
+        out.append(
+            Recommendation(
+                label="存在幻觉标记",
+                evidence=f"{summary.hallucinated} 条 trace 的 attacker 声称外传/读取但证据未落地"
+                "（grounding 闸门已拦截，未计入 findings）",
+                action="人工复核对应 trace 的 final_llm_output；若集中在同一实验，评估其提示词",
+                priority="high",
+            )
+        )
+    # 5. Error-terminated runs.
+    errored = {g.label: g for g in by_stop_reason}.get("error")
+    if errored and errored.runs > 0:
+        out.append(
+            Recommendation(
+                label="存在 error 终止的运行",
+                evidence=f"{errored.runs} 个 run 以 error 停止、0 findings",
+                action="检查 runs/ 对应目录内的日志与部分产物（连接失败/SDK 异常各占多少）",
+                priority="medium",
+            )
+        )
+    # 6. Experiment lines far below global efficiency.
+    if summary.tokens_per_finding:
+        for g in by_experiment:
+            if (
+                g.runs >= SLOW_EXPERIMENT_MIN_RUNS
+                and g.findings > 0
+                and g.tokens_per_finding > summary.tokens_per_finding * SLOW_EXPERIMENT_FACTOR
+            ):
+                out.append(
+                    Recommendation(
+                        label=f"实验线 {g.label} 单位产出偏低",
+                        evidence=f"{g.runs} runs / {g.findings} findings，tok/finding "
+                        f"{g.tokens_per_finding:,.0f} = 全局（{summary.tokens_per_finding:,.0f}）的 "
+                        f"{round(g.tokens_per_finding / summary.tokens_per_finding)} 倍",
+                        action="对照全局最优实验（by_experiment 按 tok/finding 排序头部）拆解差距来源；"
+                        "实验线结论归实验线，不回灌主链路默认值",
+                        priority="low",
+                    )
+                )
+    order = {"high": 0, "medium": 1, "low": 2}
+    return sorted(out, key=lambda r: (order[r.priority], r.label))[:8]
 
 
 def _vuln_class_rows(metrics: list[RunMetrics]) -> list[GroupMetric]:
@@ -156,6 +282,9 @@ def build_metrics_bundle(metrics: list[RunMetrics], skipped: int) -> MetricsBund
         by_date=sorted(_group("date"), key=lambda r: r.label),
         by_stop_reason=_group("stop_reason"),
         by_vuln_class=_vuln_class_rows(metrics),
+        recommendations=_recommendations(
+            metrics, summary, _group("stop_reason"), _vuln_class_rows(metrics), _group("experiment")
+        ),
     )
 
 

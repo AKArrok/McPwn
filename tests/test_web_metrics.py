@@ -15,35 +15,37 @@ from tests.test_web_indexer import _holdout_summary, _scan_raw, _write_run
 
 def _rich_raw(run_id: str, **over: object) -> dict:
     """One run with judge/evidence/hallucination traces for metric checks."""
-    traces = [
-        {  # L2 judge, steered
-            "vuln_class": "indirect_injection",
-            "target": "read_resource",
-            "tokens_in": 100,
-            "tokens_out": 10,
-            "judge_verdict": {"steered": True, "reason": "r"},
-            "suspected_hallucination": False,
-        },
-        {  # evidence judge, finding
-            "vuln_class": "auth_bypass",
-            "target": "cache_get",
-            "tokens_in": 200,
-            "tokens_out": 20,
-            "llm_evidence_verdict": {
-                "is_finding": True,
-                "vuln_class": "auth_bypass",
-                "confidence": 0.9,
+    traces = over.pop("traces", None)
+    if traces is None:
+        traces = [
+            {  # L2 judge, steered
+                "vuln_class": "indirect_injection",
+                "target": "read_resource",
+                "tokens_in": 100,
+                "tokens_out": 10,
+                "judge_verdict": {"steered": True, "reason": "r"},
+                "suspected_hallucination": False,
             },
-            "suspected_hallucination": False,
-        },
-        {  # hallucination marker
-            "vuln_class": "auth_bypass",
-            "target": "cache_get",
-            "tokens_in": 50,
-            "tokens_out": 5,
-            "suspected_hallucination": True,
-        },
-    ]
+            {  # evidence judge, finding
+                "vuln_class": "auth_bypass",
+                "target": "cache_get",
+                "tokens_in": 200,
+                "tokens_out": 20,
+                "llm_evidence_verdict": {
+                    "is_finding": True,
+                    "vuln_class": "auth_bypass",
+                    "confidence": 0.9,
+                },
+                "suspected_hallucination": False,
+            },
+            {  # hallucination marker
+                "vuln_class": "auth_bypass",
+                "target": "cache_get",
+                "tokens_in": 50,
+                "tokens_out": 5,
+                "suspected_hallucination": True,
+            },
+        ]
     findings = over.pop("findings", None)
     if findings is None:
         findings = [
@@ -132,6 +134,53 @@ def test_bundle_empty_runs(tmp_path: Path) -> None:
     assert bundle.by_experiment == []
     assert bundle.summary.runs == 0
     assert bundle.summary.tokens_per_finding == 0.0
+    assert bundle.recommendations == []
+
+
+def test_recommendations_fire_on_real_patterns(tmp_path: Path) -> None:
+    """预算截断 / 低产出类 / 幻觉 / error 各触发一条带数据引用的建议。"""
+    runs = tmp_path / "runs"
+    # 3 条 budget_tokens 截断 run(触发规则 1)+ 1 条 error(规则 5)+ 幻觉(规则 4)
+    for i in range(3):
+        _write_run(
+            runs,
+            f"exp_a/r{i}",
+            _rich_raw(f"scan-a{i}", stop_reason="budget_tokens"),
+        )
+    _write_run(
+        runs,
+        "exp_a/err",
+        _rich_raw("scan-err", stop_reason="error", findings=[]),
+    )
+    idx = RunIndex(runs)
+    idx.refresh()
+    bundle = build_metrics_bundle(idx.metrics(), idx.skipped)
+    labels = [r.label for r in bundle.recommendations]
+    assert "预算截断占比过高" in labels
+    assert "存在幻觉标记" in labels
+    assert "存在 error 终止的运行" in labels
+    budget_rec = next(r for r in bundle.recommendations if r.label == "预算截断占比过高")
+    assert budget_rec.priority == "high"
+    assert "75%" in budget_rec.evidence  # 3/4 runs 截断
+    # 所有建议都带行动指向
+    assert all(r.action for r in bundle.recommendations)
+
+
+def test_recommendations_low_yield_class(tmp_path: Path) -> None:
+    """产出率 < 30% 且探查数 >= 20 的类触发建议。"""
+    runs = tmp_path / "runs"
+    traces = [{"vuln_class": "indirect_injection", "target": "t", "tokens_in": 1, "tokens_out": 1} for _ in range(10)]
+    findings = [{"vuln_class": "indirect_injection", "severity": "low", "confidence": 0.6}]
+    for i in range(2):
+        _write_run(runs, f"exp/r{i}", _rich_raw(f"scan-{i}", traces=traces, findings=findings))
+    idx = RunIndex(runs)
+    idx.refresh()
+    bundle = build_metrics_bundle(idx.metrics(), idx.skipped)
+    rec = next((r for r in bundle.recommendations if r.label.startswith("indirect_injection")), None)
+    assert rec is not None
+    assert rec.priority == "medium"
+    assert "20 次探查" in rec.evidence  # 2 runs × 10 traces
+
 
 
 def test_export_includes_metrics(tmp_path: Path) -> None:
