@@ -813,6 +813,94 @@ def _extract_markers_from_call(call: McpCall) -> set[str]:
     return set()
 
 
+_INJECTION_TARGET_RE = re.compile(
+    r"(?:fetch|read|get|open|load|delete|remove|execute|run|call)\s+"
+    r"([a-z][a-z0-9+.\-]*://[^\s\"'<>]{3,}|/[a-z0-9_\-./]{3,})",
+    re.IGNORECASE,
+)
+
+
+def _injection_targets(result_text: str) -> list[str]:
+    """Extract URI / absolute-path targets from imperative injection lines.
+
+    Only URI and absolute-path shapes are extracted - bare identifiers
+    ("read the document") are too noisy for a deterministic signal.
+    """
+    targets: list[str] = []
+    for m in _INJECTION_TARGET_RE.finditer(result_text or ""):
+        target = m.group(1).rstrip(".,;:)']}")
+        if target and target not in targets:
+            targets.append(target)
+    return targets
+
+
+def _args_execute_target(args: dict | None, target: str) -> bool:
+    """True when ``target`` is sent as an actual argument VALUE (not embedded
+    in a longer text field): a top-level or one-level-nested string whose
+    stripped content equals the target. ``{"uri": target}`` executes; a
+    ``document_text`` that merely quotes the instruction does not."""
+    if not args:
+        return False
+    for v in args.values():
+        if isinstance(v, str) and v.strip() == target:
+            return True
+        if isinstance(v, dict) and any(
+            isinstance(s, str) and s.strip() == target for s in v.values()
+        ):
+            return True
+        if isinstance(v, list) and any(
+            isinstance(s, str) and s.strip() == target for s in v
+        ):
+            return True
+    return False
+
+
+def detect_stored_injection_propagation(
+    mcp_calls: list[McpCall], final_output: str,
+    sandbox_root: str | None = None,
+) -> EvidenceSignal | None:
+    """Fires when an injection instruction's target is executed by a LATER call.
+
+    Judgment-v2 evidence for the indirect-injection L2 gap: without a victim
+    LLM, "the downstream model was steered" is not observable - but the
+    *propagation chain* is. When call i's result carries an imperative
+    instruction naming a target (URI / absolute-path shape) that the attacker
+    had never used before, and call j (j > i) sends its args to exactly that
+    target, the instruction was adopted as an instruction. Together with the
+    existing medium ``stored_injection_roundtrip`` (0.5) this medium signal
+    compounds past the 0.6 finding gate on the DVMCP-9006 shape (history:
+    roundtrip alone stopped at 0.5, L2 judged not-steered).
+
+    FPR shape: needs an injected instruction AND a later call adopting its
+    target AND the target absent from every prior call - plain marker echoes
+    and probing a pre-known resource never trip.
+    """
+    for i, call in enumerate(mcp_calls):
+        if call.kind not in _CONTENT_KINDS:
+            continue
+        for target in _injection_targets(call.result_text):
+            if not target:
+                continue
+            # Attacker-known before the injection? Then this is probing, not
+            # instruction adoption.
+            prior = any(
+                target in (c.result_text or "")
+                or target in json.dumps(c.args or {}, ensure_ascii=False)
+                for c in mcp_calls[:i]
+            )
+            if prior:
+                continue
+            for j in range(i + 1, len(mcp_calls)):
+                if _args_execute_target(mcp_calls[j].args, target):
+                    return _signal(
+                        "stored_injection_propagation",
+                        "medium",
+                        f"target={target!r} injected_at_idx={i} executed_at_idx={j}",
+                        i,
+                    )
+    return None
+
+
 def detect_stored_injection_roundtrip(
     mcp_calls: list[McpCall], final_output: str,
     sandbox_root: str | None = None,
@@ -1113,6 +1201,7 @@ SIGNAL_META: dict[str, Severity] = {
     "rug_pull_response_flip": "medium",
     "suspicious_error_pitch": "medium",
     "stored_injection_roundtrip": "medium",
+    "stored_injection_propagation": "medium",
     "sandbox_escape_write": "high",
     "sandbox_escape_read": "high",
     "sandbox_escape_traversal": "medium",
@@ -1137,6 +1226,7 @@ DETECTORS: dict[str, Callable[..., EvidenceSignal | None]] = {
     "rug_pull_response_flip": detect_rug_pull_response_flip,
     "suspicious_error_pitch": detect_suspicious_error_pitch,
     "stored_injection_roundtrip": detect_stored_injection_roundtrip,
+    "stored_injection_propagation": detect_stored_injection_propagation,
     "sandbox_escape_write": detect_sandbox_escape_write,
     "sandbox_escape_read": detect_sandbox_escape_read,
     "sandbox_escape_traversal": detect_sandbox_escape_traversal,

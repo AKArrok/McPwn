@@ -49,5 +49,7 @@ judge twin (``make_judge_fn``) 在 indirect/chain trace 上合成;L2 单独不�
 ``11 (base) + 2 (M2 扩展: shadow_tool_behavior_divergence,
 rug_pull_response_flip) + 1 (suspicious_error_pitch) + 1 (stored_injection_roundtrip)``
 ``+ 3 (M2.5 真实世界扩展: sandbox_escape_write, sandbox_escape_read, sandbox_escape_traversal)``
-``+ 2 (SSRF: ssrf_cloud_metadata, ssrf_internal_service)`` = 20 条;
+``+ 2 (SSRF: ssrf_cloud_metadata, ssrf_internal_service)`` + 1
+(``stored_injection_propagation``, 判据 v2: 无 victim LLM 的注入传播证据,
+2026-11-22)`` = 21 条;
 ``llm_judged_injection`` 不在 ``DETECTORS`` 中 (verifier 合成)。

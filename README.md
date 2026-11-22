@@ -155,7 +155,7 @@ flowchart LR
 
 | 特性 | 说明 |
 |---|---|
-| **通用漏洞信号库** | 20 条注册信号,按严重级分级 (critical/high/medium),纯正则启发,不针对任何具体 challenge |
+| **通用漏洞信号库** | 21 条注册信号,按严重级分级 (critical/high/medium),纯正则启发,不针对任何具体 challenge |
 | **八类漏洞策略卡** | `direct_prompt_injection` / `command_injection` / `path_traversal` / `auth_bypass` / `tool_metadata_probe` / `indirect_injection` / `chain_composition` / `ssrf`,每类一份四段式策略卡 |
 | **agent-first 架构** | 无需常驻 victim LLM;prompt injection 类以 L0/L1 (攻击面存在性) 为判据,不依赖下游 LLM 是否被带偏 |
 | **Grounding 闸门** | 证据只来自真实 `McpCall.result_text`,attacker LLM 的总结文本永不作为证据来源,从根上防幻觉假阳 |
@@ -594,7 +594,7 @@ mcp_redteam/
   contracts.py            数据契约 (VulnClass/McpCall/EvidenceSignal/AttackTrace/
                           Finding/JudgeVerdict/LlmEvidenceVerdict/ScanResult/...)
   cli.py                  mcpwn 命令入口
-  signals/detectors.py    20 条注册信号 + L2 占位
+  signals/detectors.py    21 条注册信号 + L2 占位
   vulns/cards/*.md        8 张策略卡 + registry.py (加载与 lint)
   agent/
     recon.py              侦察:list tools/resources + 形状分类打标
